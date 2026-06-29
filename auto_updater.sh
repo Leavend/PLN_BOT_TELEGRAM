@@ -11,6 +11,15 @@ echo "[*] Auto-Updater Bot Telegram dimulai. Memeriksa pembaruan setiap $INTERVA
 # Memastikan kita berada di direktori repositori
 cd "$(dirname "$0")"
 
+# Jalankan bot saat script ini pertama kali dibuka jika belum berjalan
+PID=$(pgrep -f "python3 $BOT_SCRIPT")
+if [ -z "$PID" ]; then
+    echo "[*] Bot belum berjalan. Menjalankan Bot Telegram..."
+    nohup python3 $BOT_SCRIPT > bot.log 2>&1 &
+else
+    echo "[*] Bot sudah berjalan dengan PID: $PID"
+fi
+
 while true; do
     # Ambil status terbaru dari remote
     git fetch origin $BRANCH &>/dev/null
