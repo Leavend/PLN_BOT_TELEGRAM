@@ -11,8 +11,10 @@ echo "[*] Auto-Updater Bot Telegram dimulai..."
 # Memastikan kita berada di direktori repositori
 cd "$(dirname "$0")"
 
-# Deteksi perintah python/python3 yang tersedia
-if command -v python3 &>/dev/null; then
+# Deteksi perintah py/python3/python yang tersedia
+if command -v py &>/dev/null; then
+    PYTHON_CMD="py"
+elif command -v python3 &>/dev/null; then
     PYTHON_CMD="python3"
 elif command -v python &>/dev/null; then
     PYTHON_CMD="python"
