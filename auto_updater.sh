@@ -4,18 +4,42 @@
 
 BOT_SCRIPT="telegram_bot.py"
 INTERVAL=60 # Cek update setiap 60 detik
-BRANCH="main" # Ganti dengan nama branch Anda jika berbeda (misal: master)
+BRANCH="main" # Ganti dengan nama branch Anda jika berbeda
 
-echo "[*] Auto-Updater Bot Telegram dimulai. Memeriksa pembaruan setiap $INTERVAL detik..."
+echo "[*] Auto-Updater Bot Telegram dimulai..."
 
 # Memastikan kita berada di direktori repositori
 cd "$(dirname "$0")"
 
+# Deteksi perintah python/python3 yang tersedia
+if command -v python3 &>/dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &>/dev/null; then
+    PYTHON_CMD="python"
+else
+    echo "[-] Python tidak ditemukan di laptop ini! Harap install Python terlebih dahulu."
+    exit 1
+fi
+
+echo "[*] Menggunakan perintah Python: $PYTHON_CMD"
+
+# Fungsi mencari PID bot yang kompatibel dengan Git Bash Windows & Unix
+get_bot_pid() {
+    ps -ef | grep "$BOT_SCRIPT" | grep -v grep | awk '{print $2}'
+}
+
 # Jalankan bot saat script ini pertama kali dibuka jika belum berjalan
-PID=$(pgrep -f "python3 $BOT_SCRIPT")
+PID=$(get_bot_pid)
 if [ -z "$PID" ]; then
     echo "[*] Bot belum berjalan. Menjalankan Bot Telegram..."
-    nohup python3 $BOT_SCRIPT > bot.log 2>&1 &
+    $PYTHON_CMD "$BOT_SCRIPT" > bot.log 2>&1 &
+    sleep 2
+    PID=$(get_bot_pid)
+    if [ -n "$PID" ]; then
+        echo "[+] Bot berhasil dijalankan dengan PID: $PID"
+    else
+        echo "[-] Gagal menjalankan bot. Silakan periksa file bot.log untuk detail error."
+    fi
 else
     echo "[*] Bot sudah berjalan dengan PID: $PID"
 fi
@@ -33,7 +57,7 @@ while true; do
             git pull origin $BRANCH
             
             # Cari PID dari bot yang sedang berjalan
-            PID=$(pgrep -f "python3 $BOT_SCRIPT")
+            PID=$(get_bot_pid)
             if [ -n "$PID" ]; then
                 echo "[*] Menghentikan bot yang sedang berjalan (PID: $PID)..."
                 kill -15 $PID
@@ -43,7 +67,7 @@ while true; do
             fi
             
             echo "[+] Menjalankan kembali Bot Telegram..."
-            nohup python3 $BOT_SCRIPT > bot.log 2>&1 &
+            $PYTHON_CMD "$BOT_SCRIPT" > bot.log 2>&1 &
             echo "[+] Bot berhasil diperbarui dan dijalankan kembali!"
         fi
     else
