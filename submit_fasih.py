@@ -1,0 +1,618 @@
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import base64
+import argparse
+import tempfile
+import hashlib
+import requests
+from datetime import datetime
+from typing import Optional, Dict, Any
+
+# Import modular helper scripts
+from fasih_auth import load_token, refresh_token_if_needed, get_headers
+from fasih_crypto import encrypt_gcm, decrypt_gcm_verify, compute_md5, compute_md5_base64
+from fasih_archive import create_7z_archive
+from fasih_api import (
+    fetch_surveys, fetch_assignments, fetch_all_assignments, fetch_regions, request_presign_url, upload_to_s3,
+    request_photo_presign_put, upload_photo_to_s3, request_photo_presign_get, confirm_submit,
+    fetch_template_mapping, map_answers_to_data_slots
+)
+
+STATIC_LEGACY_KEY = "Z!,vDKUPv;.Jy0Q4Eq1wVCY-a_!GnT"
+
+def print_assignment(i: int, a: dict):
+    aid = a.get("id", "")
+    status = a.get("assignmentStatusAlias", "?")
+    mode = a.get("mode", [])
+    strata = a.get("strata", "?")
+    d1, d2, d3, d4 = a.get("data1", ""), a.get("data2", ""), a.get("data3", ""), a.get("data4", "")
+    l1 = a.get("region", {}).get("level1", {})
+    l2 = l1.get("level2", {}) if l1 else {}
+    l3 = l2.get("level3", {}) if l2 else {}
+    region_str = f"{l3.get('name','')} ({l2.get('name','')})"
+    status_icon = "🟢" if status == "OPEN" else "🔵" if status == "SUBMITTED" else "⚪"
+    print(f"\n     {status_icon} [{i+1}] Assignment: {aid[:20]}...")
+    print(f"        Status: {status} | Mode: {','.join(mode)} | Strata: {strata}")
+    print(f"        Region: {region_str}")
+    print(f"        Data: d1={d1} d2={d2} d3={d3} d4={d4}")
+
+def list_periode_assignments(headers: dict, pid: str):
+    try:
+        content = fetch_all_assignments(headers, pid)
+        total = len(content)
+        print(f"     📊 Total assignments: {total}")
+        for i, a in enumerate(content):
+            print_assignment(i, a)
+    except Exception as e:
+        print(f"     ⚠️  Error fetching assignments: {e}")
+
+def list_survey_periodes(headers: dict, survey: dict):
+    survey_name = survey.get("name", "Unknown")
+    survey_id = survey.get("id")
+    print(f"\n  📋 Survei: {survey_name}")
+    print(f"     ID: {survey_id}")
+    for periode in survey.get("listPeriode", []):
+        pid = periode.get("id")
+        pname = periode.get("name")
+        start = periode.get("startDate", "?")
+        end = periode.get("endDate", "?")
+        active = periode.get("isActive", False)
+        print(f"\n     📅 Periode: {pname} ({start} → {end}) {'✅ AKTIF' if active else '❌'}")
+        if active:
+            list_periode_assignments(headers, pid)
+
+def cmd_list(headers: dict):
+    """List all OPEN assignments."""
+    print("\n" + "=" * 70)
+    print("  DAFTAR ASSIGNMENT")
+    print("=" * 70)
+    surveys = fetch_surveys(headers)
+    if not surveys:
+        print("  Tidak ada survei yang ditemukan.")
+        return
+    for survey in surveys:
+        list_survey_periodes(headers, survey)
+
+def load_answers_from_input(input_path: str, verbose: bool) -> dict:
+    with open(input_path, "r", encoding="utf-8") as f:
+        answers = json.load(f)
+    print(f"      Loaded {len(answers)} fields from {input_path}")
+    if verbose:
+        for k, v in answers.items():
+            print(f"        {k}: {v}")
+    return answers
+
+def find_assignment_by_id(content: list, assignment_id: str) -> Optional[dict]:
+    for a in content:
+        if a.get("id") == assignment_id:
+            return a
+    return None
+
+def find_assignment_by_direct_args(content: list, template_mapping: dict, idpel: Optional[str], nometer: Optional[str]) -> Optional[dict]:
+    idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
+    nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
+    for a in content:
+        match_idpel = True
+        match_nometer = True
+        if idpel:
+            match_idpel = (a.get(idpel_slot) == idpel)
+        if nometer:
+            match_nometer = (a.get(nometer_slot) == nometer)
+        if (idpel or nometer) and (match_idpel and match_nometer):
+            return a
+    return None
+
+def build_new_assignment_target(template: dict, idpel: str, nometer: str, template_mapping: dict) -> dict:
+    import uuid
+    import copy
+    t = copy.deepcopy(template)
+    t["id"] = str(uuid.uuid4())
+    t["isNew"] = True
+    t["assignmentStatusAlias"] = "OPEN"
+    t["copyFromId"] = template["id"]
+    t["original"] = False
+    t["mode"] = ["CAPI"]
+    t["submitVersionCode"] = 0
+    t["comment"] = '{"dataKey": "","notes": []}'
+    
+    # Reset custom data slots
+    for k in ("data1", "data2", "data3", "data4", "data5", "data6", "data7", "data8", "data9", "data10"):
+        t[k] = ""
+        
+    idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
+    nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
+    t[idpel_slot] = idpel
+    t[nometer_slot] = nometer
+    
+    for k in ("latitude", "longitude", "mediaJson", "remark"):
+        t.pop(k, None)
+    return t
+
+def find_first_open_assignment(content: list) -> Optional[dict]:
+    for a in content:
+        if a.get("assignmentStatusAlias") == "OPEN":
+            return a
+    return None
+
+def select_target_assignment(content: list, template_mapping: dict, assignment_id: Optional[str], direct_args: Optional[dict]) -> dict:
+    if assignment_id:
+        target = find_assignment_by_id(content, assignment_id)
+    elif direct_args:
+        target = find_assignment_by_direct_args(content, template_mapping, direct_args["idpel"], direct_args["nometer"])
+    else:
+        target = find_first_open_assignment(content)
+    if not target:
+        print("[-] Target assignment not found.")
+        sys.exit(1)
+    return target
+
+def resolve_survey_period_and_mapping(surveys: list, headers: dict) -> tuple:
+    if not surveys:
+        print("[-] No surveys found.")
+        sys.exit(1)
+    survey = surveys[0]
+    active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
+    if not active_periode:
+        print("[-] No active period found.")
+        sys.exit(1)
+    template_lookup = survey.get("templateLookup", [])
+    template_mapping = {}
+    if template_lookup:
+        tl = template_lookup[0]
+        template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+    return active_periode, template_mapping
+
+def resolve_answers(input_path: Optional[str], target: dict, direct_args: Optional[dict], template_mapping: dict, verbose: bool) -> dict:
+    if input_path:
+        return load_answers_from_input(input_path, verbose)
+    elif direct_args:
+        return build_dynamic_answers(target, direct_args, template_mapping)
+    else:
+        print("[-] Either --input or --idpel/--nometer must be specified.")
+        sys.exit(1)
+
+def parse_predefined(target: dict) -> dict:
+    answers = {}
+    pre_defined_str = target.get("preDefinedData")
+    if pre_defined_str:
+        try:
+            predata = json.loads(pre_defined_str).get("predata", [])
+            for item in predata:
+                key = item.get("dataKey")
+                if key:
+                    answers[key] = item.get("answer") or ""
+        except Exception as e:
+            print(f"      ⚠️  Error parsing preDefinedData: {e}")
+    return answers
+
+def get_region_fields(target: dict, direct_args: dict) -> dict:
+    region = target.get("region", {})
+    l1 = region.get("level1", {})
+    l2 = l1.get("level2", {}) if l1 else {}
+    l3 = l2.get("level3", {}) if l2 else {}
+    return {
+        "r102a": l1.get("name") or "KALIMANTAN TIMUR",
+        "r102b": l2.get("name") or "BONTANG",
+        "r102c": l2.get("name") or "BONTANG",
+        "r102d": direct_args.get("kelurahan") or "001",
+        "r102e": target.get("data4") or "",
+        "r103": target.get("data2") or ""
+    }
+
+def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dict) -> dict:
+    answers = parse_predefined(target)
+    for slot, field_key in template_mapping.items():
+        val = target.get(slot)
+        if val:
+            answers[field_key] = val
+    answers.update(get_region_fields(target, direct_args))
+    answers.update({
+        "tarif": direct_args.get("tarif") or "R-1",
+        "daya": direct_args.get("daya") or "900",
+        "kdpm": direct_args.get("kdpm") or "01",
+        "kddk": direct_args.get("kddk") or "1",
+        "layanan": "PRABAYAR" if "PRABAYAR" in target.get("assignmentStatusAlias", "") else "PASCABAYAR",
+        "r104": direct_args.get("hasil") or "1. Berhasil didata",
+        "status_dil": direct_args.get("status_dil") or "1"
+    })
+    return answers
+
+def get_s3_put_url(headers: dict, target: dict, filename: str, size: int, md5_base64: str, dry_run: bool = False) -> str:
+    try:
+        resp = request_photo_presign_put(headers, target.get("id"), target.get("copyFromId") or "", target.get("surveyPeriodId"), filename, size, md5_base64)
+        if not resp.get("success"):
+            if dry_run:
+                return "http://mock-photo-put-url"
+            raise Exception(f"Failed to get S3 PUT URL: {resp}")
+        data = resp.get("data", [])
+        urls = data[0].get("presignedUrls", []) if data else []
+        put_url = urls[0].get("presignedUrl") or urls[0].get("url") if urls else None
+        if not put_url:
+            if dry_run:
+                return "http://mock-photo-put-url"
+            raise Exception(f"S3 PUT URL empty: {resp}")
+        return put_url
+    except Exception as e:
+        if dry_run:
+            return "http://mock-photo-put-url"
+        raise e
+
+def get_s3_get_url(headers: dict, target: dict, filename: str, dry_run: bool = False) -> str:
+    try:
+        resp = request_photo_presign_get(headers, target.get("id"), target.get("copyFromId") or "", target.get("surveyPeriodId"), filename)
+        data = resp.get("data", [])
+        urls = data[0].get("presignedUrls", []) if data else []
+        return urls[0].get("presignedUrl") or urls[0].get("url") or ""
+    except Exception as e:
+        if dry_run:
+            return "http://mock-photo-get-url"
+        raise e
+
+def handle_photo_upload(headers: dict, target: dict, answers: dict, photo_path: str, dry_run: bool):
+    if not photo_path:
+        return
+    if not os.path.exists(photo_path):
+        print(f"[-] Photo file not found: {photo_path}")
+        sys.exit(1)
+    tid = target.get("id")
+    filename = f"{tid}_r106.png"
+    md5_b64 = compute_md5_base64(photo_path)
+    put_url = get_s3_put_url(headers, target, filename, os.path.getsize(photo_path), md5_b64, dry_run)
+    if not dry_run:
+        if not upload_photo_to_s3(put_url, photo_path, md5_b64):
+            print("[-] S3 photo upload failed.")
+            sys.exit(1)
+    get_url = get_s3_get_url(headers, target, filename, dry_run)
+    answers["r106"] = json.dumps({
+        "filename": filename,
+        "uri": f"content://media/external/images/media/{hashlib.md5(tid.encode()).hexdigest()[:8]}",
+        "url": get_url
+    }, ensure_ascii=False)
+
+INDONESIAN_PROVINCES = {
+    "aceh": (-5.5483, 95.3238),
+    "sumatera utara": (3.5952, 98.6722),
+    "sumatera barat": (-0.9471, 100.4172),
+    "riau": (0.5074, 101.4478),
+    "kepulauan riau": (0.9167, 104.4500),
+    "jambi": (-1.6101, 103.6131),
+    "sumatera selatan": (-2.9761, 104.7754),
+    "bangka belitung": (-2.1319, 106.1161),
+    "bengkulu": (-3.7928, 102.2608),
+    "lampung": (-5.3971, 105.2663),
+    "dki jakarta": (-6.2088, 106.8456),
+    "jawa barat": (-6.9175, 107.6191),
+    "banten": (-6.1200, 106.1502),
+    "jawa tengah": (-7.0051, 110.4381),
+    "di yogyakarta": (-7.7956, 110.3695),
+    "yogyakarta": (-7.7956, 110.3695),
+    "jawa timur": (-7.2575, 112.7521),
+    "bali": (-8.4095, 115.1889),
+    "nusa tenggara barat": (-8.5729, 116.3248),
+    "ntb": (-8.5729, 116.3248),
+    "nusa tenggara timur": (-10.1772, 123.6070),
+    "ntt": (-10.1772, 123.6070),
+    "kalimantan barat": (-0.0263, 109.3425),
+    "kalimantan tengah": (-2.2100, 113.9200),
+    "kalimantan selatan": (-3.3167, 114.5900),
+    "kalimantan timur": (-0.5022, 117.1536),
+    "kalimantan utara": (3.0731, 116.0413),
+    "sulawesi utara": (1.4822, 124.8488),
+    "sulawesi tengah": (-0.8917, 119.8707),
+    "sulawesi selatan": (-5.1476, 119.4327),
+    "sulawesi tenggara": (-3.9722, 122.5149),
+    "gorontalo": (0.5435, 123.0568),
+    "sulawesi barat": (-2.6773, 118.8895),
+    "maluku": (-3.6547, 128.1906),
+    "maluku utara": (0.7893, 127.3756),
+    "papua": (-2.5413, 140.7052),
+    "papua barat": (-0.8614, 134.0620),
+    "papua selatan": (-8.4991, 140.4011),
+    "papua tengah": (-3.3686, 135.5002),
+    "papua pegunungan": (-4.0934, 138.9482),
+    "papua barat daya": (-0.8762, 131.2514),
+}
+
+def get_fallback_coordinate(prov_str, kab_str, kec_str, alamat_str):
+    import random
+    prov_clean = str(prov_str or "").lower().strip()
+    kab_clean = str(kab_str or "").lower().strip()
+    kec_clean = str(kec_str or "").lower().strip()
+    addr_clean = str(alamat_str or "").lower().strip()
+    
+    matched_coords = None
+    for p_name, coords in INDONESIAN_PROVINCES.items():
+        if p_name in prov_clean or p_name in kab_clean or p_name in addr_clean:
+            matched_coords = coords
+            break
+            
+    if not matched_coords:
+        matched_coords = (-5.1476, 119.4327)
+        
+    lat, lon = matched_coords
+    lat += random.uniform(-0.06, 0.06)
+    lon += random.uniform(-0.06, 0.06)
+    return lat, lon
+
+def handle_coords(answers: dict, lat: Optional[float], lon: Optional[float], target: dict) -> tuple:
+    if lat is None or lon is None:
+        t_lat = target.get("latitude")
+        t_lon = target.get("longitude")
+        try:
+            if t_lat and t_lon and float(t_lat) != 0.0:
+                lat = float(t_lat)
+                lon = float(t_lon)
+            else:
+                raise ValueError
+        except (ValueError, TypeError):
+            addr = target.get("data5", "") or target.get("data6", "") or ""
+            region_name = target.get("region", {}).get("name", "")
+            lat, lon = get_fallback_coordinate(region_name, "", "", addr)
+            
+    answers["r105"] = {
+        "coordinat": {"latitude": lat, "longitude": lon},
+        "remark": "",
+        "accuracy": 10.0
+    }
+    return lat, lon
+
+def get_encryption_key(headers: dict, target: dict, region_id: str) -> bytes:
+    pid = target.get("surveyPeriodId")
+    regions = fetch_regions(headers, pid)
+    wrapped_key = None
+    for r in regions:
+        if r.get("region_id") == region_id or r.get("region", {}).get("id") == region_id:
+            wrapped_key = r.get("wrappedDatakey")
+            break
+    if not wrapped_key:
+        wrapped_key = STATIC_LEGACY_KEY
+    try:
+        return base64.b64decode(wrapped_key.encode("utf-8"))
+    except Exception:
+        return STATIC_LEGACY_KEY.encode("utf-8")
+
+def stage_and_encrypt(answers: dict, key_bytes: bytes, target_id: str) -> str:
+    plaintext = json.dumps(answers, ensure_ascii=False)
+    encrypted = encrypt_gcm(plaintext, key_bytes)
+    decrypted = decrypt_gcm_verify(encrypted, key_bytes)
+    if decrypted != plaintext:
+        print("[-] Encryption integrity check failed!")
+        sys.exit(1)
+    return encrypted
+
+def upload_archive_flow(headers: dict, target: dict, archive_path: str, dry_run: bool) -> str:
+    tid = target.get("id")
+    pid = target.get("surveyPeriodId")
+    is_edit = target.get("assignmentStatusAlias") != "OPEN"
+    copy_from_id = target.get("copyFromId")
+    presign_resp = request_presign_url(headers, tid, pid, [f"{tid}.7z"], is_edit, copy_from_id)
+    urls = presign_resp.get("data", [])
+    put_url = urls[0].get("presignedUrl") or urls[0].get("url") if urls else None
+    if not put_url:
+        if dry_run:
+            put_url = "http://mock-s3-url"
+        else:
+            print(f"[-] Presigned PUT URL empty in response: {presign_resp}")
+            sys.exit(1)
+    if not dry_run:
+        print("      Uploading archive to S3...")
+        if not upload_to_s3(put_url, archive_path):
+            print("[-] S3 archive upload failed.")
+            sys.exit(1)
+    return compute_md5(archive_path)
+
+def get_submit_params(target: dict, data_slots: dict, archive_md5: str, lat: Optional[float], lon: Optional[float]) -> dict:
+    return {
+        "surveyPeriodId": target.get("surveyPeriodId"),
+        "assignmentId": target.get("id"),
+        "filename": f"{target.get('id')}.7z",
+        "md5": archive_md5,
+        "isNew": target.get("isNew", False),
+        "submitVersionCode": target.get("submitVersionCode", 0),
+        **data_slots,
+        "latitude": str(lat) if lat is not None else "0.0",
+        "longitude": str(lon) if lon is not None else "0.0",
+        "copyFromId": target.get("copyFromId") or "", "statusApproval": "false", "sourceFrom": "CAPI", "paradata": "", "comment": "", "note": ""
+    }
+
+def confirm_submission_flow(headers: dict, target: dict, answers: dict, template_mapping: dict, archive_md5: str, lat: Optional[float], lon: Optional[float], dry_run: bool):
+    is_edit = target.get("assignmentStatusAlias") != "OPEN"
+    params = get_submit_params(target, map_answers_to_data_slots(answers, template_mapping), archive_md5, lat, lon)
+    if not dry_run:
+        print("      Confirming submission with server...")
+        confirm_submit(headers, params, is_edit=is_edit)
+        print(f"\n[+] ASSIGNMENT BERHASIL DI-SUBMIT!")
+    else:
+        print("\n============================================================")
+        print("  ⚠️  Gunakan tanpa --dry-run untuk submit sebenarnya")
+
+def cmd_submit(headers: dict, input_path: Optional[str], assignment_id: Optional[str],
+               dry_run: bool, verbose: bool, direct_args: Optional[dict] = None,
+               photo_path: Optional[str] = None, lat: Optional[float] = None, lon: Optional[float] = None):
+    print("\n[1/7] Loading/Preparing answers...")
+    surveys = fetch_surveys(headers)
+    active_periode, template_mapping = resolve_survey_period_and_mapping(surveys, headers)
+    pid = active_periode["id"]
+    content = fetch_all_assignments(headers, pid)
+    target = select_target_assignment(content, template_mapping, assignment_id, direct_args)
+    answers = resolve_answers(input_path, target, direct_args, template_mapping, verbose)
+    handle_photo_upload(headers, target, answers, photo_path, dry_run)
+    lat, lon = handle_coords(answers, lat, lon, target)
+    key_bytes = get_encryption_key(headers, target, target.get("region", {}).get("id", ""))
+    encrypted = stage_and_encrypt(answers, key_bytes, target["id"])
+    with tempfile.TemporaryDirectory() as work_dir:
+        archive_path = create_7z_archive(encrypted, target["id"], work_dir)
+        archive_md5 = upload_archive_flow(headers, target, archive_path, dry_run)
+        confirm_submission_flow(headers, target, answers, template_mapping, archive_md5, lat, lon, dry_run)
+
+def verify_auth_with_sso(token_data: dict, headers: dict):
+    try:
+        payload_b64 = token_data["access_token"].split(".")[1]
+        payload_b64 += "=" * (4 - len(payload_b64) % 4)
+        jwt_payload = json.loads(base64.b64decode(payload_b64))
+        iss = jwt_payload.get("iss", "")
+        realm_name = iss.split("/")[-1] if iss else "eksternal"
+        r = requests.get(
+            f"https://sso.bps.go.id/auth/realms/{realm_name}/protocol/openid-connect/userinfo",
+            headers=headers, timeout=10
+        )
+        if r.status_code == 200:
+            user = r.json()
+            print(f"  👤 Login as: {user.get('name')} ({user.get('email')})")
+            return
+    except Exception as e:
+        print(f"[-] Kesalahan saat memverifikasi autentikasi: {e}")
+    sys.exit(1)
+
+def setup_token_and_headers(args) -> tuple:
+    if args.email:
+        password = args.password
+        if not password:
+            import getpass
+            password = getpass.getpass("  Masukkan Password BPS: ")
+        from fasih_auth import perform_login, TOKEN_FILE
+        print(f"[*] Menghubungi SSO BPS untuk melakukan autentikasi: {args.email}...")
+        token_data = perform_login(args.email, password)
+        with open(TOKEN_FILE, "w") as f:
+            json.dump(token_data, f, indent=2)
+        print("[+] Login berhasil! Token disimpan ke:", TOKEN_FILE)
+    else:
+        token_data = load_token()
+    token_data = refresh_token_if_needed(token_data)
+    headers = get_headers(token_data)
+    verify_auth_with_sso(token_data, headers)
+    return headers
+
+def add_custom_args(parser):
+    parser.add_argument("--idpel", help="ID Pelanggan PLN")
+    parser.add_argument("--nometer", help="Nomor Meter PLN")
+    parser.add_argument("--nama", help="Nama Pelanggan")
+    parser.add_argument("--alamat", help="Alamat Pelanggan")
+    parser.add_argument("--tarif", help="Tarif PLN")
+    parser.add_argument("--daya", help="Daya PLN")
+    parser.add_argument("--hasil", help="Hasil pendataan")
+    parser.add_argument("--kelurahan", help="Kode Kelurahan/Desa")
+    parser.add_argument("--kdpm", help="Kode pembaca meter")
+    parser.add_argument("--kddk", help="Kode kedudukan")
+    parser.add_argument("--status-dil", help="Status DIL")
+    parser.add_argument("--photo", help="Path ke file foto")
+    parser.add_argument("--lat", type=float, help="Latitude")
+    parser.add_argument("--lon", type=float, help="Longitude")
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Fasih BPS Auto-Fill")
+    parser.add_argument("--list", action="store_true", help="Tampilkan list")
+    parser.add_argument("-i", "--input", help="File input")
+    parser.add_argument("--assignment-id", help="Assignment ID")
+    parser.add_argument("--dry-run", action="store_true", help="Dry run")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose")
+    parser.add_argument("--email", help="Email BPS")
+    parser.add_argument("--password", help="Password BPS")
+    add_custom_args(parser)
+    return parser, parser.parse_args()
+
+def execute_args(args, headers: dict, parser):
+    if args.list:
+        cmd_list(headers)
+    elif args.input:
+        if not os.path.exists(args.input):
+            print(f"[-] Input file not found: {args.input}")
+            sys.exit(1)
+        cmd_submit(headers, args.input, args.assignment_id, args.dry_run, args.verbose,
+                   photo_path=args.photo, lat=args.lat, lon=args.lon)
+    elif args.idpel or args.nometer:
+        idpel = args.idpel or ""
+        nometer = args.nometer or ""
+        
+        direct = {
+            "idpel": idpel,
+            "nometer": nometer,
+            "nama": args.nama,
+            "alamat": args.alamat,
+            "tarif": args.tarif,
+            "daya": args.daya,
+            "hasil": args.hasil,
+            "kelurahan": args.kelurahan,
+            "kdpm": args.kdpm,
+            "kddk": args.kddk,
+            "status_dil": args.status_dil
+        }
+        lat = args.lat
+        lon = args.lon
+        
+        # Check if we should fetch missing details from PLN AP2T
+        missing_details = not direct["nama"] or not direct["alamat"] or not direct["tarif"] or not direct["daya"] or lat is None or lon is None or not direct["idpel"] or not direct["nometer"]
+        if missing_details:
+            print("[*] InfoPelanggan details missing or incomplete. Querying AP2T database...")
+            try:
+                from pln_lookup import PLNLookupTool
+                engine = PLNLookupTool()
+                res = None
+                if idpel:
+                    res = engine.lookup_by_idpel(idpel)
+                if not res and nometer:
+                    res = engine.lookup_by_nometer(nometer)
+                
+                if res:
+                    profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
+                    if profiles:
+                        p = profiles[0]
+                        if not direct["nama"] and p.get("nama"):
+                            direct["nama"] = str(p.get("nama")).strip()
+                            print(f"    -> Auto-filled Nama: {direct['nama']}")
+                        if not direct["alamat"] and p.get("alamat"):
+                            direct["alamat"] = str(p.get("alamat")).strip()
+                            print(f"    -> Auto-filled Alamat: {direct['alamat']}")
+                        if not direct["tarif"] and (p.get("tarif") or p.get("gol_tarif")):
+                            direct["tarif"] = str(p.get("tarif", p.get("gol_tarif", ""))).strip()
+                            print(f"    -> Auto-filled Tarif: {direct['tarif']}")
+                        if not direct["daya"] and p.get("daya"):
+                            direct["daya"] = str(p.get("daya")).strip()
+                            print(f"    -> Auto-filled Daya: {direct['daya']}")
+                        
+                        # Populate coordinates
+                        lat_val = p.get("koordinat_y", p.get("latitude"))
+                        lon_val = p.get("koordinat_x", p.get("longitude"))
+                        if lat is None and lat_val:
+                            try:
+                                lat = float(lat_val)
+                                print(f"    -> Auto-filled Latitude: {lat}")
+                            except ValueError:
+                                pass
+                        if lon is None and lon_val:
+                            try:
+                                lon = float(lon_val)
+                                print(f"    -> Auto-filled Longitude: {lon}")
+                            except ValueError:
+                                pass
+                        
+                        # Auto-fill missing ID or meter number
+                        if not direct["idpel"] and p.get("id_pelanggan"):
+                            direct["idpel"] = str(p.get("id_pelanggan")).strip()
+                            print(f"    -> Auto-filled IDPel: {direct['idpel']}")
+                        if not direct["nometer"] and (p.get("no_meter") or p.get("nomor_meter") or p.get("nometer")):
+                            direct["nometer"] = str(p.get("no_meter", p.get("nomor_meter", p.get("nometer", "")))).strip()
+                            print(f"    -> Auto-filled NoMeter: {direct['nometer']}")
+                else:
+                    print("    [!] Warning: No data found in PLN database for this customer.")
+            except Exception as e:
+                print(f"    [!] Error performing auto-fill query: {e}")
+                
+        cmd_submit(headers, None, args.assignment_id, args.dry_run, args.verbose, direct_args=direct,
+                   photo_path=args.photo, lat=lat, lon=lon)
+    else:
+        parser.print_help()
+
+def main():
+    parser, args = parse_arguments()
+    print("=" * 60)
+    print("  Fasih BPS Auto-Fill Tool")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 60)
+    headers = setup_token_and_headers(args)
+    execute_args(args, headers, parser)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,67 @@
+package org.bouncycastle.x509;
+
+import java.io.IOException;
+import java.security.cert.CertificateEncodingException;
+import java.security.cert.CertificateParsingException;
+import java.security.cert.X509Certificate;
+import org.bouncycastle.asn1.ASN1InputStream;
+import org.bouncycastle.asn1.x509.CertificatePair;
+import org.bouncycastle.asn1.x509.X509CertificateStructure;
+import org.bouncycastle.jce.provider.X509CertificateObject;
+
+/* loaded from: classes3.dex */
+public class X509CertificatePair {
+    private X509Certificate forward;
+    private X509Certificate reverse;
+
+    public X509CertificatePair(X509Certificate x509Certificate, X509Certificate x509Certificate2) {
+        this.forward = x509Certificate;
+        this.reverse = x509Certificate2;
+    }
+
+    public X509CertificatePair(CertificatePair certificatePair) throws CertificateParsingException {
+        if (certificatePair.getForward() != null) {
+            this.forward = new X509CertificateObject(certificatePair.getForward());
+        }
+        if (certificatePair.getReverse() != null) {
+            this.reverse = new X509CertificateObject(certificatePair.getReverse());
+        }
+    }
+
+    public boolean equals(Object obj) {
+        if (obj == null || !(obj instanceof X509CertificatePair)) {
+            return false;
+        }
+        X509CertificatePair x509CertificatePair = (X509CertificatePair) obj;
+        X509Certificate x509Certificate = this.forward;
+        boolean zEquals = x509Certificate != null ? x509Certificate.equals(x509CertificatePair.forward) : x509CertificatePair.forward == null;
+        X509Certificate x509Certificate2 = this.reverse;
+        X509Certificate x509Certificate3 = x509CertificatePair.reverse;
+        return zEquals && (x509Certificate2 != null ? x509Certificate2.equals(x509Certificate3) : x509Certificate3 == null);
+    }
+
+    public byte[] getEncoded() throws CertificateEncodingException {
+        try {
+            return new CertificatePair(this.forward != null ? X509CertificateStructure.getInstance(new ASN1InputStream(this.forward.getEncoded()).readObject()) : null, this.reverse != null ? X509CertificateStructure.getInstance(new ASN1InputStream(this.reverse.getEncoded()).readObject()) : null).getDEREncoded();
+        } catch (IOException e) {
+            throw new ExtCertificateEncodingException(e.toString(), e);
+        } catch (IllegalArgumentException e2) {
+            throw new ExtCertificateEncodingException(e2.toString(), e2);
+        }
+    }
+
+    public X509Certificate getForward() {
+        return this.forward;
+    }
+
+    public X509Certificate getReverse() {
+        return this.reverse;
+    }
+
+    public int hashCode() {
+        X509Certificate x509Certificate = this.forward;
+        int iHashCode = x509Certificate != null ? (-1) ^ x509Certificate.hashCode() : -1;
+        X509Certificate x509Certificate2 = this.reverse;
+        return x509Certificate2 != null ? (iHashCode * 17) ^ x509Certificate2.hashCode() : iHashCode;
+    }
+}

@@ -1,0 +1,38 @@
+package id.go.bpsfasih.ui.periode;
+
+import android.app.Application;
+import androidx.constraintlayout.widget.ConstraintLayout;
+import androidx.exifinterface.media.ExifInterface;
+import androidx.lifecycle.ViewModel;
+import androidx.lifecycle.ViewModelProvider;
+import kotlin.Metadata;
+import kotlin.jvm.internal.DefaultConstructorMarker;
+import kotlin.jvm.internal.Intrinsics;
+
+/* compiled from: PeriodeViewModel.kt */
+@Metadata(d1 = {"\u0000,\n\u0002\u0018\u0002\n\u0002\u0018\u0002\n\u0000\n\u0002\u0018\u0002\n\u0000\n\u0002\u0010\u000e\n\u0000\n\u0002\u0018\u0002\n\u0002\b\u0003\n\u0002\u0018\u0002\n\u0000\n\u0002\u0018\u0002\n\u0002\b\u0002\b\u0007\u0018\u00002\u00020\u0001B!\u0012\u0006\u0010\u0002\u001a\u00020\u0003\u0012\n\b\u0002\u0010\u0004\u001a\u0004\u0018\u00010\u0005\u0012\u0006\u0010\u0006\u001a\u00020\u0007¢\u0006\u0002\u0010\bJ%\u0010\t\u001a\u0002H\n\"\b\b\u0000\u0010\n*\u00020\u000b2\f\u0010\f\u001a\b\u0012\u0004\u0012\u0002H\n0\rH\u0016¢\u0006\u0002\u0010\u000eR\u000e\u0010\u0006\u001a\u00020\u0007X\u0082\u0004¢\u0006\u0002\n\u0000R\u000e\u0010\u0002\u001a\u00020\u0003X\u0082\u0004¢\u0006\u0002\n\u0000R\u0010\u0010\u0004\u001a\u0004\u0018\u00010\u0005X\u0082\u0004¢\u0006\u0002\n\u0000¨\u0006\u000f"}, d2 = {"Lid/go/bpsfasih/ui/periode/MyViewModelFactory;", "Landroidx/lifecycle/ViewModelProvider$Factory;", "mApplication", "Landroid/app/Application;", "surveyId", "", "activity", "Lid/go/bpsfasih/ui/periode/PeriodeActivity;", "(Landroid/app/Application;Ljava/lang/String;Lid/go/bpsfasih/ui/periode/PeriodeActivity;)V", "create", ExifInterface.GPS_DIRECTION_TRUE, "Landroidx/lifecycle/ViewModel;", "modelClass", "Ljava/lang/Class;", "(Ljava/lang/Class;)Landroidx/lifecycle/ViewModel;", "app_release"}, k = 1, mv = {1, 7, 1}, xi = ConstraintLayout.LayoutParams.Table.LAYOUT_CONSTRAINT_VERTICAL_CHAINSTYLE)
+/* loaded from: classes2.dex */
+public final class MyViewModelFactory implements ViewModelProvider.Factory {
+    public static final int $stable = 8;
+    private final PeriodeActivity activity;
+    private final Application mApplication;
+    private final String surveyId;
+
+    public MyViewModelFactory(Application mApplication, String str, PeriodeActivity activity) {
+        Intrinsics.checkNotNullParameter(mApplication, "mApplication");
+        Intrinsics.checkNotNullParameter(activity, "activity");
+        this.mApplication = mApplication;
+        this.surveyId = str;
+        this.activity = activity;
+    }
+
+    public /* synthetic */ MyViewModelFactory(Application application, String str, PeriodeActivity periodeActivity, int i, DefaultConstructorMarker defaultConstructorMarker) {
+        this(application, (i & 2) != 0 ? "" : str, periodeActivity);
+    }
+
+    @Override // androidx.lifecycle.ViewModelProvider.Factory
+    public <T extends ViewModel> T create(Class<T> modelClass) {
+        Intrinsics.checkNotNullParameter(modelClass, "modelClass");
+        return new PeriodeViewModel(this.mApplication, this.surveyId, this.activity);
+    }
+}

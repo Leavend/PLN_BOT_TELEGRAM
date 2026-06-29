@@ -1,0 +1,46 @@
+package org.osmdroid;
+
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+
+/* loaded from: classes3.dex */
+public class SensorEventListenerProxy implements SensorEventListener {
+    private SensorEventListener mListener = null;
+    private final SensorManager mSensorManager;
+
+    public SensorEventListenerProxy(SensorManager sensorManager) {
+        this.mSensorManager = sensorManager;
+    }
+
+    public boolean startListening(SensorEventListener sensorEventListener, int i, int i2) {
+        Sensor defaultSensor = this.mSensorManager.getDefaultSensor(i);
+        if (defaultSensor == null) {
+            return false;
+        }
+        this.mListener = sensorEventListener;
+        return this.mSensorManager.registerListener(this, defaultSensor, i2);
+    }
+
+    public void stopListening() {
+        this.mListener = null;
+        this.mSensorManager.unregisterListener(this);
+    }
+
+    @Override // android.hardware.SensorEventListener
+    public void onAccuracyChanged(Sensor sensor, int i) {
+        SensorEventListener sensorEventListener = this.mListener;
+        if (sensorEventListener != null) {
+            sensorEventListener.onAccuracyChanged(sensor, i);
+        }
+    }
+
+    @Override // android.hardware.SensorEventListener
+    public void onSensorChanged(SensorEvent sensorEvent) {
+        SensorEventListener sensorEventListener = this.mListener;
+        if (sensorEventListener != null) {
+            sensorEventListener.onSensorChanged(sensorEvent);
+        }
+    }
+}

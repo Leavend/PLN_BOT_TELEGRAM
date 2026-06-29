@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.env.*
+
+# Local tokens and BPS session data
+fasih_token*.json
+fasih_token.json
+
+# Temporary/Output files
+*.xlsx
+*.log
+api_probe_results.json
+assignment_data_full.json
+temp.zip
+*.args
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# APK files
+*.apk
+*.xapk
+
+# Directories
+fasih_downloaded/
+outputs/
+lookups/

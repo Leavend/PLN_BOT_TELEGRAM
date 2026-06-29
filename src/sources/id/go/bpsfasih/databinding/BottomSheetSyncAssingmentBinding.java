@@ -1,0 +1,70 @@
+package id.go.bpsfasih.databinding;
+
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import androidx.viewbinding.ViewBinding;
+import androidx.viewbinding.ViewBindings;
+import id.go.bpsfasih.R;
+
+/* loaded from: classes2.dex */
+public final class BottomSheetSyncAssingmentBinding implements ViewBinding {
+    public final TextView avaiableSyncAllAssignmentTv;
+    public final LinearLayout bottomSheetBaseActivity;
+    public final Button checkNotifAssignmentB;
+    private final LinearLayout rootView;
+    public final Button syncAllAssignmentB;
+    public final ImageView tutupB;
+
+    private BottomSheetSyncAssingmentBinding(LinearLayout rootView, TextView avaiableSyncAllAssignmentTv, LinearLayout bottomSheetBaseActivity, Button checkNotifAssignmentB, Button syncAllAssignmentB, ImageView tutupB) {
+        this.rootView = rootView;
+        this.avaiableSyncAllAssignmentTv = avaiableSyncAllAssignmentTv;
+        this.bottomSheetBaseActivity = bottomSheetBaseActivity;
+        this.checkNotifAssignmentB = checkNotifAssignmentB;
+        this.syncAllAssignmentB = syncAllAssignmentB;
+        this.tutupB = tutupB;
+    }
+
+    @Override // androidx.viewbinding.ViewBinding
+    public LinearLayout getRoot() {
+        return this.rootView;
+    }
+
+    public static BottomSheetSyncAssingmentBinding inflate(LayoutInflater inflater) {
+        return inflate(inflater, null, false);
+    }
+
+    public static BottomSheetSyncAssingmentBinding inflate(LayoutInflater inflater, ViewGroup parent, boolean attachToParent) {
+        View viewInflate = inflater.inflate(R.layout.bottom_sheet_sync_assingment, parent, false);
+        if (attachToParent) {
+            parent.addView(viewInflate);
+        }
+        return bind(viewInflate);
+    }
+
+    public static BottomSheetSyncAssingmentBinding bind(View rootView) {
+        int i = R.id.avaiableSyncAllAssignment_tv;
+        TextView textView = (TextView) ViewBindings.findChildViewById(rootView, i);
+        if (textView != null) {
+            LinearLayout linearLayout = (LinearLayout) rootView;
+            i = R.id.checkNotifAssignment_b;
+            Button button = (Button) ViewBindings.findChildViewById(rootView, i);
+            if (button != null) {
+                i = R.id.syncAllAssignment_b;
+                Button button2 = (Button) ViewBindings.findChildViewById(rootView, i);
+                if (button2 != null) {
+                    i = R.id.tutup_b;
+                    ImageView imageView = (ImageView) ViewBindings.findChildViewById(rootView, i);
+                    if (imageView != null) {
+                        return new BottomSheetSyncAssingmentBinding(linearLayout, textView, linearLayout, button, button2, imageView);
+                    }
+                }
+            }
+        }
+        throw new NullPointerException("Missing required view with ID: ".concat(rootView.getResources().getResourceName(i)));
+    }
+}
