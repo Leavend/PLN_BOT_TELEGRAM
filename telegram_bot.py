@@ -1524,6 +1524,7 @@ async def retrieve_pln_profile_for_existing_assignment(target: dict, context: Co
                 args["pln_nama_kab"] = p.get("nama_kab") or ""
                 args["pln_nama_kec"] = p.get("nama_kec") or ""
                 args["pln_nama_kel"] = p.get("nama_kel") or ""
+                args["keperluan"] = p.get("keperluan") or ""
                 if not target.get("data2") or target.get("data2") == "NoName":
                     target["data2"] = nama
                 target["data4"] = alamat
@@ -1587,6 +1588,7 @@ async def proceed_to_tarif_after_template(update: Update, context: ContextTypes.
     context.user_data["submit_args"]["pln_nama_kab"] = p.get("nama_kab") or ""
     context.user_data["submit_args"]["pln_nama_kec"] = p.get("nama_kec") or ""
     context.user_data["submit_args"]["pln_nama_kel"] = p.get("nama_kel") or ""
+    context.user_data["submit_args"]["keperluan"] = p.get("keperluan") or ""
     context.user_data["create_new"] = True
     context.user_data["used_ap2t_autofill"] = False
     

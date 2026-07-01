@@ -301,13 +301,20 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
     # Override with PLN/AP2T database values if present
     pln_kd_kel = str(direct_args.get("pln_kd_kel") or "").strip()
     if len(pln_kd_kel) == 10 and pln_kd_kel.isdigit():
-        l1_code = pln_kd_kel[0:2]
-        l2_code = pln_kd_kel[2:4]
-        l2_fullcode = pln_kd_kel[0:4]
-        l3_code = pln_kd_kel[4:7]
-        l3_fullcode = pln_kd_kel[0:7]
-        l4_code = pln_kd_kel[7:10]
-        l4_fullcode = pln_kd_kel[0:10]
+        # PLN format: 2 Prov + 2 Kab + 2 Kec + 4 Kel = 10 digits
+        # BPS format: 2 Prov + 2 Kab + 3 Kec + 3 Kel = 10 digits
+        pln_prov = pln_kd_kel[0:2]
+        pln_kab = pln_kd_kel[2:4]
+        pln_kec = pln_kd_kel[4:6]
+        pln_kel = pln_kd_kel[6:10]
+
+        l1_code = pln_prov
+        l2_code = pln_kab
+        l2_fullcode = pln_prov + pln_kab
+        l3_code = pln_kec + "0"
+        l3_fullcode = pln_prov + pln_kab + pln_kec + "0"
+        l4_code = pln_kel[1:4]
+        l4_fullcode = pln_prov + pln_kab + pln_kec + "0" + pln_kel[1:4]
         
         l1_name = str(direct_args.get("pln_nama_prov") or l1_name).strip().upper()
         l2_name = str(direct_args.get("pln_nama_kab") or l2_name).strip().upper()
