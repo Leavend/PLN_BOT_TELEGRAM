@@ -959,7 +959,7 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
         context.user_data["submit_args"]["nama"] = nama
         context.user_data["create_new"] = False
         
-        if status == "SUBMITTED":
+        if "SUBMITTED" in status:
             keyboard = [
                 [InlineKeyboardButton("🔄 Re-Submit / Edit", callback_data="dup_continue")],
                 [InlineKeyboardButton("❌ Batalkan", callback_data="cancel")]
@@ -968,7 +968,7 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
                 f"⚠️ **Peringatan: ID Pelanggan sudah terdaftar & SUBMITTED**\n\n"
                 f"• Pelanggan: **{escape_markdown(nama)}**\n"
                 f"• IDPel: `{escape_markdown(idpel)}` | NoMeter: `{escape_markdown(nometer)}`\n"
-                f"• Status BPS: `SUBMITTED` (Sudah Terkirim)\n\n"
+                f"• Status BPS: `{escape_markdown(status)}` (Sudah Terkirim)\n\n"
                 f"Apakah Anda ingin melanjutkan pengisian kuesioner untuk melakukan re-submit/edit tugas ini?",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown"
@@ -984,7 +984,7 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
                 f"⚠️ **Peringatan: ID Pelanggan sudah terdaftar**\n\n"
                 f"• Pelanggan: **{escape_markdown(nama)}**\n"
                 f"• IDPel: `{escape_markdown(idpel)}` | NoMeter: `{escape_markdown(nometer)}`\n"
-                f"• Status BPS: `OPEN` (Belum Terkirim)\n\n"
+                f"• Status BPS: `{escape_markdown(status)}`\n\n"
                 f"Apakah Anda ingin melanjutkan pengisian kuesioner untuk tugas ini?",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown"
