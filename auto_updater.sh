@@ -3,7 +3,7 @@
 # Menjalankan pengecekan Git repository secara berkala untuk melakukan auto-update bot.
 
 BOT_SCRIPT="telegram_bot.py"
-INTERVAL=60 # Cek update setiap 60 detik
+INTERVAL=5 # Cek update lebih cepat (setiap 5 detik)
 BRANCH="main" # Ganti dengan nama branch Anda jika berbeda
 
 echo "[*] Auto-Updater Bot Telegram dimulai..."
@@ -39,23 +39,51 @@ echo "[*] Menggunakan perintah Python: $PYTHON_CMD"
 
 # Fungsi mencari PID bot yang kompatibel dengan Git Bash Windows & Unix
 get_bot_pid() {
-    ps -ef | grep "$BOT_SCRIPT" | grep -v grep | awk '{print $2}'
+    ps -ef | grep "$BOT_SCRIPT" | grep -v grep | grep -v "auto_updater.sh" | awk '{print $2}'
 }
 
-# Jalankan bot saat script ini pertama kali dibuka jika belum berjalan
-PID=$(get_bot_pid)
-if [ -z "$PID" ]; then
-    echo "[*] Bot belum berjalan. Menjalankan Bot Telegram..."
-    $PYTHON_CMD "$BOT_SCRIPT" > bot.log 2>&1 &
-    sleep 2
-    PID=$(get_bot_pid)
-    if [ -n "$PID" ]; then
-        echo "[+] Bot berhasil dijalankan dengan PID: $PID"
-    else
-        echo "[-] Gagal menjalankan bot. Silakan periksa file bot.log untuk detail error."
+# Fungsi mematikan bot secara paksa dan bersih (kompatibel dengan Windows & Unix)
+terminate_bot() {
+    # 1. Coba matikan lewat Windows PowerShell jika berada di Windows/Git Bash
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+        echo "[*] Menghentikan proses Windows Python yang menjalankan $BOT_SCRIPT..."
+        if command -v powershell.exe &>/dev/null; then
+            powershell.exe -Command "Get-CimInstance Win32_Process -Filter \"CommandLine like '%$BOT_SCRIPT%'\" | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" &>/dev/null
+            sleep 2
+        elif command -v wmic &>/dev/null; then
+            wmic process where "CommandLine like '%$BOT_SCRIPT%'" call terminate &>/dev/null
+            sleep 2
+        fi
     fi
+
+    # 2. Cara standar Unix/Linux (dan fallback untuk Windows)
+    local pids=$(get_bot_pid)
+    if [ -n "$pids" ]; then
+        for pid in $pids; do
+            echo "[*] Menghentikan bot (PID: $pid)..."
+            kill -15 $pid 2>/dev/null
+            sleep 1
+            if ps -p $pid >/dev/null 2>&1; then
+                echo "[!] Bot (PID: $pid) masih berjalan, mengirimkan kill -9..."
+                kill -9 $pid 2>/dev/null
+            fi
+        done
+        sleep 1
+    fi
+}
+
+# Selalu bersihkan bot lama saat script pertama kali dijalankan untuk mencegah duplikasi
+echo "[*] Membersihkan seluruh proses Bot Telegram yang lama..."
+terminate_bot
+
+echo "[*] Menjalankan Bot Telegram..."
+$PYTHON_CMD "$BOT_SCRIPT" > bot.log 2>&1 &
+sleep 2
+PID=$(get_bot_pid)
+if [ -n "$PID" ]; then
+    echo "[+] Bot berhasil dijalankan dengan PID: $PID"
 else
-    echo "[*] Bot sudah berjalan dengan PID: $PID"
+    echo "[-] Gagal menjalankan bot. Silakan periksa file bot.log untuk detail error."
 fi
 
 while true; do
@@ -70,19 +98,14 @@ while true; do
             echo "[+] Terdeteksi kode baru di remote! Melakukan pull..."
             git pull origin $BRANCH
             
-            # Cari PID dari bot yang sedang berjalan
-            PID=$(get_bot_pid)
-            if [ -n "$PID" ]; then
-                echo "[*] Menghentikan bot yang sedang berjalan (PID: $PID)..."
-                kill -15 $PID
-                sleep 3
-                # Jika masih hidup, paksa kill
-                kill -9 $PID 2>/dev/null
-            fi
+            echo "[*] Menghentikan bot lama..."
+            terminate_bot
             
-            echo "[+] Menjalankan kembali Bot Telegram..."
+            echo "[+] Menjalankan kembali Bot Telegram dengan kode terbaru..."
             $PYTHON_CMD "$BOT_SCRIPT" > bot.log 2>&1 &
-            echo "[+] Bot berhasil diperbarui dan dijalankan kembali!"
+            sleep 2
+            PID=$(get_bot_pid)
+            echo "[+] Bot berhasil diperbarui dan dijalankan kembali dengan PID: $PID!"
         fi
     else
         echo "[-] Gagal terhubung ke Git remote. Memeriksa kembali nanti..."
