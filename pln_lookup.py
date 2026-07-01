@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import json
+import sqlite3
 import argparse
 from datetime import datetime
 import requests
@@ -10,6 +11,89 @@ from urllib3.exceptions import InsecureRequestWarning
 
 # Suppress SSL warnings
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+
+# Load environment variables if available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+class PLNCache:
+    """Thread-safe SQLite persistent cache for PLN AP2T lookup results."""
+    def __init__(self, db_path="pln_cache.db"):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.db_path = os.path.join(script_dir, db_path)
+        self._init_db()
+
+    def _init_db(self):
+        try:
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+                # Enable WAL (Write-Ahead Logging) for concurrent reads/writes
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS pln_cache (
+                        query_type TEXT,
+                        query_key TEXT,
+                        response_json TEXT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (query_type, query_key)
+                    )
+                    """
+                )
+                conn.commit()
+        except Exception as e:
+            print(f"[*] Warning: Failed to initialize SQLite cache: {e}")
+
+    def get(self, query_type, query_key, ttl_seconds):
+        try:
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT response_json, timestamp 
+                    FROM pln_cache 
+                    WHERE query_type = ? AND query_key = ?
+                    """,
+                    (query_type, query_key)
+                )
+                row = cursor.fetchone()
+                if row:
+                    response_json, ts_str = row
+                    from datetime import datetime
+                    cached_time = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                    age_seconds = (datetime.utcnow() - cached_time).total_seconds()
+                    if age_seconds < ttl_seconds:
+                        return json.loads(response_json)
+        except Exception as e:
+            print(f"[*] Warning: Failed to read from cache: {e}")
+        return None
+
+    def set(self, query_type, query_key, data):
+        try:
+            if not data:
+                return
+            
+            # Verify data is a dictionary and has non-empty profiles
+            if isinstance(data, dict):
+                profiles = data.get("dil_main", data.get("list", data.get("lInfoMasterNedisys", [])))
+                if not profiles:
+                    return
+            else:
+                return
+
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO pln_cache (query_type, query_key, response_json, timestamp)
+                    VALUES (?, ?, ?, datetime('now'))
+                    """,
+                    (query_type, query_key, json.dumps(data))
+                )
+                conn.commit()
+        except Exception as e:
+            print(f"[*] Warning: Failed to write to cache: {e}")
 
 # ==================== CONFIGURATION ====================
 # Default configurations for PT PLN (Persero) AP2T DR Site
@@ -45,6 +129,7 @@ class PLNLookupTool:
         self.cookies = cookies or DEFAULT_COOKIES
         self.ap2t_ip = ap2t_ip or DEFAULT_AP2T_IP
         self.ap2t_url = ap2t_url or DEFAULT_AP2T_URL
+        self.cache = PLNCache()
         
         # Dynamically set IP if custom IP is requested
         if self.ap2t_ip != "10.72.35.8":
@@ -189,21 +274,37 @@ class PLNLookupTool:
             return None
 
     def lookup_by_idpel(self, idpel):
-        """Queries detailed customer info by ID Pelanggan (using getJsonInfoDilByIdpel)."""
+        """Queries detailed customer info by ID Pelanggan (using getJsonInfoDilByIdpel) with SQLite cache check."""
+        ttl_seconds = int(os.getenv("PLN_CACHE_TTL_DAYS", "30")) * 86400
+        cached_data = self.cache.get("idpel", idpel, ttl_seconds)
+        if cached_data:
+            return cached_data
+
         data = self.make_gwt_rpc_request("getJsonInfoDilByIdpel", [idpel])
         if not data:
             # Fallback to getJsonMainSearch if DIL is empty
             print(f"[*] Trying main search for IDPel {idpel}...")
             data = self.make_gwt_rpc_request("getJsonMainSearch", [idpel, "01", ""])
+            
+        if data:
+            self.cache.set("idpel", idpel, data)
         return data
 
     def lookup_by_nometer(self, nometer):
-        """Queries detailed customer info by Meter Number (using getJsonMasterNedisysByNomorMeter)."""
+        """Queries detailed customer info by Meter Number (using getJsonMasterNedisysByNomorMeter) with SQLite cache check."""
+        ttl_seconds = int(os.getenv("PLN_CACHE_TTL_DAYS", "30")) * 86400
+        cached_data = self.cache.get("nometer", nometer, ttl_seconds)
+        if cached_data:
+            return cached_data
+
         data = self.make_gwt_rpc_request("getJsonMasterNedisysByNomorMeter", [nometer])
         if not data:
             # Fallback to getJsonMainSearch if Nedisys is empty
             print(f"[*] Trying main search for NoMeter {nometer}...")
             data = self.make_gwt_rpc_request("getJsonMainSearch", [nometer, "02", ""])
+            
+        if data:
+            self.cache.set("nometer", nometer, data)
         return data
 
 

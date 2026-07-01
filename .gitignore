@@ -37,3 +37,9 @@ lookups/
 
 # BPS Mitra credentials and results
 mitra_bps_results*.txt
+
+# SQLite cache databases and journals
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
