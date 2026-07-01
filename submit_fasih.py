@@ -28,9 +28,10 @@ def print_assignment(i: int, a: dict):
     mode = a.get("mode", [])
     strata = a.get("strata", "?")
     d1, d2, d3, d4 = a.get("data1", ""), a.get("data2", ""), a.get("data3", ""), a.get("data4", "")
-    l1 = a.get("region", {}).get("level1", {})
-    l2 = l1.get("level2", {}) if l1 else {}
-    l3 = l2.get("level3", {}) if l2 else {}
+    region = a.get("region") or {}
+    l1 = region.get("level1") or {}
+    l2 = l1.get("level2") or {}
+    l3 = l2.get("level3") or {}
     region_str = f"{l3.get('name','')} ({l2.get('name','')})"
     status_icon = "🟢" if status == "OPEN" else "🔵" if status == "SUBMITTED" else "⚪"
     print(f"\n     {status_icon} [{i+1}] Assignment: {aid[:20]}...")
@@ -220,11 +221,11 @@ def generate_random_comment() -> str:
     return random.choice(comments)
 
 def get_region_fields(target: dict, direct_args: dict) -> dict:
-    region = target.get("region", {})
-    l1 = region.get("level1", {})
-    l2 = l1.get("level2", {}) if l1 else {}
-    l3 = l2.get("level3", {}) if l2 else {}
-    l4 = l3.get("level4", {}) if l3 else {}
+    region = target.get("region") or {}
+    l1 = region.get("level1") or {}
+    l2 = l1.get("level2") or {}
+    l3 = l2.get("level3") or {}
+    l4 = l3.get("level4") or {}
     
     l1_code = l1.get("code") or "64"
     l1_name = l1.get("name") or "KALIMANTAN TIMUR"
@@ -266,11 +267,11 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
     })
     
     # Populate Blok II, III, and IV fields
-    region = target.get("region", {})
-    l1 = region.get("level1", {})
-    l2 = l1.get("level2", {}) if l1 else {}
-    l3 = l2.get("level3", {}) if l2 else {}
-    l4 = l3.get("level4", {}) if l3 else {}
+    region = target.get("region") or {}
+    l1 = region.get("level1") or {}
+    l2 = l1.get("level2") or {}
+    l3 = l2.get("level3") or {}
+    l4 = l3.get("level4") or {}
     
     l1_code = l1.get("code") or "64"
     l1_name = l1.get("name") or "KALIMANTAN TIMUR"
@@ -489,11 +490,11 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     import time
     from datetime import datetime, timedelta
     
-    region = target.get("region", {})
-    l1 = region.get("level1", {})
-    l2 = l1.get("level2", {}) if l1 else {}
-    l3 = l2.get("level3", {}) if l2 else {}
-    l4 = l3.get("level4", {}) if l3 else {}
+    region = target.get("region") or {}
+    l1 = region.get("level1") or {}
+    l2 = l1.get("level2") or {}
+    l3 = l2.get("level3") or {}
+    l4 = l3.get("level4") or {}
     
     l1_code = l1.get("code") or "64"
     l1_name = l1.get("name") or "KALIMANTAN TIMUR"

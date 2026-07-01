@@ -786,9 +786,10 @@ def _build_list_page(content, page, template_mapping=None):
         nometer = a.get(nometer_slot, "-")
         nama = escape_markdown(str(a.get("data2", "-")).strip())
         
-        l1 = a.get("region", {}).get("level1", {})
-        l2 = l1.get("level2", {}) if l1 else {}
-        l3 = l2.get("level3", {}) if l2 else {}
+        region = a.get("region") or {}
+        l1 = region.get("level1") or {}
+        l2 = l1.get("level2") or {}
+        l3 = l2.get("level3") or {}
         region_str = f"{l3.get('name','')} ({l2.get('name','')})"
         
         out_lines.append(
@@ -1253,9 +1254,10 @@ async def start_create_new_flow(update: Update, context: ContextTypes.DEFAULT_TY
     for a in eligible:
         rid = a.get("region", {}).get("id")
         if rid and rid not in regions_map:
-            l1 = a.get("region", {}).get("level1", {})
-            l2 = l1.get("level2", {}) if l1 else {}
-            l3 = l2.get("level3", {}) if l2 else {}
+            region = a.get("region") or {}
+            l1 = region.get("level1") or {}
+            l2 = l1.get("level2") or {}
+            l3 = l2.get("level3") or {}
             name = f"{l3.get('name','Unknown')} ({l2.get('name','Unknown')})"
             regions_map[rid] = {
                 "name": name,
