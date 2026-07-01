@@ -413,17 +413,32 @@ def upload_archive_flow(headers: dict, target: dict, archive_path: str, dry_run:
     return compute_md5(archive_path)
 
 def get_submit_params(target: dict, data_slots: dict, archive_md5: str, lat: Optional[float], lon: Optional[float]) -> dict:
+    region_id = target.get("region", {}).get("id") or ""
+    # Ensure all data1-data10 keys are present and string-serialized
+    for i in range(1, 11):
+        key = f"data{i}"
+        if key not in data_slots:
+            data_slots[key] = ""
+        else:
+            data_slots[key] = str(data_slots[key]) if data_slots[key] is not None else ""
+
     return {
-        "surveyPeriodId": target.get("surveyPeriodId"),
-        "assignmentId": target.get("id"),
+        "surveyPeriodeId": str(target.get("surveyPeriodId") or ""),
+        "assignmentId": str(target.get("id") or ""),
         "filename": f"{target.get('id')}.7z",
-        "md5": archive_md5,
-        "isNew": target.get("isNew", False),
-        "submitVersionCode": target.get("submitVersionCode", 0),
+        "md5": str(archive_md5),
+        "createStatus": "true" if target.get("isNew", False) else "false",
+        "draftStatus": "false",
+        "regionId": str(region_id),
         **data_slots,
         "latitude": str(lat) if lat is not None else "0.0",
         "longitude": str(lon) if lon is not None else "0.0",
-        "copyFromId": target.get("copyFromId") or "", "statusApproval": "false", "sourceFrom": "CAPI", "paradata": "", "comment": "", "note": ""
+        "copyFromId": str(target.get("copyFromId") or ""),
+        "statusApproval": "false",
+        "sourceFrom": "CAPI",
+        "paradata": "",
+        "comment": "",
+        "note": ""
     }
 
 def confirm_submission_flow(headers: dict, target: dict, answers: dict, template_mapping: dict, archive_md5: str, lat: Optional[float], lon: Optional[float], dry_run: bool):

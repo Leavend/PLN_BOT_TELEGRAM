@@ -526,18 +526,34 @@ async def submit_fasih_safe(
             await status_callback("📡 Mengirimkan konfirmasi akhir ke server BPS...")
 
         # Confirm submission
+        region_id = target.get("region", {}).get("id") or ""
         data_slots = map_answers_to_data_slots(answers, template_mapping)
+        
+        # Ensure all data1-data10 keys are present and string-serialized
+        for i in range(1, 11):
+            key = f"data{i}"
+            if key not in data_slots:
+                data_slots[key] = ""
+            else:
+                data_slots[key] = str(data_slots[key]) if data_slots[key] is not None else ""
+
         params = {
-            "surveyPeriodId": target.get("surveyPeriodId"),
-            "assignmentId": target.get("id"),
+            "surveyPeriodeId": str(target.get("surveyPeriodId") or ""),
+            "assignmentId": str(target.get("id") or ""),
             "filename": f"{target.get('id')}.7z",
-            "md5": archive_md5,
-            "isNew": target.get("isNew", False),
-            "submitVersionCode": target.get("submitVersionCode", 0),
+            "md5": str(archive_md5),
+            "createStatus": "true" if target.get("isNew", False) else "false",
+            "draftStatus": "false",
+            "regionId": str(region_id),
             **data_slots,
             "latitude": str(lat) if lat is not None else "0.0",
             "longitude": str(lon) if lon is not None else "0.0",
-            "copyFromId": target.get("copyFromId") or "", "statusApproval": "false", "sourceFrom": "CAPI", "paradata": "", "comment": "", "note": ""
+            "copyFromId": str(target.get("copyFromId") or ""),
+            "statusApproval": "false",
+            "sourceFrom": "CAPI",
+            "paradata": "",
+            "comment": "",
+            "note": ""
         }
         
         if not dry_run:

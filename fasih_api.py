@@ -157,8 +157,11 @@ def confirm_submit(headers: dict, params: dict, is_edit: bool = False) -> dict:
         headers=headers, json=params, timeout=15
     )
     if resp.status_code != 200:
-        print(f"[-] Confirm submission failed (status {resp.status_code}):\n{resp.text}")
-    resp.raise_for_status()
+        # Raise HTTPError with body text to allow propagation to the user
+        raise requests.exceptions.HTTPError(
+            f"HTTP {resp.status_code}: {resp.text}",
+            response=resp
+        )
     return resp.json()
 
 def fetch_template_mapping(headers: dict, template_id: str, version: str) -> dict:
