@@ -1743,10 +1743,10 @@ async def process_lookup_input(update: Update, context: ContextTypes.DEFAULT_TYP
                 idx, q_type, val, res = future.result()
                 results[idx] = res
 
-        # Formatting results
-        out_lines = [f"🔍 **Hasil Pencarian ({total} nomor):**\n"]
-        current_len = len(out_lines[0])
-        limit_reached = False
+        # Chunking results into multiple messages to bypass Telegram's 4096 character limit
+        messages_to_send = []
+        current_chunk = [f"🔍 **Hasil Pencarian ({total} nomor):**\n"]
+        current_len = len(current_chunk[0])
         
         for idx, (q_type, val) in enumerate(search_queries):
             res = results[idx]
@@ -1785,17 +1785,21 @@ async def process_lookup_input(update: Update, context: ContextTypes.DEFAULT_TYP
                 line_str = f"• `{val}` - GAGAL (Koneksi/Sesi PLN)"
                 
             if current_len + len(line_str) + 1 > 3800:
-                limit_reached = True
-                break
+                messages_to_send.append("\n".join(current_chunk))
+                current_chunk = [line_str]
+                current_len = len(line_str)
+            else:
+                current_chunk.append(line_str)
+                current_len += len(line_str) + 1
                 
-            out_lines.append(line_str)
-            current_len += len(line_str) + 1
+        if current_chunk:
+            messages_to_send.append("\n".join(current_chunk))
             
-        if limit_reached:
-            out_lines.append("\n...(hasil terlalu panjang, lihat Excel untuk selengkapnya)")
-            
-        summary_text = "\n".join(out_lines)
-        await sent_msg.edit_text(summary_text, parse_mode="Markdown")
+        # Send chunks
+        if messages_to_send:
+            await sent_msg.edit_text(messages_to_send[0], parse_mode="Markdown")
+            for chunk in messages_to_send[1:]:
+                await update.message.reply_text(chunk, parse_mode="Markdown")
         
         # Generate Excel reports
         temp_dir = tempfile.gettempdir()
