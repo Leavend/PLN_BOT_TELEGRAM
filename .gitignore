@@ -34,3 +34,6 @@ temp.zip
 fasih_downloaded/
 outputs/
 lookups/
+
+# BPS Mitra credentials and results
+mitra_bps_results*.txt
