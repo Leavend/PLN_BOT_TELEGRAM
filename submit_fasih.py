@@ -391,7 +391,13 @@ def upload_archive_flow(headers: dict, target: dict, archive_path: str, dry_run:
     is_edit = target.get("assignmentStatusAlias") != "OPEN"
     copy_from_id = target.get("copyFromId")
     presign_resp = request_presign_url(headers, tid, pid, [f"{tid}.7z"], is_edit, copy_from_id)
-    urls = presign_resp.get("data", [])
+    data_obj = presign_resp.get("data", {})
+    if isinstance(data_obj, list):
+        urls = data_obj
+    elif isinstance(data_obj, dict):
+        urls = data_obj.get("presignedUrls", [])
+    else:
+        urls = []
     put_url = urls[0].get("presignedUrl") or urls[0].get("url") if urls else None
     if not put_url:
         if dry_run:

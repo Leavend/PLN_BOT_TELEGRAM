@@ -489,7 +489,13 @@ async def submit_fasih_safe(
             error_detail = None
             try:
                 presign_resp = request_presign_url(headers, target["id"], pid, [f"{target['id']}.7z"], is_edit, copy_from_id)
-                urls = presign_resp.get("data", [])
+                data_obj = presign_resp.get("data", {})
+                if isinstance(data_obj, list):
+                    urls = data_obj
+                elif isinstance(data_obj, dict):
+                    urls = data_obj.get("presignedUrls", [])
+                else:
+                    urls = []
                 put_url = urls[0].get("presignedUrl") or urls[0].get("url") if urls else None
                 if not urls:
                     error_detail = f"Response data kosong dari server: {presign_resp}"
