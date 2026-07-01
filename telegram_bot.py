@@ -264,6 +264,7 @@ async def submit_fasih_safe(
             target = build_new_assignment_target(template_target, idpel or "", nometer or "", template_mapping)
             if direct_args:
                 target["data2"] = direct_args.get("nama") or ""
+                target["data4"] = direct_args.get("alamat") or ""
                 target["data5"] = direct_args.get("alamat") or ""
         else:
             # Fetch page 0 first (quick check to save time)
@@ -583,7 +584,7 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 LIST_PAGE_SIZE = 10
 
-def _build_list_page(content, page):
+def _build_list_page(content, page, template_mapping=None):
     """Build paginated block message and inline keyboard navigation for list view."""
     total = len(content)
     start = page * LIST_PAGE_SIZE
@@ -597,13 +598,19 @@ def _build_list_page(content, page):
         f"📊 **Daftar Tugas ({start+1}-{end} dari {total}):**\n"
     )
     
+    idpel_slot = "data3"
+    nometer_slot = "data1"
+    if template_mapping:
+        idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
+        nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
+        
     for i in range(start, end):
         a = content[i]
         status = a.get("assignmentStatusAlias", "?")
         status_icon = "🟢" if status == "OPEN" else "🔵" if status == "SUBMITTED" else "⚪"
         
-        idpel = a.get("data3", "-")
-        nometer = a.get("data1", "-")
+        idpel = a.get(idpel_slot, "-")
+        nometer = a.get(nometer_slot, "-")
         nama = escape_markdown(str(a.get("data2", "-")).strip())
         
         l1 = a.get("region", {}).get("level1", {})
@@ -665,10 +672,17 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Fetch ALL assignments in parallel for fast loading
         all_content = fetch_all_assignments(headers, pid)
             
+        template_lookup = survey.get("templateLookup", [])
+        template_mapping = {}
+        if template_lookup:
+            tl = template_lookup[0]
+            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+        context.user_data["template_mapping"] = template_mapping
+            
         context.user_data["list_assignments"] = all_content
         context.user_data["list_page"] = 0
         
-        response_text, markup = _build_list_page(all_content, 0)
+        response_text, markup = _build_list_page(all_content, 0, template_mapping=template_mapping)
         await sent_msg.delete()
         await update.message.reply_text(response_text, reply_markup=markup, parse_mode="Markdown")
         
@@ -695,27 +709,32 @@ async def list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.edit_text("ℹ️ Sesi daftar tugas kedaluwarsa. Silakan ketik /list kembali.")
             return
             
-        response_text, markup = _build_list_page(content, page)
+        template_mapping = context.user_data.get("template_mapping")
+        response_text, markup = _build_list_page(content, page, template_mapping=template_mapping)
         await query.message.edit_text(response_text, reply_markup=markup, parse_mode="Markdown")
 
 # --- INTERACTIVE SUBMISSION CONVERSATION ---
 
 ASSIGN_PAGE_SIZE = 8  # ponytail: raise if needed
 
-def _build_assign_page(eligible, page):
+def _build_assign_page(eligible, page, template_mapping=None):
     """Build paginated inline keyboard for assignment selection."""
     total = len(eligible)
     start = page * ASSIGN_PAGE_SIZE
     end = min(start + ASSIGN_PAGE_SIZE, total)
     total_pages = (total + ASSIGN_PAGE_SIZE - 1) // ASSIGN_PAGE_SIZE
     
+    idpel_slot = "data3"
+    if template_mapping:
+        idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
+        
     keyboard = []
     for i in range(start, end):
         a = eligible[i]
         status = a.get("assignmentStatusAlias", "?")
         icon = "🟢" if status == "OPEN" else "🔵"
         nama = a.get('data2', '') or 'NoName'
-        idpel = a.get('data3', '') or '-'
+        idpel = a.get(idpel_slot, '') or '-'
         btn_text = f"{icon} {nama} ({idpel})"
         keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"assign_{i}")])
     
@@ -1029,7 +1048,8 @@ async def submit_search_callback(update: Update, context: ContextTypes.DEFAULT_T
             return ConversationHandler.END
             
         context.user_data["open_assignments"] = eligible_filtered
-        header, markup = _build_assign_page(eligible_filtered, 0)
+        template_mapping = context.user_data.get("template_mapping")
+        header, markup = _build_assign_page(eligible_filtered, 0, template_mapping=template_mapping)
         await query.message.edit_text(header, reply_markup=markup, parse_mode="Markdown")
         return WAITING_SELECT_ASSIGNMENT
         
@@ -1099,8 +1119,11 @@ async def wilayah_selection_callback(update: Update, context: ContextTypes.DEFAU
     return WAITING_WILAYAH_SELECTION
 
 async def retrieve_pln_profile_for_existing_assignment(target: dict, context: ContextTypes.DEFAULT_TYPE):
-    idpel = target.get("data3", "")
-    nometer = target.get("data1", "")
+    template_mapping = context.user_data.get("template_mapping") or {}
+    idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
+    nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
+    idpel = target.get(idpel_slot, "")
+    nometer = target.get(nometer_slot, "")
     context.user_data["pln_profile"] = None
     try:
         from pln_lookup import PLNLookupTool
@@ -1160,6 +1183,19 @@ async def retrieve_pln_profile_for_existing_assignment(target: dict, context: Co
                         ""
                     ).strip()
                 }
+
+                # Update target and submit_args if name or address is currently empty or NoName
+                if not context.user_data.get("submit_args"):
+                    context.user_data["submit_args"] = {}
+                args = context.user_data["submit_args"]
+                if not args.get("nama") or args.get("nama") == "NoName":
+                    args["nama"] = nama
+                if not args.get("alamat"):
+                    args["alamat"] = alamat
+                if not target.get("data2") or target.get("data2") == "NoName":
+                    target["data2"] = nama
+                target["data4"] = alamat
+                target["data5"] = alamat
     except Exception as e:
         logger.error(f"Error querying AP2T for existing assignment: {str(e)}", exc_info=True)
 
@@ -1196,6 +1232,7 @@ async def proceed_to_tarif_after_template(update: Update, context: ContextTypes.
     from submit_fasih import build_new_assignment_target
     target = build_new_assignment_target(template, p["idpel"], p["nometer"], template_mapping)
     target["data2"] = p.get("nama") or ""
+    target["data4"] = p.get("alamat") or ""
     target["data5"] = p.get("alamat") or ""
     
     context.user_data["target_assignment"] = target
@@ -1246,7 +1283,8 @@ async def select_assignment_callback(update: Update, context: ContextTypes.DEFAU
         page = int(query.data.split("_")[1])
         context.user_data["assign_page"] = page
         eligible = context.user_data["open_assignments"]
-        header, markup = _build_assign_page(eligible, page)
+        template_mapping = context.user_data.get("template_mapping")
+        header, markup = _build_assign_page(eligible, page, template_mapping=template_mapping)
         await query.message.edit_text(header, reply_markup=markup, parse_mode="Markdown")
         return WAITING_SELECT_ASSIGNMENT
     
@@ -1264,10 +1302,14 @@ async def select_assignment_callback(update: Update, context: ContextTypes.DEFAU
     idx = int(query.data.split("_")[1])
     target = context.user_data["open_assignments"][idx]
     
+    template_mapping = context.user_data.get("template_mapping") or {}
+    idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
+    nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
+
     context.user_data["target_assignment"] = target
     context.user_data["submit_args"]["assignment_id"] = target["id"]
-    context.user_data["submit_args"]["idpel"] = target.get("data3", "")
-    context.user_data["submit_args"]["nometer"] = target.get("data1", "")
+    context.user_data["submit_args"]["idpel"] = target.get(idpel_slot, "")
+    context.user_data["submit_args"]["nometer"] = target.get(nometer_slot, "")
     context.user_data["submit_args"]["nama"] = target.get("data2", "")
     context.user_data["create_new"] = False
     
@@ -1758,8 +1800,10 @@ async def process_lookup_input(update: Update, context: ContextTypes.DEFAULT_TYP
                 results[idx] = res
 
         # Chunking results into multiple messages to bypass Telegram's 4096 character limit
+        import html
+        import asyncio
         messages_to_send = []
-        current_chunk = [f"🔍 **Hasil Pencarian ({total} nomor):**\n"]
+        current_chunk = [f"🔍 <b>Hasil Pencarian ({total} nomor):</b>\n"]
         current_len = len(current_chunk[0])
         
         for idx, (q_type, val) in enumerate(search_queries):
@@ -1768,8 +1812,8 @@ async def process_lookup_input(update: Update, context: ContextTypes.DEFAULT_TYP
                 profile = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
                 if profile:
                     p = profile[0]
-                    name = escape_markdown(str(p.get("nama", "N/A")).strip())
-                    nik = escape_markdown(str(p.get("noidentitas", p.get("no_identitas", "-"))).strip())
+                    name = html.escape(str(p.get("nama", "N/A")).strip())
+                    nik = html.escape(str(p.get("noidentitas", p.get("no_identitas", "-"))).strip())
                     if not nik or nik.lower() == "null":
                         nik = "-"
                     
@@ -1792,11 +1836,11 @@ async def process_lookup_input(update: Update, context: ContextTypes.DEFAULT_TYP
                         nometer_val = val
                     nometer_val = nometer_val if nometer_val else "-"
                     
-                    line_str = f"• `IDPel: {idpel_val} | NoMeter: {nometer_val} ➔ NIK: {nik} - {name}`"
+                    line_str = f"• IDPel: <code>{idpel_val}</code> | NoMeter: <code>{nometer_val}</code> ➔ NIK: <code>{nik}</code> - {name}"
                 else:
-                    line_str = f"• `{val}` - SUCCESS (Tanpa Profil)"
+                    line_str = f"• <code>{val}</code> - SUCCESS (Tanpa Profil)"
             else:
-                line_str = f"• `{val}` - GAGAL (Koneksi/Sesi PLN)"
+                line_str = f"• <code>{val}</code> - GAGAL (Koneksi/Sesi PLN)"
                 
             if current_len + len(line_str) + 1 > 3800:
                 messages_to_send.append("\n".join(current_chunk))
@@ -1809,11 +1853,12 @@ async def process_lookup_input(update: Update, context: ContextTypes.DEFAULT_TYP
         if current_chunk:
             messages_to_send.append("\n".join(current_chunk))
             
-        # Send chunks
+        # Send chunks with a small sleep to prevent 429 rate limit errors
         if messages_to_send:
-            await sent_msg.edit_text(messages_to_send[0], parse_mode="Markdown")
+            await sent_msg.edit_text(messages_to_send[0], parse_mode="HTML")
             for chunk in messages_to_send[1:]:
-                await update.message.reply_text(chunk, parse_mode="Markdown")
+                await asyncio.sleep(0.5)
+                await update.message.reply_text(chunk, parse_mode="HTML")
         
         # Generate Excel reports
         temp_dir = tempfile.gettempdir()
