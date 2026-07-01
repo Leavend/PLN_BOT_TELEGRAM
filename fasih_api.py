@@ -101,7 +101,13 @@ def request_presign_url(headers: dict, assignment_id: str, survey_period_id: str
         params={"surveyPeriodId": survey_period_id}, timeout=15
     )
     resp.raise_for_status()
-    return resp.json()
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal request presign url'}",
+            response=resp
+        )
+    return res_json
 
 def upload_to_s3(presigned_url: str, file_path: str) -> bool:
     """Step 2: Upload .7z file to S3 using presigned URL."""
@@ -125,7 +131,13 @@ def request_photo_presign_put(headers: dict, assignment_id: str, copy_from_id: s
         headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=15
     )
     resp.raise_for_status()
-    return resp.json()
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal request photo presign put'}",
+            response=resp
+        )
+    return res_json
 
 def upload_photo_to_s3(presigned_url: str, file_path: str, md5_base64: str) -> bool:
     """PUT upload photo to S3 with MD5 checksum."""
@@ -147,7 +159,13 @@ def request_photo_presign_get(headers: dict, assignment_id: str, copy_from_id: s
         headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=15
     )
     resp.raise_for_status()
-    return resp.json()
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal request photo presign get'}",
+            response=resp
+        )
+    return res_json
 
 def confirm_submit(headers: dict, params: dict, is_edit: bool = False) -> dict:
     """Step 3: Confirm submission with metadata."""
@@ -162,7 +180,13 @@ def confirm_submit(headers: dict, params: dict, is_edit: bool = False) -> dict:
             f"HTTP {resp.status_code}: {resp.text}",
             response=resp
         )
-    return resp.json()
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal konfirmasi submit'}",
+            response=resp
+        )
+    return res_json
 
 def fetch_template_mapping(headers: dict, template_id: str, version: str) -> dict:
     """Fetch template custom data mapping (data1-data10 → field keys)."""
