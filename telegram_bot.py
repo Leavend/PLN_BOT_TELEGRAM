@@ -129,10 +129,13 @@ def get_fallback_coordinate(prov_str, kab_str, kec_str, alamat_str):
     addr_clean = str(alamat_str or "").lower().strip()
     
     matched_coords = None
-    for p_name, coords in INDONESIAN_PROVINCES.items():
-        if p_name in prov_clean or p_name in kab_clean or p_name in addr_clean:
-            matched_coords = coords
-            break
+    if "bontang" in kab_clean or "bontang" in addr_clean or "bontang" in kec_clean or "bontang" in prov_clean:
+        matched_coords = (0.1378, 117.4958)
+    else:
+        for p_name, coords in INDONESIAN_PROVINCES.items():
+            if p_name in prov_clean or p_name in kab_clean or p_name in addr_clean:
+                matched_coords = coords
+                break
             
     if not matched_coords:
         matched_coords = (-5.1476, 119.4327)
@@ -154,8 +157,14 @@ def geocode_address_nominatim(alamat, kel, kec, kab, prov):
     queries = []
     alamat_clean = alamat.replace("JL.", "Jalan ").strip() if alamat else ""
     
-    if alamat_clean and kel and kec and kab and prov:
-        queries.append(f"{alamat_clean}, {kel}, {kec}, {kab}, {prov}, Indonesia")
+    if alamat_clean:
+        if kab and prov:
+            queries.append(f"{alamat_clean}, {kab}, {prov}, Indonesia")
+        if kab:
+            queries.append(f"{alamat_clean}, {kab}, Indonesia")
+        if kel and kec and kab and prov:
+            queries.append(f"{alamat_clean}, {kel}, {kec}, {kab}, {prov}, Indonesia")
+            
     if kel and kec and kab and prov:
         queries.append(f"{kel}, {kec}, {kab}, {prov}, Indonesia")
     if kec and kab and prov:
@@ -253,6 +262,9 @@ async def submit_fasih_safe(
                 return False, "Template assignment acuan tidak ditemukan di server BPS."
             from submit_fasih import build_new_assignment_target
             target = build_new_assignment_target(template_target, idpel or "", nometer or "", template_mapping)
+            if direct_args:
+                target["data2"] = direct_args.get("nama") or ""
+                target["data5"] = direct_args.get("alamat") or ""
         else:
             # Fetch page 0 first (quick check to save time)
             first_page = fetch_assignments(headers, pid, page=0)
@@ -1183,6 +1195,8 @@ async def proceed_to_tarif_after_template(update: Update, context: ContextTypes.
     
     from submit_fasih import build_new_assignment_target
     target = build_new_assignment_target(template, p["idpel"], p["nometer"], template_mapping)
+    target["data2"] = p.get("nama") or ""
+    target["data5"] = p.get("alamat") or ""
     
     context.user_data["target_assignment"] = target
     context.user_data["submit_args"]["assignment_id"] = target["id"]
@@ -1472,7 +1486,7 @@ async def process_location(update: Update, context: ContextTypes.DEFAULT_TYPE, h
         f"┌──────────────────────────────────┐\n"
         f"│        INFORMASI PELANGGAN       │\n"
         f"└──────────────────────────────────┘\n"
-        f" Nama    : {target.get('data2','')[:20]}\n"
+        f" Nama    : {args.get('nama', target.get('data2', ''))[:20]}\n"
         f" IDPel   : {args.get('idpel')}\n"
         f" NoMeter : {args.get('nometer')}\n"
         f" Tarif   : {args.get('tarif')}\n"

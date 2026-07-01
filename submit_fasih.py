@@ -323,10 +323,13 @@ def get_fallback_coordinate(prov_str, kab_str, kec_str, alamat_str):
     addr_clean = str(alamat_str or "").lower().strip()
     
     matched_coords = None
-    for p_name, coords in INDONESIAN_PROVINCES.items():
-        if p_name in prov_clean or p_name in kab_clean or p_name in addr_clean:
-            matched_coords = coords
-            break
+    if "bontang" in kab_clean or "bontang" in addr_clean or "bontang" in kec_clean or "bontang" in prov_clean:
+        matched_coords = (0.1378, 117.4958)
+    else:
+        for p_name, coords in INDONESIAN_PROVINCES.items():
+            if p_name in prov_clean or p_name in kab_clean or p_name in addr_clean:
+                matched_coords = coords
+                break
             
     if not matched_coords:
         matched_coords = (-5.1476, 119.4327)
