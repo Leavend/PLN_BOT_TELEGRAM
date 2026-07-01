@@ -220,7 +220,8 @@ def generate_random_comment() -> str:
     ]
     return random.choice(comments)
 
-def get_region_fields(target: dict, direct_args: dict) -> dict:
+def resolve_region_codes_and_names(target: dict, direct_args: dict):
+    # Default from BPS target assignment
     region = target.get("region") or {}
     l1 = region.get("level1") or {}
     l2 = l1.get("level2") or {}
@@ -231,10 +232,53 @@ def get_region_fields(target: dict, direct_args: dict) -> dict:
     l1_name = l1.get("name") or "KALIMANTAN TIMUR"
     l2_code = l2.get("code") or "74"
     l2_name = l2.get("name") or "KOTA BONTANG"
+    l2_fullcode = l2.get("fullCode") or "6474"
     l3_code = l3.get("code") or "02"
     l3_name = l3.get("name") or "BONTANG SELATAN"
+    l3_fullcode = l3.get("fullCode") or "6474020"
     l4_code = l4.get("code") or "003"
     l4_name = l4.get("name") or "BERBAS PANTAI"
+    l4_fullcode = l4.get("fullCode") or "6474020003"
+    
+    # Override with PLN/AP2T database values if present
+    pln_kd_kel = str(direct_args.get("pln_kd_kel") or "").strip()
+    if len(pln_kd_kel) == 10 and pln_kd_kel.isdigit():
+        l1_code = pln_kd_kel[0:2]
+        l2_code = pln_kd_kel[2:4]
+        l2_fullcode = pln_kd_kel[0:4]
+        l3_code = pln_kd_kel[4:7]
+        l3_fullcode = pln_kd_kel[0:7]
+        l4_code = pln_kd_kel[7:10]
+        l4_fullcode = pln_kd_kel[0:10]
+        
+        l1_name = str(direct_args.get("pln_nama_prov") or l1_name).strip().upper()
+        l2_name = str(direct_args.get("pln_nama_kab") or l2_name).strip().upper()
+        l3_name = str(direct_args.get("pln_nama_kec") or l3_name).strip().upper()
+        l4_name = str(direct_args.get("pln_nama_kel") or l4_name).strip().upper()
+    else:
+        # Fallback to name-only overrides if no code is present but names are
+        if direct_args.get("pln_nama_prov"):
+            l1_name = str(direct_args.get("pln_nama_prov")).strip().upper()
+        if direct_args.get("pln_nama_kab"):
+            l2_name = str(direct_args.get("pln_nama_kab")).strip().upper()
+        if direct_args.get("pln_nama_kec"):
+            l3_name = str(direct_args.get("pln_nama_kec")).strip().upper()
+        if direct_args.get("pln_nama_kel"):
+            l4_name = str(direct_args.get("pln_nama_kel")).strip().upper()
+
+    return {
+        "l1_code": l1_code, "l1_name": l1_name,
+        "l2_code": l2_code, "l2_name": l2_name, "l2_fullcode": l2_fullcode,
+        "l3_code": l3_code, "l3_name": l3_name, "l3_fullcode": l3_fullcode,
+        "l4_code": l4_code, "l4_name": l4_name, "l4_fullcode": l4_fullcode
+    }
+
+def get_region_fields(target: dict, direct_args: dict) -> dict:
+    res = resolve_region_codes_and_names(target, direct_args)
+    l1_code, l1_name = res["l1_code"], res["l1_name"]
+    l2_code, l2_name = res["l2_code"], res["l2_name"]
+    l3_code, l3_name = res["l3_code"], res["l3_name"]
+    l4_code, l4_name = res["l4_code"], res["l4_name"]
     
     return {
         "r102a": f"[{l1_code}] {l1_name}",
@@ -267,23 +311,33 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
     })
     
     # Populate Blok II, III, and IV fields
-    region = target.get("region") or {}
-    l1 = region.get("level1") or {}
-    l2 = l1.get("level2") or {}
-    l3 = l2.get("level3") or {}
-    l4 = l3.get("level4") or {}
+    res_reg = resolve_region_codes_and_names(target, direct_args)
+    l1_code = res_reg["l1_code"]
+    l1_name = res_reg["l1_name"]
+    l2_code = res_reg["l2_code"]
+    l2_name = res_reg["l2_name"]
+    l2_fullcode = res_reg["l2_fullcode"]
+    l3_code = res_reg["l3_code"]
+    l3_name = res_reg["l3_name"]
+    l3_fullcode = res_reg["l3_fullcode"]
+    l4_code = res_reg["l4_code"]
+    l4_name = res_reg["l4_name"]
+    l4_fullcode = res_reg["l4_fullcode"]
     
-    l1_code = l1.get("code") or "64"
-    l1_name = l1.get("name") or "KALIMANTAN TIMUR"
-    l2_code = l2.get("code") or "74"
-    l2_name = l2.get("name") or "KOTA BONTANG"
-    l2_fullcode = l2.get("fullCode") or "6474"
-    l3_code = l3.get("code") or "02"
-    l3_name = l3.get("name") or "BONTANG SELATAN"
-    l3_fullcode = l3.get("fullCode") or "6474020"
-    l4_code = l4.get("code") or "003"
-    l4_name = l4.get("name") or "BERBAS PANTAI"
-    l4_fullcode = l4.get("fullCode") or "6474020003"
+    # Store resolved region info for wrap_answers
+    answers.update({
+        "_l1_code": l1_code,
+        "_l1_name": l1_name,
+        "_l2_code": l2_code,
+        "_l2_name": l2_name,
+        "_l2_fullcode": l2_fullcode,
+        "_l3_code": l3_code,
+        "_l3_name": l3_name,
+        "_l3_fullcode": l3_fullcode,
+        "_l4_code": l4_code,
+        "_l4_name": l4_name,
+        "_l4_fullcode": l4_fullcode
+    })
     
     # Prioritize name from PLN/AP2T if available
     pln_nama = direct_args.get("pln_nama") or ""
@@ -517,17 +571,17 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     l3 = l2.get("level3") or {}
     l4 = l3.get("level4") or {}
     
-    l1_code = l1.get("code") or "64"
-    l1_name = l1.get("name") or "KALIMANTAN TIMUR"
-    l2_code = l2.get("code") or "74"
-    l2_name = l2.get("name") or "KOTA BONTANG"
-    l2_fullcode = l2.get("fullCode") or "6474"
-    l3_code = l3.get("code") or "02"
-    l3_name = l3.get("name") or "BONTANG SELATAN"
-    l3_fullcode = l3.get("fullCode") or "6474020"
-    l4_code = l4.get("code") or "003"
-    l4_name = l4.get("name") or "BERBAS PANTAI"
-    l4_fullcode = l4.get("fullCode") or "6474020003"
+    l1_code = flat_answers.get("_l1_code") or l1.get("code") or "64"
+    l1_name = flat_answers.get("_l1_name") or l1.get("name") or "KALIMANTAN TIMUR"
+    l2_code = flat_answers.get("_l2_code") or l2.get("code") or "74"
+    l2_name = flat_answers.get("_l2_name") or l2.get("name") or "KOTA BONTANG"
+    l2_fullcode = flat_answers.get("_l2_fullcode") or l2.get("fullCode") or "6474"
+    l3_code = flat_answers.get("_l3_code") or l3.get("code") or "02"
+    l3_name = flat_answers.get("_l3_name") or l3.get("name") or "BONTANG SELATAN"
+    l3_fullcode = flat_answers.get("_l3_fullcode") or l3.get("fullCode") or "6474020"
+    l4_code = flat_answers.get("_l4_code") or l4.get("code") or "003"
+    l4_name = flat_answers.get("_l4_name") or l4.get("name") or "BERBAS PANTAI"
+    l4_fullcode = flat_answers.get("_l4_fullcode") or l4.get("fullCode") or "6474020003"
     
     now_ms = int(time.time() * 1000)
     created_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
