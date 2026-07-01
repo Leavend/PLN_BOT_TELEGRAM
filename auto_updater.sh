@@ -11,15 +11,27 @@ echo "[*] Auto-Updater Bot Telegram dimulai..."
 # Memastikan kita berada di direktori repositori
 cd "$(dirname "$0")"
 
-# Deteksi perintah py/python3/python yang tersedia
-if command -v py &>/dev/null; then
+# Fungsi untuk mengetes apakah perintah python benar-benar berfungsi (menghindari alias palsu Microsoft Store)
+is_python_working() {
+    local cmd="$1"
+    if command -v "$cmd" &>/dev/null; then
+        if "$cmd" -c "import sys" &>/dev/null; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Deteksi perintah py/python3/python yang bekerja
+if is_python_working "py"; then
     PYTHON_CMD="py"
-elif command -v python3 &>/dev/null; then
+elif is_python_working "python3"; then
     PYTHON_CMD="python3"
-elif command -v python &>/dev/null; then
+elif is_python_working "python"; then
     PYTHON_CMD="python"
 else
-    echo "[-] Python tidak ditemukan di laptop ini! Harap install Python terlebih dahulu."
+    echo "[-] Python tidak ditemukan atau tidak dapat dijalankan di laptop ini!"
+    echo "[-] Silakan install Python dan pastikan bisa dijalankan dengan perintah 'py', 'python3', atau 'python'."
     exit 1
 fi
 
