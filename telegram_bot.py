@@ -568,7 +568,7 @@ async def submit_fasih_safe(
         return False, f"Kesalahan submit: {str(e)}"
 
 # Conversation handler states
-WAITING_SELECT_ASSIGNMENT, WAITING_TARIF, WAITING_DAYA, WAITING_HASIL, WAITING_PHOTO, WAITING_LOCATION, WAITING_CONFIRM, WAITING_LOOKUP_INPUT, WAITING_SUBMIT_SEARCH_INPUT, WAITING_DUPLICATE_CHOICE, WAITING_WILAYAH_SELECTION, WAITING_ASSIGNMENT_SEARCH_INPUT = range(12)
+WAITING_SELECT_ASSIGNMENT, WAITING_TARIF, WAITING_DAYA, WAITING_HASIL, WAITING_PHOTO, WAITING_LOCATION, WAITING_CONFIRM, WAITING_LOOKUP_INPUT, WAITING_SUBMIT_SEARCH_INPUT, WAITING_DUPLICATE_CHOICE, WAITING_WILAYAH_SELECTION, WAITING_ASSIGNMENT_SEARCH_INPUT, WAITING_BATCH_SUBMIT_INPUT, WAITING_BATCH_CONFIRM = range(14)
 
 # --- BOT HANDLERS ---
 
@@ -576,7 +576,8 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("📋 Daftar Tugas (List)"), KeyboardButton("⚡ Kirim Kuesioner (Submit)")],
         [KeyboardButton("🔍 Cari InfoPelanggan"), KeyboardButton("🔍 Cari Assignment BPS")],
-        [KeyboardButton("🔑 Status & Login"), KeyboardButton("🚪 Keluar (Logout)")]
+        [KeyboardButton("⚡ Batch Submit (Massal)"), KeyboardButton("🔑 Status & Login")],
+        [KeyboardButton("🚪 Keluar (Logout)")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
