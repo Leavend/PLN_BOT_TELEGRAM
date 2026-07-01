@@ -1449,7 +1449,6 @@ async def duplicate_choice_callback(update: Update, context: ContextTypes.DEFAUL
         
         status_msg = await query.message.edit_text("⏳ Menghubungkan ke PLN AP2T untuk mencocokkan data...")
         await retrieve_pln_profile_for_existing_assignment(target, context)
-        await safe_delete_message(status_msg)
         
         context.user_data["used_ap2t_autofill"] = False
         return await prompt_tarif_selection(update, context)
@@ -1504,7 +1503,6 @@ async def select_assignment_callback(update: Update, context: ContextTypes.DEFAU
     # Query PLN AP2T in the background
     status_msg = await query.message.edit_text("⏳ Menghubungkan ke PLN AP2T untuk mencocokkan data...")
     await retrieve_pln_profile_for_existing_assignment(target, context)
-    await safe_delete_message(status_msg)
     
     context.user_data["used_ap2t_autofill"] = False
     return await prompt_tarif_selection(update, context)
