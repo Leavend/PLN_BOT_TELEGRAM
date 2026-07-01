@@ -154,6 +154,34 @@ def geocode_address_nominatim(alamat, kel, kec, kab, prov):
     import requests
     import random
     
+    # Try Google Maps Geocoding first if key is present
+    api_key = os.getenv("GMAPS_API_KEY")
+    if api_key:
+        alamat_clean = str(alamat or "").replace("JL.", "Jalan ").strip()
+        if alamat_clean:
+            q = f"{alamat_clean}"
+            if kel:
+                q += f", {kel}"
+            if kec:
+                q += f", {kec}"
+            if kab:
+                q += f", {kab}"
+            if prov:
+                q += f", {prov}"
+            q += ", Indonesia"
+            try:
+                r = requests.get(
+                    "https://maps.googleapis.com/maps/api/geocode/json",
+                    params={"address": q, "key": api_key},
+                    timeout=5
+                )
+                res = r.json()
+                if res.get("status") == "OK" and res.get("results"):
+                    loc = res["results"][0]["geometry"]["location"]
+                    return float(loc["lat"]), float(loc["lng"])
+            except Exception as e:
+                logger.error(f"Error in Google Maps geocoding: {e}")
+
     queries = []
     alamat_clean = alamat.replace("JL.", "Jalan ").strip() if alamat else ""
     
