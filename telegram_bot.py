@@ -437,7 +437,7 @@ async def submit_fasih_safe(
                 "idpel": idpel or "",
                 "nometer": nometer or "",
                 "nama": target.get("data2", "") or "PELANGGAN",
-                "alamat": "",
+                "alamat": target.get("data4", "") or "",
                 "tarif": "R-1",
                 "daya": "900",
                 "hasil": "1",
@@ -446,7 +446,57 @@ async def submit_fasih_safe(
                 "kddk": "1",
                 "status_dil": "1"
             }
-        
+
+        # Perform PLN Lookup to enrich data with NIK, real address, and real name if not already filled
+        if not direct_args.get("pln_nik") or not direct_args.get("pln_alamat"):
+            lookup_key = idpel or nometer or target.get("data3") or target.get("data1")
+            if lookup_key:
+                if status_callback:
+                    await status_callback("🔍 Mencocokkan NIK & Alamat dgn PLN AP2T...")
+                try:
+                    from pln_lookup import PLNLookupTool
+                    engine = PLNLookupTool()
+                    def do_pln_lookup():
+                        cleaned_lk = str(lookup_key).strip()
+                        if len(cleaned_lk) == 12:
+                            return engine.lookup_by_idpel(cleaned_lk)
+                        elif len(cleaned_lk) == 11:
+                            return engine.lookup_by_nometer(cleaned_lk)
+                        else:
+                            r = engine.lookup_by_idpel(cleaned_lk)
+                            profiles = r.get("dil_main", r.get("list", r.get("lInfoMasterNedisys", []))) if r else []
+                            if not profiles:
+                                r = engine.lookup_by_nometer(cleaned_lk)
+                            return r
+                    
+                    res = await asyncio.to_thread(do_pln_lookup)
+                    if res:
+                        profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
+                        if profiles:
+                            p_profile = profiles[0]
+                            if not p_profile.get("nama") and p_profile.get("id_pelanggan"):
+                                def do_second_lookup():
+                                    return engine.lookup_by_idpel(p_profile.get("id_pelanggan"))
+                                second_res = await asyncio.to_thread(do_second_lookup)
+                                if second_res:
+                                    sec_profiles = second_res.get("dil_main", second_res.get("list", second_res.get("lInfoMasterNedisys", [])))
+                                    if sec_profiles:
+                                        p_profile.update(sec_profiles[0])
+                            
+                            pln_nama = str(p_profile.get("nama", "")).strip()
+                            pln_alamat = str(p_profile.get("alamat") or p_profile.get("namapnj") or p_profile.get("alamat_51") or "").strip()
+                            pln_nik = str(p_profile.get("noidentitas") or p_profile.get("no_identitas") or "").strip()
+                            
+                            if pln_nama and pln_nama != "NoName":
+                                direct_args["pln_nama"] = pln_nama
+                            if pln_alamat:
+                                direct_args["pln_alamat"] = pln_alamat
+                            if pln_nik:
+                                direct_args["pln_nik"] = pln_nik
+                                direct_args["nik"] = pln_nik
+                except Exception as e:
+                    logger.error(f"Error performing PLN lookup in submit_fasih_safe: {e}")
+
         # Build answer dict using imported helper
         from submit_fasih import build_dynamic_answers
         answers = build_dynamic_answers(target, direct_args, template_mapping)
@@ -1150,7 +1200,6 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
                     if lat_num is None or lon_num is None:
                         lat_num, lon_num = get_fallback_coordinate(nama_prov, nama_kab, nama_kec, alamat)
                 
-                # Simpan profile untuk auto-fill
                 context.user_data["pln_profile"] = {
                     "nama": nama,
                     "alamat": alamat,
@@ -1158,6 +1207,7 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
                     "daya": daya,
                     "lat": lat_num,
                     "lon": lon_num,
+                    "nik": str(pln_profile.get("noidentitas") or pln_profile.get("no_identitas") or "").strip(),
                     "idpel": str(pln_profile.get("id_pelanggan", "")).strip() or (cleaned_digits if len(cleaned_digits) == 12 else ""),
                     "nometer": str(
                         pln_profile.get("nometer_kwh") or 
@@ -1361,6 +1411,7 @@ async def retrieve_pln_profile_for_existing_assignment(target: dict, context: Co
                     "daya": daya,
                     "lat": lat_num,
                     "lon": lon_num,
+                    "nik": str(pln_profile.get("noidentitas") or pln_profile.get("no_identitas") or "").strip(),
                     "idpel": idpel or str(pln_profile.get("id_pelanggan", "")).strip(),
                     "nometer": nometer or str(
                         pln_profile.get("nometer_kwh") or 
@@ -1378,10 +1429,15 @@ async def retrieve_pln_profile_for_existing_assignment(target: dict, context: Co
                 if not context.user_data.get("submit_args"):
                     context.user_data["submit_args"] = {}
                 args = context.user_data["submit_args"]
+                p = context.user_data["pln_profile"]
                 if not args.get("nama") or args.get("nama") == "NoName":
                     args["nama"] = nama
                 if not args.get("alamat"):
                     args["alamat"] = alamat
+                args["nik"] = p["nik"]
+                args["pln_nama"] = nama
+                args["pln_alamat"] = alamat
+                args["pln_nik"] = p["nik"]
                 if not target.get("data2") or target.get("data2") == "NoName":
                     target["data2"] = nama
                 target["data4"] = alamat
@@ -1433,6 +1489,10 @@ async def proceed_to_tarif_after_template(update: Update, context: ContextTypes.
     context.user_data["submit_args"]["alamat"] = p["alamat"]
     context.user_data["submit_args"]["lat"] = p["lat"]
     context.user_data["submit_args"]["lon"] = p["lon"]
+    context.user_data["submit_args"]["nik"] = p.get("nik") or ""
+    context.user_data["submit_args"]["pln_nama"] = p.get("nama") or ""
+    context.user_data["submit_args"]["pln_alamat"] = p.get("alamat") or ""
+    context.user_data["submit_args"]["pln_nik"] = p.get("nik") or ""
     context.user_data["create_new"] = True
     context.user_data["used_ap2t_autofill"] = False
     
@@ -1865,7 +1925,11 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "kelurahan": "001",
         "kdpm": "01",
         "kddk": "1",
-        "status_dil": "1"
+        "status_dil": "1",
+        "nik": args.get("nik") or "",
+        "pln_nama": args.get("pln_nama") or "",
+        "pln_alamat": args.get("pln_alamat") or "",
+        "pln_nik": args.get("pln_nik") or ""
     }
 
     # Run pipeline
@@ -2661,7 +2725,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             "kelurahan": r.get("kelurahan", "001"),
             "kdpm": "01",
             "kddk": "1",
-            "status_dil": "1"
+            "status_dil": "1",
+            "nik": r.get("nik") or ""
         }
         
         lat = None

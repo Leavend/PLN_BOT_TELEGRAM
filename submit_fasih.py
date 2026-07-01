@@ -285,9 +285,21 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
     l4_name = l4.get("name") or "BERBAS PANTAI"
     l4_fullcode = l4.get("fullCode") or "6474020003"
     
-    nik = generate_random_nik(l1_code, l2_code, l3_code)
-    r201_name = answers.get("r103") or "PELANGGAN"
-    
+    # Prioritize name from PLN/AP2T if available
+    pln_nama = direct_args.get("pln_nama") or ""
+    pln_nama = pln_nama.strip()
+    if pln_nama and pln_nama != "NoName":
+        r201_name = pln_nama
+        answers["r103"] = pln_nama
+    else:
+        r201_name = answers.get("r103") or "PELANGGAN"
+
+    # Prioritize NIK from PLN/AP2T if available and valid
+    nik = direct_args.get("pln_nik") or direct_args.get("nik") or ""
+    nik = str(nik).strip()
+    if not nik or len(nik) != 16 or not nik.isdigit():
+        nik = generate_random_nik(l1_code, l2_code, l3_code)
+
     # Blok II (Keterangan Penghuni Bangunan Tempat Tinggal)
     answers.update({
         "r201": r201_name,
@@ -296,13 +308,22 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
         "r204": "1. Milik sendiri"
     })
     
+    # Prioritize address from PLN/AP2T if available
+    pln_alamat = direct_args.get("pln_alamat") or direct_args.get("alamat") or ""
+    pln_alamat = pln_alamat.strip()
+    if pln_alamat:
+        r301e_val = pln_alamat
+        answers["r102e"] = pln_alamat
+    else:
+        r301e_val = answers.get("r102e") or ""
+
     # Blok III (Keterangan Keluarga Pengguna Meteran)
     answers.update({
         "r301a": f"[{l1_code}] {l1_name}",
         "r301b": f"[{l2_code}] {l2_name}",
         "r301c": f"[{l3_code}] {l3_name}",
         "r301d": f"[{l4_code}] {l4_name}",
-        "r301e": answers.get("r102e") or "",
+        "r301e": r301e_val,
         "r302a": 1,
         "r302a_var": "1",
         "r302a_no#1": 1,
