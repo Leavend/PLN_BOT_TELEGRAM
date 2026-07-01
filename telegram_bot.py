@@ -2391,6 +2391,13 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     
                 template_assignment_id = template_assignment["id"]
             
+            # Check for a default house photo in the script directory
+            photo_path = None
+            for p_name in ["foto_default.jpg", "default_house.jpg", "foto_default.png", "default_house.png"]:
+                if os.path.exists(p_name):
+                    photo_path = p_name
+                    break
+
             # Submit to BPS
             ok, message = await submit_fasih_safe(
                 token_data, token_file,
@@ -2399,6 +2406,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 create_new=create_new,
                 template_assignment_id=template_assignment_id,
                 direct_args=direct_args,
+                photo_path=photo_path,
                 lat=lat,
                 lon=lon
             )
@@ -2438,7 +2446,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         )
         
         with open(report_path, "rb") as report_file:
-            await update.message.reply_document(
+            await query.message.reply_document(
                 document=report_file,
                 filename=report_filename,
                 caption=summary_text,
