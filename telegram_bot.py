@@ -1999,7 +1999,6 @@ async def process_lookup_input(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Chunking results into multiple messages to bypass Telegram's 4096 character limit
         import html
-        import asyncio
         messages_to_send = []
         current_chunk = [f"🔍 <b>Hasil Pencarian ({total} nomor):</b>\n"]
         current_len = len(current_chunk[0])
