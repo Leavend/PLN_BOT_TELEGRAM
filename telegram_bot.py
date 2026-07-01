@@ -150,14 +150,38 @@ def escape_markdown(text: str) -> str:
         return ""
     return text.replace("\\", "").replace("*", "").replace("_", "").replace("[", "").replace("]", "").replace("`", "")
 
+def expand_indonesian_address_abbreviations(address: str) -> str:
+    if not address:
+        return ""
+    import re
+    addr = " " + address.upper() + " "
+    
+    mappings = {
+        r"\bOTISTA\b": "Otto Iskandardinata",
+        r"\bGATSU\b": "Gatot Subroto",
+        r"\bA\.?\s*YANI\b": "Ahmad Yani",
+        r"\bM\.?\s*T\.?\s*HARYONO\b": "M.T. Haryono",
+        r"\bJEND\.?\s*SUDIRMAN\b": "Jenderal Sudirman",
+        r"\bS\.?\s*PARMAN\b": "S. Parman",
+        r"\bHOS\s+COKROAMINOTO\b": "HOS Cokroaminoto",
+        r"\bSUPRAPTO\b": "Letjen Suprapto",
+        r"\bDI\s+PANJAITAN\b": "D.I. Panjaitan",
+    }
+    
+    for pattern, replacement in mappings.items():
+        addr = re.sub(pattern, replacement, addr)
+        
+    return addr.strip()
+
 def geocode_address_nominatim(alamat, kel, kec, kab, prov):
     import requests
     import random
     
-    # Try Google Maps Geocoding first if key is present
-    api_key = os.getenv("GMAPS_API_KEY")
-    if api_key:
-        alamat_clean = str(alamat or "").replace("JL.", "Jalan ").strip()
+    # Try Mapbox Geocoding first if token is present
+    mapbox_token = os.getenv("MAPBOX_ACCESS_TOKEN")
+    if mapbox_token:
+        import urllib.parse
+        alamat_clean = expand_indonesian_address_abbreviations(alamat)
         if alamat_clean:
             q = f"{alamat_clean}"
             if kel:
@@ -170,20 +194,20 @@ def geocode_address_nominatim(alamat, kel, kec, kab, prov):
                 q += f", {prov}"
             q += ", Indonesia"
             try:
-                r = requests.get(
-                    "https://maps.googleapis.com/maps/api/geocode/json",
-                    params={"address": q, "key": api_key},
-                    timeout=5
-                )
+                quoted_q = urllib.parse.quote(q)
+                url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{quoted_q}.json"
+                r = requests.get(url, params={"access_token": mapbox_token, "limit": 1, "country": "id"}, timeout=5)
                 res = r.json()
-                if res.get("status") == "OK" and res.get("results"):
-                    loc = res["results"][0]["geometry"]["location"]
-                    return float(loc["lat"]), float(loc["lng"])
+                if res.get("features"):
+                    center = res["features"][0]["geometry"]["coordinates"]
+                    # Mapbox returns [longitude, latitude]
+                    return float(center[1]), float(center[0])
             except Exception as e:
-                logger.error(f"Error in Google Maps geocoding: {e}")
+                logger.error(f"Error in Mapbox geocoding: {e}")
 
     queries = []
-    alamat_clean = alamat.replace("JL.", "Jalan ").strip() if alamat else ""
+    alamat_clean = expand_indonesian_address_abbreviations(alamat)
+    alamat_clean = alamat_clean.replace("JL.", "Jalan ").strip() if alamat_clean else ""
     
     if alamat_clean:
         if kab and prov:
