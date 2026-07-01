@@ -3,7 +3,7 @@
 # Menjalankan pengecekan Git repository secara berkala untuk melakukan auto-update bot.
 
 BOT_SCRIPT="telegram_bot.py"
-INTERVAL=5 # Cek update lebih cepat (setiap 5 detik)
+INTERVAL=10 # Cek update berkala setiap 10 detik (mengurangi congesti network git)
 BRANCH="main" # Ganti dengan nama branch Anda jika berbeda
 
 echo "[*] Auto-Updater Bot Telegram dimulai..."
@@ -44,19 +44,38 @@ get_bot_pid() {
 
 # Fungsi mematikan bot secara paksa dan bersih (kompatibel dengan Windows & Unix)
 terminate_bot() {
-    # 1. Coba matikan lewat Windows PowerShell jika berada di Windows/Git Bash
+    # 1. Coba matikan berdasarkan file bot.pid terlebih dahulu
+    if [ -f bot.pid ]; then
+        local pid=$(cat bot.pid)
+        if [ -n "$pid" ]; then
+            echo "[*] Menghentikan bot berdasarkan bot.pid (PID: $pid)..."
+            kill -15 $pid 2>/dev/null
+            if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                if command -v powershell.exe &>/dev/null; then
+                    powershell.exe -NoProfile -NonInteractive -Command "Stop-Process -Id $pid -Force" &>/dev/null
+                fi
+            fi
+            sleep 1
+            if ps -p $pid >/dev/null 2>&1; then
+                kill -9 $pid 2>/dev/null
+            fi
+        fi
+        rm -f bot.pid
+    fi
+
+    # 2. Coba matikan lewat Windows PowerShell jika berada di Windows/Git Bash (name-based cleanup)
     if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
         echo "[*] Menghentikan proses Windows Python yang menjalankan $BOT_SCRIPT..."
         if command -v powershell.exe &>/dev/null; then
-            powershell.exe -Command "Get-CimInstance Win32_Process -Filter \"CommandLine like '%$BOT_SCRIPT%'\" | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" &>/dev/null
-            sleep 2
+            powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process -Filter \"CommandLine like '%$BOT_SCRIPT%'\" | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" &>/dev/null
+            sleep 1
         elif command -v wmic &>/dev/null; then
             wmic process where "CommandLine like '%$BOT_SCRIPT%'" call terminate &>/dev/null
-            sleep 2
+            sleep 1
         fi
     fi
 
-    # 2. Cara standar Unix/Linux (dan fallback untuk Windows)
+    # 3. Cara standar Unix/Linux (name-based fallback)
     local pids=$(get_bot_pid)
     if [ -n "$pids" ]; then
         for pid in $pids; do
@@ -78,12 +97,20 @@ terminate_bot
 
 echo "[*] Menjalankan Bot Telegram..."
 $PYTHON_CMD "$BOT_SCRIPT" > bot.log 2>&1 &
+echo $! > bot.pid
 sleep 2
-PID=$(get_bot_pid)
-if [ -n "$PID" ]; then
+PID=$(cat bot.pid)
+if ps -p $PID >/dev/null 2>&1; then
     echo "[+] Bot berhasil dijalankan dengan PID: $PID"
 else
-    echo "[-] Gagal menjalankan bot. Silakan periksa file bot.log untuk detail error."
+    # Fallback to get_bot_pid
+    PID=$(get_bot_pid)
+    if [ -n "$PID" ]; then
+        echo $PID > bot.pid
+        echo "[+] Bot berhasil dijalankan dengan PID: $PID"
+    else
+        echo "[-] Gagal menjalankan bot. Silakan periksa file bot.log untuk detail error."
+    fi
 fi
 
 while true; do
@@ -103,8 +130,15 @@ while true; do
             
             echo "[+] Menjalankan kembali Bot Telegram dengan kode terbaru..."
             $PYTHON_CMD "$BOT_SCRIPT" > bot.log 2>&1 &
+            echo $! > bot.pid
             sleep 2
-            PID=$(get_bot_pid)
+            PID=$(cat bot.pid)
+            if ! ps -p $PID >/dev/null 2>&1; then
+                PID=$(get_bot_pid)
+                if [ -n "$PID" ]; then
+                    echo $PID > bot.pid
+                fi
+            fi
             echo "[+] Bot berhasil diperbarui dan dijalankan kembali dengan PID: $PID!"
         fi
     else

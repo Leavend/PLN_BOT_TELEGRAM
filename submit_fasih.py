@@ -220,6 +220,64 @@ def generate_random_comment() -> str:
     ]
     return random.choice(comments)
 
+import re
+
+def clean_pln_name(name: str) -> str:
+    if not name:
+        return ""
+    # Strip any numeric suffixes/digits
+    # E.g., "ABDUL RAHMAN 02" or "ABDUL RAHMAN02" or "01 ABDUL"
+    # To handle trailing digits specifically (like "ABDUL RAHMAN 02"):
+    cleaned = re.sub(r'\s*\d+\s*$', '', name) # removes trailing digits with optional space
+    # Remove any other remaining digits anywhere
+    cleaned = re.sub(r'\d+', '', cleaned)
+    # Remove any character not in [a-zA-Z\s\'.]
+    cleaned = re.sub(r"[^a-zA-Z\s'\.]", '', cleaned)
+    # Normalize spaces
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned.upper()
+
+def construct_pln_alamat(p: dict) -> str:
+    parts = []
+    pnj = str(p.get("pnj") or "").strip()
+    namapnj = str(p.get("namapnj") or "").strip()
+    nobang = str(p.get("nobang") or "").strip()
+    rt = str(p.get("rt") or "").strip()
+    rw = str(p.get("rw") or "").strip()
+    lingkungan = str(p.get("lingkungan") or "").strip()
+    alamat_raw = str(p.get("alamat") or p.get("alamat_51") or "").strip()
+    
+    if pnj and namapnj:
+        parts.append(f"{pnj} {namapnj}")
+    elif namapnj:
+        parts.append(namapnj)
+    elif alamat_raw:
+        parts.append(alamat_raw)
+        
+    if nobang:
+        parts.append(f"NO. {nobang}")
+        
+    if rt:
+        parts.append(f"RT. {rt}")
+    if rw:
+        parts.append(f"RW. {rw}")
+        
+    if lingkungan:
+        parts.append(lingkungan)
+        
+    res = " ".join(parts).strip()
+    return res if res else alamat_raw
+
+def resolve_r204_from_keperluan(keperluan: str) -> str:
+    if not keperluan:
+        return "1. Milik sendiri"
+    kep_upper = keperluan.upper()
+    if any(x in kep_upper for x in ["KOST", "KOS", "KONTRAK", "SEWA"]):
+        return "2. Kontrak/sewa"
+    if "DINAS" in kep_upper:
+        return "4. Dinas"
+    return "1. Milik sendiri"
+
 def resolve_region_codes_and_names(target: dict, direct_args: dict):
     # Default from BPS target assignment
     region = target.get("region") or {}
@@ -280,13 +338,17 @@ def get_region_fields(target: dict, direct_args: dict) -> dict:
     l3_code, l3_name = res["l3_code"], res["l3_name"]
     l4_code, l4_name = res["l4_code"], res["l4_name"]
     
+    r103_name = target.get("data2") or direct_args.get("nama") or ""
+    if r103_name:
+        r103_name = clean_pln_name(str(r103_name))
+        
     return {
         "r102a": f"[{l1_code}] {l1_name}",
         "r102b": f"[{l2_code}] {l2_name}",
         "r102c": f"[{l3_code}] {l3_name}",
         "r102d": f"[{l4_code}] {l4_name}",
         "r102e": target.get("data4") or direct_args.get("alamat") or "",
-        "r103": target.get("data2") or direct_args.get("nama") or ""
+        "r103": r103_name
     }
 
 def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dict) -> dict:
@@ -343,10 +405,11 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
     pln_nama = direct_args.get("pln_nama") or ""
     pln_nama = pln_nama.strip()
     if pln_nama and pln_nama != "NoName":
-        r201_name = pln_nama
-        answers["r103"] = pln_nama
+        r201_name = clean_pln_name(pln_nama)
+        answers["r103"] = r201_name
     else:
-        r201_name = answers.get("r103") or "PELANGGAN"
+        r201_name = clean_pln_name(answers.get("r103") or "PELANGGAN")
+        answers["r103"] = r201_name
 
     # Prioritize NIK from PLN/AP2T if available and valid
     nik = direct_args.get("pln_nik") or direct_args.get("nik") or ""
@@ -355,11 +418,12 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
         nik = generate_random_nik(l1_code, l2_code, l3_code)
 
     # Blok II (Keterangan Penghuni Bangunan Tempat Tinggal)
+    r204_val = resolve_r204_from_keperluan(direct_args.get("keperluan"))
     answers.update({
         "r201": r201_name,
         "r202": nik,
         "r203": generate_random_phone(),
-        "r204": "1. Milik sendiri"
+        "r204": r204_val
     })
     
     # Prioritize address from PLN/AP2T if available
@@ -686,11 +750,17 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
             
     # Map raw value of r104
     r104_val = flat_answers.get("r104") or "1. Berhasil didata"
-    r104_answer = [{"description": "", "label": r104_val, "value": "1", "open": False}]
+    r104_code = "1"
+    if r104_val and "." in r104_val:
+        r104_code = r104_val.split(".")[0].strip()
+    r104_answer = [{"description": "", "label": r104_val, "value": r104_code, "open": False}]
     
     # Map raw value of r204
     r204_val = flat_answers.get("r204") or "1. Milik sendiri"
-    r204_answer = [{"description": "", "label": r204_val, "value": "1", "open": False}]
+    r204_code = "1"
+    if r204_val and "." in r204_val:
+        r204_code = r204_val.split(".")[0].strip()
+    r204_answer = [{"description": "", "label": r204_val, "value": r204_code, "open": False}]
     
     answers_list = [
         {"dataKey": "mulai", "answer": start_time},
@@ -959,12 +1029,21 @@ def execute_args(args, headers: dict, parser):
                     profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
                     if profiles:
                         p = profiles[0]
-                        if not direct["nama"] and p.get("nama"):
-                            direct["nama"] = str(p.get("nama")).strip()
+                        pln_name_cleaned = clean_pln_name(str(p.get("nama") or "").strip())
+                        direct["pln_nama"] = pln_name_cleaned
+                        if not direct["nama"]:
+                            direct["nama"] = pln_name_cleaned
                             print(f"    -> Auto-filled Nama: {direct['nama']}")
-                        if not direct["alamat"] and p.get("alamat"):
+                        
+                        constructed_addr = construct_pln_alamat(p)
+                        if constructed_addr:
+                            direct["alamat"] = constructed_addr
+                            direct["pln_alamat"] = constructed_addr
+                            print(f"    -> Auto-filled Alamat: {direct['alamat']}")
+                        elif not direct["alamat"] and p.get("alamat"):
                             direct["alamat"] = str(p.get("alamat")).strip()
                             print(f"    -> Auto-filled Alamat: {direct['alamat']}")
+                            
                         if not direct["tarif"] and (p.get("tarif") or p.get("gol_tarif")):
                             direct["tarif"] = str(p.get("tarif", p.get("gol_tarif", ""))).strip()
                             print(f"    -> Auto-filled Tarif: {direct['tarif']}")
@@ -995,6 +1074,19 @@ def execute_args(args, headers: dict, parser):
                         if not direct["nometer"] and (p.get("no_meter") or p.get("nomor_meter") or p.get("nometer")):
                             direct["nometer"] = str(p.get("no_meter", p.get("nomor_meter", p.get("nometer", "")))).strip()
                             print(f"    -> Auto-filled NoMeter: {direct['nometer']}")
+
+                        # Populate region fields and necessities
+                        direct["pln_nik"] = str(p.get("noidentitas") or p.get("no_identitas") or "").strip()
+                        direct["nik"] = direct["pln_nik"]
+                        direct["pln_kd_prov"] = str(p.get("kd_prov") or "").strip()
+                        direct["pln_kd_kab"] = str(p.get("kd_kab") or "").strip()
+                        direct["pln_kd_kec"] = str(p.get("kd_kec") or "").strip()
+                        direct["pln_kd_kel"] = str(p.get("kd_kel") or "").strip()
+                        direct["pln_nama_prov"] = str(p.get("nama_prov") or "").strip()
+                        direct["pln_nama_kab"] = str(p.get("nama_kab") or "").strip()
+                        direct["pln_nama_kec"] = str(p.get("nama_kec") or "").strip()
+                        direct["pln_nama_kel"] = str(p.get("nama_kel") or "").strip()
+                        direct["keperluan"] = str(p.get("keperluan") or "").strip()
                 else:
                     print("    [!] Warning: No data found in PLN database for this customer.")
             except Exception as e:

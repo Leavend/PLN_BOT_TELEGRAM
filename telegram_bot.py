@@ -514,7 +514,8 @@ async def submit_fasih_safe(
                                     if sec_profiles:
                                         p_profile.update(sec_profiles[0])
                             
-                            pln_nama = str(p_profile.get("nama", "")).strip()
+                            from submit_fasih import clean_pln_name
+                            pln_nama = clean_pln_name(str(p_profile.get("nama", "")).strip())
                             pln_alamat = construct_pln_alamat(p_profile)
                             pln_nik = str(p_profile.get("noidentitas") or p_profile.get("no_identitas") or "").strip()
                             
@@ -534,6 +535,7 @@ async def submit_fasih_safe(
                             direct_args["pln_nama_kab"] = str(p_profile.get("nama_kab") or "").strip()
                             direct_args["pln_nama_kec"] = str(p_profile.get("nama_kec") or "").strip()
                             direct_args["pln_nama_kel"] = str(p_profile.get("nama_kel") or "").strip()
+                            direct_args["keperluan"] = str(p_profile.get("keperluan") or "").strip()
                 except Exception as e:
                     logger.error(f"Error performing PLN lookup in submit_fasih_safe: {e}")
 
@@ -1214,7 +1216,8 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
             
             if pln_profile:
                 # Profil ditemukan!
-                nama = str(pln_profile.get("nama", "")).strip()
+                from submit_fasih import clean_pln_name
+                nama = clean_pln_name(str(pln_profile.get("nama", "")).strip())
                 alamat = construct_pln_alamat(pln_profile)
                 tarif = str(pln_profile.get("tarif", pln_profile.get("gol_tarif", "R-1"))).strip()
                 daya = str(pln_profile.get("daya", "900")).strip()
@@ -1256,6 +1259,15 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
                     "nama_kab": str(pln_profile.get("nama_kab") or "").strip(),
                     "nama_kec": str(pln_profile.get("nama_kec") or "").strip(),
                     "nama_kel": str(pln_profile.get("nama_kel") or "").strip(),
+                    "pln_kd_prov": str(pln_profile.get("kd_prov") or "").strip(),
+                    "pln_kd_kab": str(pln_profile.get("kd_kab") or "").strip(),
+                    "pln_kd_kec": str(pln_profile.get("kd_kec") or "").strip(),
+                    "pln_kd_kel": str(pln_profile.get("kd_kel") or "").strip(),
+                    "pln_nama_prov": str(pln_profile.get("nama_prov") or "").strip(),
+                    "pln_nama_kab": str(pln_profile.get("nama_kab") or "").strip(),
+                    "pln_nama_kec": str(pln_profile.get("nama_kec") or "").strip(),
+                    "pln_nama_kel": str(pln_profile.get("nama_kel") or "").strip(),
+                    "keperluan": str(pln_profile.get("keperluan") or "").strip(),
                     "idpel": str(pln_profile.get("id_pelanggan", "")).strip() or (cleaned_digits if len(cleaned_digits) == 12 else ""),
                     "nometer": str(
                         pln_profile.get("nometer_kwh") or 
@@ -1426,7 +1438,8 @@ async def retrieve_pln_profile_for_existing_assignment(target: dict, context: Co
             profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
             if profiles:
                 pln_profile = profiles[0]
-                nama = str(pln_profile.get("nama", "")).strip()
+                from submit_fasih import clean_pln_name
+                nama = clean_pln_name(str(pln_profile.get("nama", "")).strip())
                 alamat = construct_pln_alamat(pln_profile)
                 tarif = str(pln_profile.get("tarif", pln_profile.get("gol_tarif", "R-1"))).strip()
                 daya = str(pln_profile.get("daya", "900")).strip()
@@ -1468,6 +1481,15 @@ async def retrieve_pln_profile_for_existing_assignment(target: dict, context: Co
                     "nama_kab": str(pln_profile.get("nama_kab") or "").strip(),
                     "nama_kec": str(pln_profile.get("nama_kec") or "").strip(),
                     "nama_kel": str(pln_profile.get("nama_kel") or "").strip(),
+                    "pln_kd_prov": str(pln_profile.get("kd_prov") or "").strip(),
+                    "pln_kd_kab": str(pln_profile.get("kd_kab") or "").strip(),
+                    "pln_kd_kec": str(pln_profile.get("kd_kec") or "").strip(),
+                    "pln_kd_kel": str(pln_profile.get("kd_kel") or "").strip(),
+                    "pln_nama_prov": str(pln_profile.get("nama_prov") or "").strip(),
+                    "pln_nama_kab": str(pln_profile.get("nama_kab") or "").strip(),
+                    "pln_nama_kec": str(pln_profile.get("nama_kec") or "").strip(),
+                    "pln_nama_kel": str(pln_profile.get("nama_kel") or "").strip(),
+                    "keperluan": str(pln_profile.get("keperluan") or "").strip(),
                     "idpel": idpel or str(pln_profile.get("id_pelanggan", "")).strip(),
                     "nometer": nometer or str(
                         pln_profile.get("nometer_kwh") or 
@@ -2009,7 +2031,8 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "pln_nama_prov": args.get("pln_nama_prov") or "",
         "pln_nama_kab": args.get("pln_nama_kab") or "",
         "pln_nama_kec": args.get("pln_nama_kec") or "",
-        "pln_nama_kel": args.get("pln_nama_kel") or ""
+        "pln_nama_kel": args.get("pln_nama_kel") or "",
+        "keperluan": args.get("keperluan") or ""
     }
 
     # Run pipeline
