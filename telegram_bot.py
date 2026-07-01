@@ -486,18 +486,29 @@ async def submit_fasih_safe(
                 
             is_edit = target.get("assignmentStatusAlias") != "OPEN"
             copy_from_id = target.get("copyFromId")
+            error_detail = None
             try:
                 presign_resp = request_presign_url(headers, target["id"], pid, [f"{target['id']}.7z"], is_edit, copy_from_id)
                 urls = presign_resp.get("data", [])
                 put_url = urls[0].get("presignedUrl") or urls[0].get("url") if urls else None
-            except Exception:
+                if not urls:
+                    error_detail = f"Response data kosong dari server: {presign_resp}"
+            except Exception as e:
                 put_url = None
+                if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
+                    error_detail = f"HTTP {e.response.status_code}: {e.response.text}"
+                else:
+                    error_detail = str(e)
+                logger.error(f"Error requesting presign URL: {error_detail}", exc_info=True)
                 
             if not put_url:
                 if dry_run:
                     put_url = "http://mock-s3-url"
                 else:
-                    return False, "Presigned PUT URL untuk berkas arsip kosong."
+                    msg = "Presigned PUT URL untuk berkas arsip kosong."
+                    if error_detail:
+                        msg += f"\nDetail: {error_detail}"
+                    return False, msg
                 
             if not dry_run and put_url != "http://mock-s3-url":
                 if not upload_to_s3(put_url, archive_path):
