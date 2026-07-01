@@ -187,18 +187,61 @@ def parse_predefined(target: dict) -> dict:
             print(f"      ⚠️  Error parsing preDefinedData: {e}")
     return answers
 
+def generate_random_nik(province_code: str = "64", regency_code: str = "74", district_code: str = "02") -> str:
+    import random
+    p_c = str(province_code or "64")[:2].zfill(2)
+    r_c = str(regency_code or "74")[:2].zfill(2)
+    d_c = str(district_code or "02")[:2].zfill(2)
+    dob_day = random.randint(1, 28)
+    if random.choice([True, False]): # female
+        dob_day += 40
+    dob_month = random.randint(1, 12)
+    dob_year = random.randint(50, 99)
+    dob_str = f"{dob_day:02d}{dob_month:02d}{dob_year:02d}"
+    seq = random.randint(1, 999)
+    return f"{p_c}{r_c}{d_c}{dob_str}{seq:04d}"
+
+def generate_random_phone() -> str:
+    import random
+    prefix = random.choice(["0812", "0813", "0821", "0822", "0852", "0853", "0811", "0817", "0818", "0819", "0859", "0815", "0816"])
+    digits = "".join(str(random.randint(0, 9)) for _ in range(8))
+    return f"{prefix}{digits}"
+
+def generate_random_comment() -> str:
+    import random
+    comments = [
+        "Pendataan berjalan lancar, responden sangat kooperatif.",
+        "Rumah sesuai dengan koordinat, data ID pelanggan valid.",
+        "Responden kooperatif, informasi tarif dan daya sesuai.",
+        "Data berhasil dicatat lengkap, kondisi fisik rumah sesuai foto.",
+        "Wawancara dilaksanakan dengan lancar bersama pemilik rumah.",
+        "Kondisi meteran berfungsi dengan baik, tidak ada kendala."
+    ]
+    return random.choice(comments)
+
 def get_region_fields(target: dict, direct_args: dict) -> dict:
     region = target.get("region", {})
     l1 = region.get("level1", {})
     l2 = l1.get("level2", {}) if l1 else {}
     l3 = l2.get("level3", {}) if l2 else {}
+    l4 = l3.get("level4", {}) if l3 else {}
+    
+    l1_code = l1.get("code") or "64"
+    l1_name = l1.get("name") or "KALIMANTAN TIMUR"
+    l2_code = l2.get("code") or "74"
+    l2_name = l2.get("name") or "KOTA BONTANG"
+    l3_code = l3.get("code") or "02"
+    l3_name = l3.get("name") or "BONTANG SELATAN"
+    l4_code = l4.get("code") or "003"
+    l4_name = l4.get("name") or "BERBAS PANTAI"
+    
     return {
-        "r102a": l1.get("name") or "KALIMANTAN TIMUR",
-        "r102b": l2.get("name") or "BONTANG",
-        "r102c": l2.get("name") or "BONTANG",
-        "r102d": direct_args.get("kelurahan") or "001",
-        "r102e": target.get("data4") or "",
-        "r103": target.get("data2") or ""
+        "r102a": f"[{l1_code}] {l1_name}",
+        "r102b": f"[{l2_code}] {l2_name}",
+        "r102c": f"[{l3_code}] {l3_name}",
+        "r102d": f"[{l4_code}] {l4_name}",
+        "r102e": target.get("data4") or direct_args.get("alamat") or "",
+        "r103": target.get("data2") or direct_args.get("nama") or ""
     }
 
 def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dict) -> dict:
@@ -207,7 +250,11 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
         val = target.get(slot)
         if val:
             answers[field_key] = val
+    
+    # Update region-based fields
     answers.update(get_region_fields(target, direct_args))
+    
+    # Baseline/PLN-specific metadata fields
     answers.update({
         "tarif": direct_args.get("tarif") or "R-1",
         "daya": direct_args.get("daya") or "900",
@@ -217,6 +264,55 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
         "r104": direct_args.get("hasil") or "1. Berhasil didata",
         "status_dil": direct_args.get("status_dil") or "1"
     })
+    
+    # Populate Blok II, III, and IV fields
+    region = target.get("region", {})
+    l1 = region.get("level1", {})
+    l2 = l1.get("level2", {}) if l1 else {}
+    l3 = l2.get("level3", {}) if l2 else {}
+    l4 = l3.get("level4", {}) if l3 else {}
+    
+    l1_code = l1.get("code") or "64"
+    l1_name = l1.get("name") or "KALIMANTAN TIMUR"
+    l2_code = l2.get("code") or "74"
+    l2_name = l2.get("name") or "KOTA BONTANG"
+    l2_fullcode = l2.get("fullCode") or "6474"
+    l3_code = l3.get("code") or "02"
+    l3_name = l3.get("name") or "BONTANG SELATAN"
+    l3_fullcode = l3.get("fullCode") or "6474020"
+    l4_code = l4.get("code") or "003"
+    l4_name = l4.get("name") or "BERBAS PANTAI"
+    l4_fullcode = l4.get("fullCode") or "6474020003"
+    
+    nik = generate_random_nik(l1_code, l2_code, l3_code)
+    r201_name = answers.get("r103") or "PELANGGAN"
+    
+    # Blok II (Keterangan Penghuni Bangunan Tempat Tinggal)
+    answers.update({
+        "r201": r201_name,
+        "r202": nik,
+        "r203": generate_random_phone(),
+        "r204": "1. Milik sendiri"
+    })
+    
+    # Blok III (Keterangan Keluarga Pengguna Meteran)
+    answers.update({
+        "r301a": f"[{l1_code}] {l1_name}",
+        "r301b": f"[{l2_code}] {l2_name}",
+        "r301c": f"[{l3_code}] {l3_name}",
+        "r301d": f"[{l4_code}] {l4_name}",
+        "r301e": answers.get("r102e") or "",
+        "r302a": 1,
+        "r302a_var": "1",
+        "r302a_no#1": 1,
+        "r302b_1#1": nik
+    })
+    
+    # Blok IV (Catatan)
+    answers.update({
+        "catatan": generate_random_comment()
+    })
+    
     return answers
 
 def get_s3_put_url(headers: dict, target: dict, filename: str, size: int, md5_base64: str, dry_run: bool = False) -> str:
@@ -376,8 +472,211 @@ def get_encryption_key(headers: dict, target: dict, region_id: str) -> bytes:
     except Exception:
         return STATIC_LEGACY_KEY.encode("utf-8")
 
-def stage_and_encrypt(answers: dict, key_bytes: bytes, target_id: str) -> str:
-    plaintext = json.dumps(answers, ensure_ascii=False)
+def get_user_name_from_headers(headers: dict) -> str:
+    try:
+        auth = headers.get("Authorization") or ""
+        if auth.startswith("Bearer "):
+            token = auth.split(" ")[1]
+            payload_b64 = token.split(".")[1]
+            payload_b64 += "=" * (4 - len(payload_b64) % 4)
+            jwt_payload = json.loads(base64.b64decode(payload_b64.encode("utf-8")))
+            return jwt_payload.get("name") or jwt_payload.get("email") or "Nadif Firjatullah"
+    except Exception:
+        pass
+    return "Nadif Firjatullah"
+
+def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
+    import time
+    from datetime import datetime, timedelta
+    
+    region = target.get("region", {})
+    l1 = region.get("level1", {})
+    l2 = l1.get("level2", {}) if l1 else {}
+    l3 = l2.get("level3", {}) if l2 else {}
+    l4 = l3.get("level4", {}) if l3 else {}
+    
+    l1_code = l1.get("code") or "64"
+    l1_name = l1.get("name") or "KALIMANTAN TIMUR"
+    l2_code = l2.get("code") or "74"
+    l2_name = l2.get("name") or "KOTA BONTANG"
+    l2_fullcode = l2.get("fullCode") or "6474"
+    l3_code = l3.get("code") or "02"
+    l3_name = l3.get("name") or "BONTANG SELATAN"
+    l3_fullcode = l3.get("fullCode") or "6474020"
+    l4_code = l4.get("code") or "003"
+    l4_name = l4.get("name") or "BERBAS PANTAI"
+    l4_fullcode = l4.get("fullCode") or "6474020003"
+    
+    now_ms = int(time.time() * 1000)
+    created_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    
+    # 15 minutes duration
+    start_time = (datetime.now() - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%S")
+    end_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    
+    # IDPel HTML Check status
+    idpel = flat_answers.get("r101a") or ""
+    hasil_check_html = f"""
+        <div class="font-normal border-2 text-center note"
+        style="padding: 0.8em; color: rgb(21, 128, 61); border-color: rgb(21, 128, 61); font-size: 12px;">
+        <table style="border-collapse: collapse;">
+          <tr>
+            <td style="vertical-align: top; white-space: nowrap;">ID PELANGGAN</td>
+            <td style="vertical-align: top;">
+                : <b>[ <span style="white-space: nowrap;">{idpel}</span> ]</b>
+            </td>
+          </tr>
+          <tr>
+            <td style="vertical-align: top;">STATUS</td>
+            <td style="vertical-align: top;">
+                : <b>DITEMUKAN DAN BELUM TERCATAT PADA SISTEM FASIH</b>
+            </td>
+          </tr>
+        </table>
+        </div>"""
+        
+    # NIK Check HTML status
+    nik = flat_answers.get("r202") or ""
+    hasil_nik_html = f"""
+            <div class="font-normal border-2 text-center"
+            style="padding: 0.8em; color: rgb(122, 32, 64); border-color: rgb(122, 32, 64); font-size: 12.5px;">
+            <b>NIK : [ {nik} ] <br>TIDAK DITEMUKAN</b>
+            </div>"""
+            
+    # PLN lookup data
+    pln_data = {
+        "data": {
+            "alamat": flat_answers.get("r102e") or "",
+            "exists": True,
+            "fasih_exists": False,
+            "fasih_is_prelist": None,
+            "fasih_source": None,
+            "kode_desa": l4_fullcode,
+            "kode_kab": l2_fullcode,
+            "kode_kec": l3_fullcode,
+            "kode_prov": l1_code,
+            "nama": flat_answers.get("r103") or "",
+            "nama_desa": l4_name,
+            "nama_kab": l2_name,
+            "nama_kec": l3_name,
+            "nama_prov": l1_name,
+            "nomor_meter": flat_answers.get("r101b") or "",
+            "prelist_source": "prabayar",
+            "success": True,
+            "unitap": flat_answers.get("unitap") or "23BTG"
+        },
+        "success": True,
+        "message": "Successfully hit an API.",
+        "httpStatus": "OK"
+    }
+    
+    result_callnik_str = '{"data":{"alamat":null,"exists":false,"nama":null,"nomor_kartu_keluarga":null,"success":true},"success":true,"message":"Successfully hit an API.","httpStatus":"OK"}'
+    
+    # Parse r105 (coords)
+    r105_val = flat_answers.get("r105")
+    lat, lon = 0.0, 0.0
+    if isinstance(r105_val, dict):
+        coord = r105_val.get("coordinat") or {}
+        lat = coord.get("latitude") or 0.0
+        lon = coord.get("longitude") or 0.0
+    elif isinstance(r105_val, list):
+        r105_answer_list = r105_val
+        
+    if not isinstance(r105_val, list):
+        r105_answer_list = [
+            {"label": f"https://maps.google.com/maps?q={lat},{lon}", "value": {"latitude": lat, "accuracy": 3.7, "longitude": lon}},
+            {"label": "map", "value": f"https://maps.google.com/maps?q={lat},{lon}"},
+            {"label": "latitude", "value": lat},
+            {"label": "longitude", "value": lon},
+            {"label": "accuracy", "value": 3.7}
+        ]
+        
+    # Parse r106 (photo)
+    r106_val = flat_answers.get("r106")
+    r106_answer_list = []
+    if r106_val:
+        try:
+            if isinstance(r106_val, str):
+                r106_data = json.loads(r106_val)
+            else:
+                r106_data = r106_val
+            
+            if isinstance(r106_data, list):
+                r106_answer_list = r106_data
+            elif isinstance(r106_data, dict):
+                r106_answer_list = [r106_data]
+        except Exception:
+            pass
+            
+    # Map raw value of r104
+    r104_val = flat_answers.get("r104") or "1. Berhasil didata"
+    r104_answer = [{"description": "", "label": r104_val, "value": "1", "open": False}]
+    
+    # Map raw value of r204
+    r204_val = flat_answers.get("r204") or "1. Milik sendiri"
+    r204_answer = [{"description": "", "label": r204_val, "value": "1", "open": False}]
+    
+    answers_list = [
+        {"dataKey": "mulai", "answer": start_time},
+        {"dataKey": "r101a", "answer": flat_answers.get("r101a") or ""},
+        {"dataKey": "result_idpln", "answer": json.dumps(pln_data, ensure_ascii=False)},
+        {"dataKey": "hasilCheckIdPel2", "answer": "2"},
+        {"dataKey": "hasilCheckIdPel", "answer": hasil_check_html},
+        {"dataKey": "r101b", "answer": flat_answers.get("r101b") or ""},
+        {"dataKey": "hasilCheckNoMeter2", "answer": None},
+        {"dataKey": "r102a", "answer": flat_answers.get("r102a") or ""},
+        {"dataKey": "r102b", "answer": flat_answers.get("r102b") or ""},
+        {"dataKey": "r102c", "answer": flat_answers.get("r102c") or ""},
+        {"dataKey": "r102d", "answer": flat_answers.get("r102d") or ""},
+        {"dataKey": "r102e", "answer": flat_answers.get("r102e") or ""},
+        {"dataKey": "r103", "answer": flat_answers.get("r103") or ""},
+        {"dataKey": "r104", "answer": r104_answer},
+        {"dataKey": "r105", "answer": r105_answer_list},
+        {"dataKey": "r106", "answer": r106_answer_list},
+        {"dataKey": "unitup", "answer": flat_answers.get("unitup") or ""},
+        {"dataKey": "unitupi", "answer": flat_answers.get("unitupi") or ""},
+        {"dataKey": "unitap", "answer": flat_answers.get("unitap") or "23BTG"},
+        {"dataKey": "r201", "createdAt": now_ms, "answer": flat_answers.get("r201") or "", "updatedAt": now_ms},
+        {"dataKey": "r202", "createdAt": now_ms, "answer": flat_answers.get("r202") or "", "updatedAt": now_ms},
+        {"dataKey": "hasilPemadananNIK", "createdAt": now_ms, "answer": hasil_nik_html, "updatedAt": now_ms},
+        {"dataKey": "hasilPemadananNIK2", "createdAt": now_ms, "answer": "2", "updatedAt": now_ms},
+        {"dataKey": "no_kk", "createdAt": now_ms, "answer": "", "updatedAt": now_ms},
+        {"dataKey": "result_callnik", "createdAt": now_ms, "answer": result_callnik_str, "updatedAt": now_ms},
+        {"dataKey": "r203", "createdAt": now_ms, "answer": flat_answers.get("r203") or "", "updatedAt": now_ms},
+        {"dataKey": "r204", "createdAt": now_ms, "answer": r204_answer, "updatedAt": now_ms},
+        {"dataKey": "nama_ktp", "createdAt": now_ms, "answer": "", "updatedAt": now_ms},
+        {"dataKey": "r301a", "createdAt": now_ms, "answer": [{"label": flat_answers.get("r301a") or f"[{l1_code}] {l1_name}", "value": l1_code}], "updatedAt": now_ms},
+        {"dataKey": "r301b", "createdAt": now_ms, "answer": [{"label": flat_answers.get("r301b") or f"[{l2_code}] {l2_name}", "value": l2_fullcode}], "updatedAt": now_ms},
+        {"dataKey": "r301c", "createdAt": now_ms, "answer": [{"label": flat_answers.get("r301c") or f"[{l3_code}] {l3_name}", "value": l3_fullcode}], "updatedAt": now_ms},
+        {"dataKey": "r301d", "createdAt": now_ms, "answer": [{"label": flat_answers.get("r301d") or f"[{l4_code}] {l4_name}", "value": l4_fullcode}], "updatedAt": now_ms},
+        {"dataKey": "r301e", "createdAt": now_ms, "answer": flat_answers.get("r301e") or "", "updatedAt": now_ms},
+        {"dataKey": "r302a", "createdAt": now_ms, "answer": 1, "updatedAt": now_ms},
+        {"dataKey": "r302a_var", "createdAt": now_ms, "answer": "1", "updatedAt": now_ms},
+        {"dataKey": "r302a_no#1", "createdAt": now_ms, "answer": 1, "updatedAt": now_ms},
+        {"dataKey": "r302b_1#1", "createdAt": now_ms, "answer": flat_answers.get("r302b_1#1") or "", "updatedAt": now_ms},
+        {"dataKey": "catatan", "createdAt": now_ms, "answer": flat_answers.get("catatan") or "", "updatedAt": now_ms},
+        {"dataKey": "selesai", "createdAt": now_ms, "answer": end_time, "updatedAt": now_ms}
+    ]
+    
+    return {
+        "dataKey": "",
+        "createdAt": created_at,
+        "createdBy": user_name,
+        "updatedBy": user_name,
+        "answers": answers_list,
+        "description": "",
+        "isForceSubmit": False,
+        "templateVersion": target.get("templateVersion") or "0.5.9",
+        "validationVersion": "0.0.2",
+        "updatedAt": created_at
+    }
+
+def stage_and_encrypt(answers: dict, key_bytes: bytes, target: dict, user_name: str) -> str:
+    if "answers" in answers and isinstance(answers["answers"], list):
+        wrapped = answers
+    else:
+        wrapped = wrap_answers(answers, target, user_name)
+    plaintext = json.dumps(wrapped, ensure_ascii=False)
     encrypted = encrypt_gcm(plaintext, key_bytes)
     decrypted = decrypt_gcm_verify(encrypted, key_bytes)
     if decrypted != plaintext:
@@ -465,7 +764,8 @@ def cmd_submit(headers: dict, input_path: Optional[str], assignment_id: Optional
     handle_photo_upload(headers, target, answers, photo_path, dry_run)
     lat, lon = handle_coords(answers, lat, lon, target)
     key_bytes = get_encryption_key(headers, target, target.get("region", {}).get("id", ""))
-    encrypted = stage_and_encrypt(answers, key_bytes, target["id"])
+    user_name = get_user_name_from_headers(headers)
+    encrypted = stage_and_encrypt(answers, key_bytes, target, user_name)
     with tempfile.TemporaryDirectory() as work_dir:
         archive_path = create_7z_archive(encrypted, target["id"], work_dir)
         archive_md5 = upload_archive_flow(headers, target, archive_path, dry_run)

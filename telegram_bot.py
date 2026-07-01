@@ -50,6 +50,24 @@ allowed_str = os.getenv("ALLOWED_TELEGRAM_USERNAMES", "")
 if allowed_str:
     ALLOWED_USERS = [u.strip().lower().replace("@", "") for u in allowed_str.split(",") if u.strip()]
 
+def get_random_house_photo() -> Optional[str]:
+    photos_dir = "house_photos"
+    if os.path.isdir(photos_dir):
+        import random
+        valid_extensions = (".jpg", ".jpeg", ".png")
+        dir_photos = [
+            os.path.join(photos_dir, f) for f in os.listdir(photos_dir)
+            if f.lower().endswith(valid_extensions)
+        ]
+        if dir_photos:
+            return random.choice(dir_photos)
+            
+    # Fallback to local default files
+    for p_name in ["foto_default.jpg", "default_house.jpg", "foto_default.png", "default_house.png"]:
+        if os.path.exists(p_name):
+            return p_name
+    return None
+
 def is_user_allowed(username: Optional[str]) -> bool:
     if not ALLOWED_USERS:
         return True
@@ -467,12 +485,23 @@ async def submit_fasih_safe(
         except Exception:
             key_bytes = STATIC_LEGACY_KEY.encode("utf-8")
 
-        # Encrypt answers
-        plaintext = json.dumps(answers, ensure_ascii=False)
-        encrypted = encrypt_gcm(plaintext, key_bytes)
-        decrypted = decrypt_gcm_verify(encrypted, key_bytes)
-        if decrypted != plaintext:
-            return False, "Verifikasi integritas enkripsi gagal!"
+        # Encrypt answers using shared stage_and_encrypt
+        from submit_fasih import stage_and_encrypt
+        
+        user_name = "Nadif Firjatullah"
+        try:
+            payload_b64 = token_data["access_token"].split(".")[1]
+            payload_b64 += "=" * (4 - len(payload_b64) % 4)
+            jwt_payload = json.loads(base64.b64decode(payload_b64.encode('utf-8')))
+            user_name = jwt_payload.get("name") or jwt_payload.get("email") or "Nadif Firjatullah"
+        except Exception:
+            pass
+
+        try:
+            encrypted = stage_and_encrypt(answers, key_bytes, target, user_name)
+        except Exception as enc_err:
+            logger.error(f"Encryption failed: {enc_err}", exc_info=True)
+            return False, f"Enkripsi jawaban gagal: {enc_err}"
 
         if status_callback:
             await status_callback("📦 Mengompres data enkripsi ke 7z...")
@@ -2391,25 +2420,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     
                 template_assignment_id = template_assignment["id"]
             
-            # Pick a random photo from house_photos directory if it exists and is not empty
-            photo_path = None
-            photos_dir = "house_photos"
-            if os.path.isdir(photos_dir):
-                import random
-                valid_extensions = (".jpg", ".jpeg", ".png")
-                dir_photos = [
-                    os.path.join(photos_dir, f) for f in os.listdir(photos_dir)
-                    if f.lower().endswith(valid_extensions)
-                ]
-                if dir_photos:
-                    photo_path = random.choice(dir_photos)
-
-            # Fallback to local default files if no random photo is set
-            if not photo_path:
-                for p_name in ["foto_default.jpg", "default_house.jpg", "foto_default.png", "default_house.png"]:
-                    if os.path.exists(p_name):
-                        photo_path = p_name
-                        break
+            photo_path = get_random_house_photo()
 
             # Submit to BPS
             ok, message = await submit_fasih_safe(
@@ -2580,6 +2591,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             pass
             
         photo_path = r.get("photo_path")
+        if not photo_path or not os.path.exists(photo_path):
+            photo_path = get_random_house_photo()
         
         # Call safe submission (Live Submit)
         ok, message = await submit_fasih_safe(
