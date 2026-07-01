@@ -56,6 +56,19 @@ class PLNLookupTool:
             connection.create_connection = mock_create_connection_custom
 
         self.session = requests.Session()
+        
+        # Configure resilient connection pooling and retries with backoff
+        from requests.adapters import HTTPAdapter
+        from urllib3.util import Retry
+        retries = Retry(
+            total=2,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504],
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(pool_connections=25, pool_maxsize=25, max_retries=retries)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def fetch_fresh_cookies_if_needed(self):
         """Perform a quick handshake to grab a fresh session cookie if needed/on failure."""

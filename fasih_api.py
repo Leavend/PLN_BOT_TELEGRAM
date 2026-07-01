@@ -1,19 +1,35 @@
 import os
 import requests
 from typing import List, Dict, Any
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 BASE_URL = "https://fasih-survey.bps.go.id"
 USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 8.1.0; Android SDK built for x86 Build/OSM1.180201.021)"
 
+# Create a shared session for BPS requests to reuse TCP connections
+session = requests.Session()
+
+# Configure resilient connection pooling and retries with backoff
+retries = Retry(
+    total=3,
+    backoff_factor=1,
+    status_forcelist=[500, 502, 503, 504],
+    raise_on_status=False
+)
+adapter = HTTPAdapter(pool_connections=25, pool_maxsize=25, max_retries=retries)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
+
 def fetch_surveys(headers: dict) -> list:
     """Fetch surveys assigned to the current user."""
-    resp = requests.get(f"{BASE_URL}/mobile/assignment-sync/api/mobile/survey/get-survey-for-capi", headers=headers, timeout=15)
+    resp = session.get(f"{BASE_URL}/mobile/assignment-sync/api/mobile/survey/get-survey-for-capi", headers=headers, timeout=15)
     resp.raise_for_status()
     return resp.json().get("data", [])
 
 def fetch_assignments(headers: dict, survey_period_id: str, page: int = 0) -> dict:
     """Fetch assignment datatable for a given survey period."""
-    resp = requests.get(
+    resp = session.get(
         f"{BASE_URL}/mobile/assignment-sync/api/mobile/s3/assignment/datatable",
         headers=headers, params={"surveyPeriodId": survey_period_id, "page": page}, timeout=15
     )
@@ -63,7 +79,7 @@ def fetch_all_assignments(headers: dict, survey_period_id: str) -> list:
 
 def fetch_regions(headers: dict, survey_period_id: str) -> list:
     """Fetch assignment regions (contains wrappedDataKey)."""
-    resp = requests.get(
+    resp = session.get(
         f"{BASE_URL}/mobile/assignment-sync/api/mobile/assignment-region/get-by-survey-periode-id",
         headers=headers, params={"surveyPeriodeId": survey_period_id}, timeout=15
     )
@@ -79,7 +95,7 @@ def request_presign_url(headers: dict, assignment_id: str, survey_period_id: str
     }
     if copy_from_id:
         body["copyFromId"] = copy_from_id
-    resp = requests.post(
+    resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/assignment/s3/{url_path}",
         headers=headers, json=body,
         params={"surveyPeriodId": survey_period_id}, timeout=15
@@ -91,7 +107,7 @@ def upload_to_s3(presigned_url: str, file_path: str) -> bool:
     """Step 2: Upload .7z file to S3 using presigned URL."""
     with open(file_path, "rb") as f:
         file_data = f.read()
-    resp = requests.put(
+    resp = session.put(
         presigned_url, data=file_data,
         headers={"Content-Type": "application/x-7z-compressed", "User-Agent": USER_AGENT}, timeout=60
     )
@@ -104,7 +120,7 @@ def request_photo_presign_put(headers: dict, assignment_id: str, copy_from_id: s
         "copyFromId": copy_from_id or "",
         "fileNames": [{"fileName": filename, "mimeType": "image/png", "fileSize": size, "contentMD5": md5_base64}]
     }]
-    resp = requests.post(
+    resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/image/v2/presigned-url-put",
         headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=15
     )
@@ -116,7 +132,7 @@ def upload_photo_to_s3(presigned_url: str, file_path: str, md5_base64: str) -> b
     size = os.path.getsize(file_path)
     with open(file_path, "rb") as f:
         file_data = f.read()
-    resp = requests.put(
+    resp = session.put(
         presigned_url, data=file_data,
         headers={"Content-Type": "image/png", "Content-MD5": md5_base64, "Content-Length": str(size), "User-Agent": USER_AGENT},
         timeout=60
@@ -126,7 +142,7 @@ def upload_photo_to_s3(presigned_url: str, file_path: str, md5_base64: str) -> b
 def request_photo_presign_get(headers: dict, assignment_id: str, copy_from_id: str, survey_period_id: str, filename: str) -> dict:
     """Request presigned GET URL for media download/reference."""
     body = [{"assignmentId": assignment_id, "copyFromId": copy_from_id or "", "fileNames": [filename]}]
-    resp = requests.post(
+    resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/image/presigned-url-get",
         headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=15
     )
@@ -136,7 +152,7 @@ def request_photo_presign_get(headers: dict, assignment_id: str, copy_from_id: s
 def confirm_submit(headers: dict, params: dict, is_edit: bool = False) -> dict:
     """Step 3: Confirm submission with metadata."""
     url_path = "edit" if is_edit else "submit"
-    resp = requests.post(
+    resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/assignment/s3/{url_path}",
         headers=headers, json=params, timeout=15
     )
@@ -147,7 +163,7 @@ def confirm_submit(headers: dict, params: dict, is_edit: bool = False) -> dict:
 
 def fetch_template_mapping(headers: dict, template_id: str, version: str) -> dict:
     """Fetch template custom data mapping (data1-data10 → field keys)."""
-    resp = requests.get(
+    resp = session.get(
         f"{BASE_URL}/mobile/assignment-sync/api/mobile/template/custom-data/{template_id}",
         headers=headers, params={"version": version}, timeout=15
     )
