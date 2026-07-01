@@ -145,7 +145,7 @@ def get_fallback_coordinate(prov_str, kab_str, kec_str, alamat_str):
 def escape_markdown(text: str) -> str:
     if not text:
         return ""
-    return text.replace("*", "").replace("_", "").replace("[", "").replace("]", "").replace("`", "")
+    return text.replace("\\", "").replace("*", "").replace("_", "").replace("[", "").replace("]", "").replace("`", "")
 
 def geocode_address_nominatim(alamat, kel, kec, kab, prov):
     import requests
@@ -849,8 +849,8 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
             ]
             await update.message.reply_text(
                 f"⚠️ **Peringatan: ID Pelanggan sudah terdaftar & SUBMITTED**\n\n"
-                f"• Pelanggan: **{nama}**\n"
-                f"• IDPel: `{idpel}` | NoMeter: `{nometer}`\n"
+                f"• Pelanggan: **{escape_markdown(nama)}**\n"
+                f"• IDPel: `{escape_markdown(idpel)}` | NoMeter: `{escape_markdown(nometer)}`\n"
                 f"• Status BPS: `SUBMITTED` (Sudah Terkirim)\n\n"
                 f"Apakah Anda ingin melanjutkan pengisian kuesioner untuk melakukan re-submit/edit tugas ini?",
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -865,8 +865,8 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
             ]
             await update.message.reply_text(
                 f"⚠️ **Peringatan: ID Pelanggan sudah terdaftar**\n\n"
-                f"• Pelanggan: **{nama}**\n"
-                f"• IDPel: `{idpel}` | NoMeter: `{nometer}`\n"
+                f"• Pelanggan: **{escape_markdown(nama)}**\n"
+                f"• IDPel: `{escape_markdown(idpel)}` | NoMeter: `{escape_markdown(nometer)}`\n"
                 f"• Status BPS: `OPEN` (Belum Terkirim)\n\n"
                 f"Apakah Anda ingin melanjutkan pengisian kuesioner untuk tugas ini?",
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -962,10 +962,10 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
                 ]
                 await update.message.reply_text(
                     f"🔍 **ID Pelanggan tidak ada di BPS, tetapi ditemukan di PLN:**\n\n"
-                    f"• Nama: **{p['nama']}**\n"
-                    f"• IDPel: `{p['idpel']}` | NoMeter: `{p['nometer']}`\n"
-                    f"• Tarif/Daya: `{p['tarif']}` / `{p['daya']} VA`\n"
-                    f"• Alamat: {p['alamat']}\n\n"
+                    f"• Nama: **{escape_markdown(p['nama'])}**\n"
+                    f"• IDPel: `{escape_markdown(p['idpel'])}` | NoMeter: `{escape_markdown(p['nometer'])}`\n"
+                    f"• Tarif/Daya: `{escape_markdown(p['tarif'])}` / `{escape_markdown(p['daya'])} VA`\n"
+                    f"• Alamat: {escape_markdown(p['alamat'])}\n\n"
                     f"Apakah Anda ingin membuat penugasan baru (Tambah Assignment) untuk pelanggan ini di Fasih Apps?",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode="Markdown"
@@ -1280,7 +1280,7 @@ async def search_assignment_text(update: Update, context: ContextTypes.DEFAULT_T
     
     if not matches:
         await update.message.reply_text(
-            f"❌ Tidak ditemukan tugas dengan kata kunci `{update.message.text}`\n"
+            f"❌ Tidak ditemukan tugas dengan kata kunci `{escape_markdown(update.message.text)}`\n"
             "Coba lagi atau ketik /cancel",
             parse_mode="Markdown"
         )
@@ -1643,17 +1643,17 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         emoji = "⚠️ (SIMULASI) " if dry_run else "✅ "
         await status_msg.edit_text(
             f"{emoji}**SUBMISSION SELESAI!**\n\n"
-            f"• Pelanggan: {direct_args['nama']}\n"
-            f"• IDPel: `{direct_args['idpel']}`\n"
-            f"• Pesan: {message}",
+            f"• Pelanggan: {escape_markdown(direct_args['nama'])}\n"
+            f"• IDPel: `{escape_markdown(direct_args['idpel'])}`\n"
+            f"• Pesan: {escape_markdown(message)}",
             parse_mode="Markdown"
         )
     else:
         await status_msg.edit_text(
             f"❌ **SUBMISSION GAGAL!**\n\n"
-            f"• Pelanggan: {direct_args['nama']}\n"
-            f"• IDPel: `{direct_args['idpel']}`\n"
-            f"• Detail: {message}",
+            f"• Pelanggan: {escape_markdown(direct_args['nama'])}\n"
+            f"• IDPel: `{escape_markdown(direct_args['idpel'])}`\n"
+            f"• Detail: {escape_markdown(message)}",
             parse_mode="Markdown"
         )
         
