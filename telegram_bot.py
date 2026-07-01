@@ -781,7 +781,10 @@ async def list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     if query.data == "lclose":
-        await query.message.delete()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
         return
         
     if query.data == "lnoop":
@@ -2065,20 +2068,23 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
             alamat = m.get("data4", m.get("data5", "-")) or "-"
             region_name = m.get("region", {}).get("name", "BONTANG")
             
-            # Parse strata/tarif/daya if possible
-            pre_defined_str = m.get("preDefinedData")
+            # Fetch Tarif & Daya from PLN tool (checking cache first)
+            from pln_lookup import PLNLookupTool
+            pln_tool = PLNLookupTool()
             tarif = "-"
             daya = "-"
-            if pre_defined_str:
+            query_val = idpel if idpel != "-" else nometer
+            if query_val != "-":
                 try:
-                    predata = json.loads(pre_defined_str).get("predata", [])
-                    for item in predata:
-                        if item.get("dataKey") == "tarif":
-                            tarif = item.get("answer") or "-"
-                        elif item.get("dataKey") == "daya":
-                            daya = item.get("answer") or "-"
-                except Exception:
-                    pass
+                    res = pln_tool.lookup_by_idpel(query_val) if len(query_val) == 12 else pln_tool.lookup_by_nometer(query_val)
+                    if res:
+                        profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
+                        if profiles:
+                            p = profiles[0]
+                            tarif = str(p.get("tarif", p.get("gol_tarif", "-"))).strip()
+                            daya = str(p.get("daya", p.get("daya_51", "-"))).strip()
+                except Exception as pln_err:
+                    logger.warning(f"PLN lookup failed during assignment search: {pln_err}")
 
             msg = (
                 f"✅ **Assignment BPS Ditemukan! (#{idx+1})**\n\n"
