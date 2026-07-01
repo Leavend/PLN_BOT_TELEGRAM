@@ -2104,6 +2104,354 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
 
     return ConversationHandler.END
 
+def find_template_assignment_for_region(open_assignments, pln_profile):
+    if not open_assignments:
+        return None
+        
+    # If only 1 region, use it
+    regions = {a.get("region", {}).get("id") for a in open_assignments if a.get("region", {}).get("id")}
+    if len(regions) == 1:
+        return open_assignments[0]
+
+    # Try to match by kelurahan / kecamatan name
+    if pln_profile:
+        nama_kel = pln_profile.get("nama_kel", "").lower()
+        nama_kec = pln_profile.get("nama_kec", "").lower()
+        for a in open_assignments:
+            r_name = a.get("region", {}).get("name", "").lower()
+            if nama_kel and nama_kel in r_name:
+                return a
+            if nama_kec and nama_kec in r_name:
+                return a
+                
+    # Fallback to the first assignment
+    return open_assignments[0]
+
+@restricted
+async def start_batch_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "⚡ **Batch Submit (Massal)**\n\n"
+        "Silakan masukkan daftar **ID Pelanggan** atau **Nomor Meter** yang ingin di-submit sekaligus.\n"
+        "Anda dapat menempelkan (paste) beberapa nomor sekaligus (satu nomor per baris).\n\n"
+        "Contoh:\n"
+        "`234000397484`\n"
+        "`45096615278`\n\n"
+        "👉 _Ketik /cancel untuk membatalkan._",
+        parse_mode="Markdown"
+    )
+    return WAITING_BATCH_SUBMIT_INPUT
+
+async def process_batch_submit_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if not text:
+        await update.message.reply_text("[-] Input tidak boleh kosong.")
+        return WAITING_BATCH_SUBMIT_INPUT
+        
+    import re
+    # Parse lines
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    search_queries = []
+    
+    for line in lines:
+        if "," in line:
+            line = line.split(",")[0]
+        # Match consecutive digits of length 11-12
+        match = re.search(r'\d{11,12}', line)
+        if match:
+            search_queries.append(match.group(0))
+        else:
+            # Fallback
+            stripped = re.sub(r'^\s*\d+[\s\.)\-]+', '', line)
+            clean_val = re.sub(r'\D', '', stripped)
+            if len(clean_val) in (11, 12):
+                search_queries.append(clean_val)
+
+    if not search_queries:
+        await update.message.reply_text("❌ Tidak ada ID Pelanggan atau Nomor Meter yang valid (11 atau 12 digit) ditemukan.")
+        return ConversationHandler.END
+
+    # Save to user_data for confirm
+    context.user_data["batch_submit_list"] = search_queries
+    
+    keyboard = [
+        [InlineKeyboardButton("🟢 Ya, Mulai Batch Submit", callback_data="batch_start_confirm")],
+        [InlineKeyboardButton("❌ Batalkan", callback_data="cancel")]
+    ]
+    await update.message.reply_text(
+        f"📊 **Konfirmasi Batch Submit**\n\n"
+        f"Ditemukan **{len(search_queries)}** nomor pelanggan untuk diproses.\n"
+        f"• Bot akan mencocokkan ke daftar tugas BPS.\n"
+        f"• Jika belum terdaftar di BPS, bot akan melakukan PLN Lookup & Geocoding lalu membuat penugasan baru.\n\n"
+        f"Apakah Anda yakin ingin memulai proses?",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return WAITING_BATCH_CONFIRM
+
+async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "cancel":
+        await query.message.edit_text("❌ Aksi dibatalkan.")
+        return ConversationHandler.END
+        
+    if query.data != "batch_start_confirm":
+        return WAITING_BATCH_CONFIRM
+        
+    chat_id = update.effective_chat.id
+    token_data = load_user_token(chat_id)
+    if not token_data:
+        await query.message.edit_text("🔑 Anda belum login. Silakan `/login` terlebih dahulu.")
+        return ConversationHandler.END
+        
+    token_file = get_user_token_file(chat_id)
+    search_queries = context.user_data.get("batch_submit_list", [])
+    if not search_queries:
+        await query.message.edit_text("❌ Data list kosong.")
+        return ConversationHandler.END
+        
+    status_msg = await query.message.edit_text("⏳ Sedang memproses inisialisasi...")
+    
+    try:
+        token_data = refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
+        headers = get_headers(token_data)
+        
+        # Fetch surveys
+        surveys = fetch_surveys(headers)
+        if not surveys:
+            await status_msg.edit_text("📋 Tidak ada survei yang aktif di akun Anda.")
+            return ConversationHandler.END
+            
+        survey = surveys[0]
+        active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
+        if not active_periode:
+            await status_msg.edit_text("📋 Tidak ada periode aktif.")
+            return ConversationHandler.END
+            
+        pid = active_periode["id"]
+        
+        # Fetch template mapping
+        template_lookup = survey.get("templateLookup", [])
+        template_mapping = {}
+        if template_lookup:
+            tl = template_lookup[0]
+            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+            
+        idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
+        nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
+        
+        # Fetch all assignments once for fast lookup
+        await status_msg.edit_text("📋 Sedang mengambil seluruh daftar tugas dari server BPS...")
+        open_assignments = fetch_all_assignments(headers, pid) or []
+        
+        from pln_lookup import PLNLookupTool
+        pln_tool = PLNLookupTool()
+        
+        total = len(search_queries)
+        successes = 0
+        failures = 0
+        report_rows = []
+        
+        for idx, val in enumerate(search_queries):
+            is_idpel = len(val) == 12
+            idpel_val = val if is_idpel else ""
+            nometer_val = "" if is_idpel else val
+            
+            await status_msg.edit_text(
+                f"⏳ **Memproses {idx+1}/{total}**\n"
+                f"• IDPel/NoMeter: `{val}`\n"
+                f"• Sukses: {successes} | Gagal: {failures}"
+            )
+            
+            # 1. Check if assignment exists
+            target = None
+            for a in open_assignments:
+                v_idpel = (a.get(idpel_slot) or "").strip()
+                v_nometer = (a.get(nometer_slot) or "").strip()
+                if (is_idpel and v_idpel == val) or (not is_idpel and v_nometer == val):
+                    target = a
+                    break
+                    
+            create_new = False
+            template_assignment_id = None
+            pln_profile = None
+            
+            # Setup default/initial direct_args
+            direct_args = {
+                "idpel": idpel_val,
+                "nometer": nometer_val,
+                "nama": "PELANGGAN BARU",
+                "alamat": "",
+                "tarif": "R-1",
+                "daya": "900",
+                "hasil": "1. Berhasil didata",
+                "kelurahan": "001",
+                "kdpm": "01",
+                "kddk": "1",
+                "status_dil": "1"
+            }
+            
+            lat = None
+            lon = None
+            
+            if target:
+                # Existing assignment found
+                direct_args["nama"] = target.get("data2", "") or "PELANGGAN"
+                direct_args["alamat"] = target.get("data4", target.get("data5", "")) or ""
+                idpel_val = target.get(idpel_slot) or idpel_val
+                nometer_val = target.get(nometer_slot) or nometer_val
+                direct_args["idpel"] = idpel_val
+                direct_args["nometer"] = nometer_val
+                
+                # Fetch cache/live for tarif and daya
+                try:
+                    res = pln_tool.lookup_by_idpel(idpel_val) if idpel_val else pln_tool.lookup_by_nometer(nometer_val)
+                    if res:
+                        profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
+                        if profiles:
+                            pln_profile = profiles[0]
+                            direct_args["tarif"] = str(pln_profile.get("tarif", pln_profile.get("gol_tarif", "R-1"))).strip()
+                            direct_args["daya"] = str(pln_profile.get("daya", pln_profile.get("daya_51", "900"))).strip()
+                except Exception:
+                    pass
+            else:
+                # No assignment exists. Create new penugasan
+                create_new = True
+                
+                # Retrieve PLN details
+                try:
+                    res = pln_tool.lookup_by_idpel(val) if is_idpel else pln_tool.lookup_by_nometer(val)
+                    if res:
+                        profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
+                        if profiles:
+                            pln_profile = profiles[0]
+                            # Resolve second profiles if needed
+                            if not pln_profile.get("nama") and pln_profile.get("id_pelanggan"):
+                                sec_res = pln_tool.lookup_by_idpel(pln_profile.get("id_pelanggan"))
+                                if sec_res:
+                                    sec_prof = sec_res.get("dil_main", sec_res.get("list", sec_res.get("lInfoMasterNedisys", [])))
+                                    if sec_prof:
+                                        pln_profile.update(sec_prof[0])
+                                        
+                            direct_args["nama"] = str(pln_profile.get("nama", "PELANGGAN BARU")).strip()
+                            direct_args["alamat"] = str(pln_profile.get("alamat") or pln_profile.get("namapnj") or pln_profile.get("alamat_51") or "").strip()
+                            direct_args["tarif"] = str(pln_profile.get("tarif", pln_profile.get("gol_tarif", "R-1"))).strip()
+                            direct_args["daya"] = str(pln_profile.get("daya", "900")).strip()
+                            
+                            idpel_val = str(pln_profile.get("id_pelanggan", "")).strip() or idpel_val
+                            nometer_val = str(
+                                pln_profile.get("nometer_kwh") or 
+                                pln_profile.get("nomor_meter_kwh") or 
+                                pln_profile.get("no_meter_kwh") or 
+                                pln_profile.get("no_meter") or 
+                                pln_profile.get("nomor_meter") or 
+                                pln_profile.get("nometer") or 
+                                pln_profile.get("meter_number") or 
+                                ""
+                            ).strip() or nometer_val
+                            
+                            direct_args["idpel"] = idpel_val
+                            direct_args["nometer"] = nometer_val
+                            
+                            lat_val = pln_profile.get("koordinat_y", pln_profile.get("latitude"))
+                            lon_val = pln_profile.get("koordinat_x", pln_profile.get("longitude"))
+                            try:
+                                if lat_val and float(lat_val) != 0.0:
+                                    lat = float(lat_val)
+                                if lon_val and float(lon_val) != 0.0:
+                                    lon = float(lon_val)
+                            except ValueError:
+                                pass
+                                
+                            if lat is None or lon is None:
+                                nama_prov = str(pln_profile.get("nama_prov") or "").strip()
+                                nama_kab = str(pln_profile.get("nama_kab") or "").strip()
+                                nama_kec = str(pln_profile.get("nama_kec") or "").strip()
+                                nama_kel = str(pln_profile.get("nama_kel") or "").strip()
+                                lat, lon = geocode_address_nominatim(direct_args["alamat"], nama_kel, nama_kec, nama_kab, nama_prov)
+                                if lat is None or lon is None:
+                                    lat, lon = get_fallback_coordinate(nama_prov, nama_kab, nama_kec, direct_args["alamat"])
+                except Exception as pln_err:
+                    logger.warning(f"PLN lookup failed for batch item {val}: {pln_err}")
+                
+                # Find template assignment
+                template_assignment = None
+                if open_assignments:
+                    template_assignment = find_template_assignment_for_region(open_assignments, pln_profile)
+                
+                if not template_assignment:
+                    failures += 1
+                    report_rows.append({
+                        "val": val, "nama": direct_args["nama"], "status": "FAILED",
+                        "message": "Template assignment acuan tidak tersedia di BPS."
+                    })
+                    continue
+                    
+                template_assignment_id = template_assignment["id"]
+            
+            # Submit to BPS
+            ok, message = await submit_fasih_safe(
+                token_data, token_file,
+                idpel=idpel_val,
+                nometer=nometer_val,
+                create_new=create_new,
+                template_assignment_id=template_assignment_id,
+                direct_args=direct_args,
+                lat=lat,
+                lon=lon
+            )
+            
+            if ok:
+                successes += 1
+            else:
+                failures += 1
+                
+            report_rows.append({
+                "val": val, "nama": direct_args["nama"],
+                "status": "SUCCESS" if ok else "FAILED",
+                "message": message
+            })
+            
+        # Compile report
+        temp_dir = tempfile.gettempdir()
+        report_filename = f"batch_submit_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        report_path = os.path.join(temp_dir, report_filename)
+        
+        with open(report_path, "w", encoding="utf-8", newline="") as f:
+            fieldnames = ["val", "nama", "status", "message"]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(report_rows)
+            
+        await status_msg.delete()
+        
+        summary_text = (
+            f"✅ **BATCH SUBMIT SELESAI**\n"
+            f"===================================\n"
+            f"• Total Nomor: {total}\n"
+            f"• Sukses: {successes}\n"
+            f"• Gagal: {failures}\n"
+            f"===================================\n\n"
+            f"Laporan detail eksekusi batch terlampir."
+        )
+        
+        with open(report_path, "rb") as report_file:
+            await update.message.reply_document(
+                document=report_file,
+                filename=report_filename,
+                caption=summary_text,
+                parse_mode="Markdown"
+            )
+            
+        os.remove(report_path)
+        
+    except Exception as e:
+        logger.error("Error in batch_confirm_callback", exc_info=True)
+        await status_msg.edit_text(f"❌ Terjadi kesalahan sistem: {str(e)}")
+        
+    return ConversationHandler.END
+
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Clean up temp photo if exists
     if "submit_args" in context.user_data:
@@ -2283,6 +2631,7 @@ async def post_init(application: Application) -> None:
         BotCommand("login", "🔑 Login ke SSO BPS (DM saja)"),
         BotCommand("lookup", "🔍 Cari InfoPelanggan (PLN Lookup)"),
         BotCommand("search", "🔍 Cari penugasan di BPS (No Meter/IDPel)"),
+        BotCommand("batch", "⚡ Kirim kuesioner massal (Batch Submit)"),
         BotCommand("list", "📋 Lihat daftar tugas yang OPEN"),
         BotCommand("submit", "⚡ Kirim kuesioner interaktif (Wizard)"),
         BotCommand("logout", "🚪 Keluar & hapus sesi")
@@ -2403,6 +2752,34 @@ def main():
         ]
     )
 
+    # Conversation setup for /batch (Batch Submit)
+    batch_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("batch", start_batch_submit),
+            MessageHandler(filters.Text("⚡ Batch Submit (Massal)"), start_batch_submit)
+        ],
+        states={
+            WAITING_BATCH_SUBMIT_INPUT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, process_batch_submit_input)
+            ],
+            WAITING_BATCH_CONFIRM: [
+                CallbackQueryHandler(batch_confirm_callback)
+            ]
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel_conversation),
+            MessageHandler(filters.Text("❌ Batalkan") | filters.Text("cancel") | filters.Text([
+                "📋 Daftar Tugas (List)",
+                "⚡ Kirim Kuesioner (Submit)",
+                "🔍 Cari InfoPelanggan",
+                "🔍 Cari Assignment BPS",
+                "⚡ Batch Submit (Massal)",
+                "🔑 Status & Login",
+                "🚪 Keluar (Logout)"
+            ]), cancel_conversation)
+        ]
+    )
+
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("login", login_command))
     app.add_handler(CommandHandler("logout", logout_command))
@@ -2417,6 +2794,7 @@ def main():
     app.add_handler(submit_conv)
     app.add_handler(lookup_conv)
     app.add_handler(search_conv)
+    app.add_handler(batch_conv)
     app.add_handler(CallbackQueryHandler(list_callback, pattern="^(lpage_|lnoop|lclose)"))
     
     # Message handler to process uploaded CSV files
