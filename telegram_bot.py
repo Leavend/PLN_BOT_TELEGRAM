@@ -2799,6 +2799,9 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
     successes = 0
     failures = 0
     
+    import time
+    last_update_time = 0.0
+    
     for idx, r in enumerate(records):
         idpel = r.get("idpel")
         nometer = r.get("nometer")
@@ -2812,11 +2815,21 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             failures += 1
             continue
             
-        await status_msg.edit_text(
-            f"⏳ **Memproses {idx+1}/{total}**\n"
-            f"• Nama: {nama}\n"
-            f"• IDPel: `{idpel}` | NoMeter: `{nometer}`"
-        )
+        current_time = time.time()
+        # Edit progress message at most once every 4 seconds or on the first/last items to avoid Telegram 429 rate limit
+        if idx == 0 or idx == total - 1 or (current_time - last_update_time) >= 4.0:
+            try:
+                await status_msg.edit_text(
+                    f"⏳ **Memproses {idx+1}/{total}**\n"
+                    f"• Nama: {nama}\n"
+                    f"• IDPel: `{idpel}` | NoMeter: `{nometer}`"
+                )
+                last_update_time = current_time
+            except Exception as tg_err:
+                logger.warning(f"Failed to update progress status: {tg_err}")
+                
+        # Polite delay to prevent IP ban or server throttling on AP2T/BPS
+        await asyncio.sleep(0.5)
         
         # Build direct_args
         direct_args = {
