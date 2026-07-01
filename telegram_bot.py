@@ -1778,7 +1778,7 @@ async def process_lookup_input(update: Update, context: ContextTypes.DEFAULT_TYP
                         nometer_val = val
                     nometer_val = nometer_val if nometer_val else "-"
                     
-                    line_str = f"• IDPel: `{idpel_val}` | NoMeter: `{nometer_val}` ➔ NIK: `{nik}` - **{name}**"
+                    line_str = f"• `IDPel: {idpel_val} | NoMeter: {nometer_val} ➔ NIK: {nik} - {name}`"
                 else:
                     line_str = f"• `{val}` - SUCCESS (Tanpa Profil)"
             else:
