@@ -557,7 +557,8 @@ async def submit_fasih_safe(
         }
         
         if not dry_run:
-            confirm_submit(headers, params, is_edit=is_edit)
+            submit_resp = confirm_submit(headers, params, is_edit=is_edit)
+            logger.info(f"BPS submit confirmation response: {submit_resp}")
             return True, "Sukses: Data berhasil dikirimkan ke server BPS!"
         else:
             return True, "Sukses (DRY RUN): Semua pengecekan berhasil, kuesioner valid."
@@ -1765,6 +1766,8 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Run pipeline
     ok, message = await submit_fasih_safe(
         token_data, token_file,
+        idpel=args.get("idpel"),
+        nometer=args.get("nometer"),
         assignment_id=args["assignment_id"],
         dry_run=dry_run,
         direct_args=direct_args,
