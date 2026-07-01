@@ -568,15 +568,15 @@ async def submit_fasih_safe(
         return False, f"Kesalahan submit: {str(e)}"
 
 # Conversation handler states
-WAITING_SELECT_ASSIGNMENT, WAITING_TARIF, WAITING_DAYA, WAITING_HASIL, WAITING_PHOTO, WAITING_LOCATION, WAITING_CONFIRM, WAITING_LOOKUP_INPUT, WAITING_SUBMIT_SEARCH_INPUT, WAITING_DUPLICATE_CHOICE, WAITING_WILAYAH_SELECTION = range(11)
+WAITING_SELECT_ASSIGNMENT, WAITING_TARIF, WAITING_DAYA, WAITING_HASIL, WAITING_PHOTO, WAITING_LOCATION, WAITING_CONFIRM, WAITING_LOOKUP_INPUT, WAITING_SUBMIT_SEARCH_INPUT, WAITING_DUPLICATE_CHOICE, WAITING_WILAYAH_SELECTION, WAITING_ASSIGNMENT_SEARCH_INPUT = range(12)
 
 # --- BOT HANDLERS ---
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("📋 Daftar Tugas (List)"), KeyboardButton("⚡ Kirim Kuesioner (Submit)")],
-        [KeyboardButton("🔍 Cari InfoPelanggan"), KeyboardButton("🔑 Status & Login")],
-        [KeyboardButton("🚪 Keluar (Logout)")]
+        [KeyboardButton("🔍 Cari InfoPelanggan"), KeyboardButton("🔍 Cari Assignment BPS")],
+        [KeyboardButton("🔑 Status & Login"), KeyboardButton("🚪 Keluar (Logout)")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
@@ -1976,6 +1976,128 @@ async def process_lookup_input(update: Update, context: ContextTypes.DEFAULT_TYP
         
     return ConversationHandler.END
 
+@restricted
+async def start_assignment_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🔍 **Cari Assignment BPS**\n\n"
+        "Silakan masukkan **ID Pelanggan** atau **Nomor Meter** yang ingin dicari di BPS.\n\n"
+        "👉 _Ketik /cancel untuk membatalkan._",
+        parse_mode="Markdown"
+    )
+    return WAITING_ASSIGNMENT_SEARCH_INPUT
+
+async def process_assignment_search_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    input_text = update.message.text.strip()
+    if not input_text:
+        await update.message.reply_text("[-] ID tidak boleh kosong.")
+        return WAITING_ASSIGNMENT_SEARCH_INPUT
+
+    import re
+    cleaned_digits = "".join(re.findall(r"\d+", input_text))
+    if len(cleaned_digits) < 4:
+        await update.message.reply_text("⚠️ Input tidak valid. Masukkan ID Pelanggan atau No Meter yang benar.")
+        return WAITING_ASSIGNMENT_SEARCH_INPUT
+
+    sent_msg = await update.message.reply_text("⏳ Sedang mengambil data dan mencari di BPS...")
+    try:
+        chat_id = update.effective_chat.id
+        token_data = load_user_token(chat_id)
+        if not token_data:
+            await sent_msg.edit_text("🔑 Sesi Anda kedaluwarsa atau belum login. Silakan `/login` kembali.")
+            return ConversationHandler.END
+
+        token_data = refresh_token_if_needed(token_data, token_file=get_user_token_file(chat_id), exit_on_failure=False)
+        headers = get_headers(token_data)
+
+        # 1. Fetch surveys
+        surveys = fetch_surveys(headers)
+        if not surveys:
+            await sent_msg.edit_text("📋 Tidak ada survei yang aktif di akun Anda.")
+            return ConversationHandler.END
+
+        survey = surveys[0]
+        active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
+        if not active_periode:
+            await sent_msg.edit_text("📋 Tidak ada periode aktif.")
+            return ConversationHandler.END
+
+        pid = active_periode["id"]
+        
+        # Fetch template mapping
+        template_lookup = survey.get("templateLookup", [])
+        template_mapping = {}
+        if template_lookup:
+            tl = template_lookup[0]
+            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+        
+        idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
+        nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
+
+        # 2. Fetch assignments
+        all_content = fetch_all_assignments(headers, pid)
+        if not all_content:
+            await sent_msg.edit_text("📋 Tidak ada tugas di akun BPS Anda.")
+            return ConversationHandler.END
+
+        # 3. Find match(es)
+        matches = []
+        for a in all_content:
+            val_idpel = (a.get(idpel_slot) or "").strip()
+            val_nometer = (a.get(nometer_slot) or "").strip()
+            if val_idpel == cleaned_digits or val_nometer == cleaned_digits:
+                matches.append(a)
+
+        if not matches:
+            await sent_msg.edit_text(
+                f"❌ **Assignment Tidak Ditemukan**\n\n"
+                f"ID Pelanggan / No Meter `{cleaned_digits}` tidak ditemukan di daftar tugas BPS Anda.",
+                parse_mode="Markdown"
+            )
+            return ConversationHandler.END
+
+        # 4. Display match(es)
+        await sent_msg.delete()
+        for idx, m in enumerate(matches):
+            nama = m.get("data2", "") or "NoName"
+            idpel = m.get(idpel_slot) or "-"
+            nometer = m.get(nometer_slot) or "-"
+            status = m.get("assignmentStatusAlias", "OPEN")
+            alamat = m.get("data4", m.get("data5", "-")) or "-"
+            region_name = m.get("region", {}).get("name", "BONTANG")
+            
+            # Parse strata/tarif/daya if possible
+            pre_defined_str = m.get("preDefinedData")
+            tarif = "-"
+            daya = "-"
+            if pre_defined_str:
+                try:
+                    predata = json.loads(pre_defined_str).get("predata", [])
+                    for item in predata:
+                        if item.get("dataKey") == "tarif":
+                            tarif = item.get("answer") or "-"
+                        elif item.get("dataKey") == "daya":
+                            daya = item.get("answer") or "-"
+                except Exception:
+                    pass
+
+            msg = (
+                f"✅ **Assignment BPS Ditemukan! (#{idx+1})**\n\n"
+                f"• **Nama Pelanggan:** {escape_markdown(nama)}\n"
+                f"• **IDPel:** `{escape_markdown(idpel)}` | **NoMeter:** `{escape_markdown(nometer)}`\n"
+                f"• **Status BPS:** `{escape_markdown(status)}`\n"
+                f"• **Region:** `{escape_markdown(region_name)}`\n"
+                f"• **Tarif/Daya:** `{escape_markdown(tarif)}` / `{escape_markdown(daya)}` VA\n"
+                f"• **Alamat:** {escape_markdown(alamat)}\n"
+                f"• **ID Assignment:** `{escape_markdown(m.get('id', ''))}`"
+            )
+            await update.message.reply_text(msg, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error("Error in process_assignment_search_input", exc_info=True)
+        await sent_msg.edit_text(f"❌ Terjadi kesalahan saat mencari assignment: {str(e)}")
+
+    return ConversationHandler.END
+
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Clean up temp photo if exists
     if "submit_args" in context.user_data:
@@ -2154,6 +2276,7 @@ async def post_init(application: Application) -> None:
         BotCommand("start", "Memulai bot & melihat status sesi"),
         BotCommand("login", "🔑 Login ke SSO BPS (DM saja)"),
         BotCommand("lookup", "🔍 Cari InfoPelanggan (PLN Lookup)"),
+        BotCommand("search", "🔍 Cari penugasan di BPS (No Meter/IDPel)"),
         BotCommand("list", "📋 Lihat daftar tugas yang OPEN"),
         BotCommand("submit", "⚡ Kirim kuesioner interaktif (Wizard)"),
         BotCommand("logout", "🚪 Keluar & hapus sesi")
@@ -2243,6 +2366,31 @@ def main():
                 "📋 Daftar Tugas (List)",
                 "⚡ Kirim Kuesioner (Submit)",
                 "🔍 Cari InfoPelanggan",
+                "🔍 Cari Assignment BPS",
+                "🔑 Status & Login",
+                "🚪 Keluar (Logout)"
+            ]), cancel_conversation)
+        ]
+    )
+
+    # Conversation setup for /search (BPS Search)
+    search_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("search", start_assignment_search),
+            MessageHandler(filters.Text("🔍 Cari Assignment BPS"), start_assignment_search)
+        ],
+        states={
+            WAITING_ASSIGNMENT_SEARCH_INPUT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, process_assignment_search_input)
+            ]
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel_conversation),
+            MessageHandler(filters.Text("❌ Batalkan") | filters.Text("cancel") | filters.Text([
+                "📋 Daftar Tugas (List)",
+                "⚡ Kirim Kuesioner (Submit)",
+                "🔍 Cari InfoPelanggan",
+                "🔍 Cari Assignment BPS",
                 "🔑 Status & Login",
                 "🚪 Keluar (Logout)"
             ]), cancel_conversation)
@@ -2262,6 +2410,7 @@ def main():
     
     app.add_handler(submit_conv)
     app.add_handler(lookup_conv)
+    app.add_handler(search_conv)
     app.add_handler(CallbackQueryHandler(list_callback, pattern="^(lpage_|lnoop|lclose)"))
     
     # Message handler to process uploaded CSV files
