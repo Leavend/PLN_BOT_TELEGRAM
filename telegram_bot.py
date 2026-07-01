@@ -2391,12 +2391,25 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     
                 template_assignment_id = template_assignment["id"]
             
-            # Check for a default house photo in the script directory
+            # Pick a random photo from house_photos directory if it exists and is not empty
             photo_path = None
-            for p_name in ["foto_default.jpg", "default_house.jpg", "foto_default.png", "default_house.png"]:
-                if os.path.exists(p_name):
-                    photo_path = p_name
-                    break
+            photos_dir = "house_photos"
+            if os.path.isdir(photos_dir):
+                import random
+                valid_extensions = (".jpg", ".jpeg", ".png")
+                dir_photos = [
+                    os.path.join(photos_dir, f) for f in os.listdir(photos_dir)
+                    if f.lower().endswith(valid_extensions)
+                ]
+                if dir_photos:
+                    photo_path = random.choice(dir_photos)
+
+            # Fallback to local default files if no random photo is set
+            if not photo_path:
+                for p_name in ["foto_default.jpg", "default_house.jpg", "foto_default.png", "default_house.png"]:
+                    if os.path.exists(p_name):
+                        photo_path = p_name
+                        break
 
             # Submit to BPS
             ok, message = await submit_fasih_safe(
