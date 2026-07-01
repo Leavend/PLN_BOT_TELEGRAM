@@ -8,10 +8,12 @@ import hashlib
 import logging
 import tempfile
 import requests
+import asyncio
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -32,6 +34,52 @@ from fasih_api import (
     request_photo_presign_put, upload_photo_to_s3, request_photo_presign_get, confirm_submit,
     fetch_template_mapping, map_answers_to_data_slots
 )
+
+# Async wrappers for blocking functions using asyncio.to_thread
+async def async_perform_login(*args, **kwargs):
+    return await asyncio.to_thread(perform_login, *args, **kwargs)
+
+async def async_refresh_token_if_needed(*args, **kwargs):
+    return await asyncio.to_thread(refresh_token_if_needed, *args, **kwargs)
+
+async def async_fetch_surveys(*args, **kwargs):
+    return await asyncio.to_thread(fetch_surveys, *args, **kwargs)
+
+async def async_fetch_assignments(*args, **kwargs):
+    return await asyncio.to_thread(fetch_assignments, *args, **kwargs)
+
+async def async_fetch_all_assignments(*args, **kwargs):
+    return await asyncio.to_thread(fetch_all_assignments, *args, **kwargs)
+
+async def async_fetch_regions(*args, **kwargs):
+    return await asyncio.to_thread(fetch_regions, *args, **kwargs)
+
+async def async_request_presign_url(*args, **kwargs):
+    return await asyncio.to_thread(request_presign_url, *args, **kwargs)
+
+async def async_upload_to_s3(*args, **kwargs):
+    return await asyncio.to_thread(upload_to_s3, *args, **kwargs)
+
+async def async_request_photo_presign_put(*args, **kwargs):
+    return await asyncio.to_thread(request_photo_presign_put, *args, **kwargs)
+
+async def async_upload_photo_to_s3(*args, **kwargs):
+    return await asyncio.to_thread(upload_photo_to_s3, *args, **kwargs)
+
+async def async_request_photo_presign_get(*args, **kwargs):
+    return await asyncio.to_thread(request_photo_presign_get, *args, **kwargs)
+
+async def async_confirm_submit(*args, **kwargs):
+    return await asyncio.to_thread(confirm_submit, *args, **kwargs)
+
+async def async_fetch_template_mapping(*args, **kwargs):
+    return await asyncio.to_thread(fetch_template_mapping, *args, **kwargs)
+
+async def async_geocode_address_nominatim(*args, **kwargs):
+    return await asyncio.to_thread(geocode_address_nominatim, *args, **kwargs)
+
+async def async_create_7z_archive(*args, **kwargs):
+    return await asyncio.to_thread(create_7z_archive, *args, **kwargs)
 
 # Load configuration
 load_dotenv()
@@ -74,6 +122,15 @@ def is_user_allowed(username: Optional[str]) -> bool:
     if not username:
         return False
     return username.lower() in ALLOWED_USERS
+
+async def safe_delete_message(message) -> bool:
+    if message:
+        try:
+            await message.delete()
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to delete message: {e}")
+    return False
 
 # Helper function to get token file path per chat
 def get_user_token_file(chat_id: int) -> str:
@@ -301,13 +358,13 @@ async def submit_fasih_safe(
         if status_callback:
             await status_callback("🔄 Menyiapkan data autentikasi...")
         
-        token_data = refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
+        token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
         headers = get_headers(token_data)
 
         if status_callback:
             await status_callback("📊 Mengambil daftar tugas dari BPS...")
             
-        surveys = fetch_surveys(headers)
+        surveys = await async_fetch_surveys(headers)
         if not surveys:
             return False, "Tidak ada survei yang aktif di akun Anda."
         
@@ -320,13 +377,13 @@ async def submit_fasih_safe(
         template_mapping = {}
         if template_lookup:
             tl = template_lookup[0]
-            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+            template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
 
         pid = active_periode["id"]
         
         target = None
         if create_new:
-            content = fetch_all_assignments(headers, pid)
+            content = await async_fetch_all_assignments(headers, pid)
             template_target = next((a for a in content if a.get("id") == template_assignment_id), None)
             if not template_target:
                 return False, "Template assignment acuan tidak ditemukan di server BPS."
@@ -338,7 +395,7 @@ async def submit_fasih_safe(
                 target["data5"] = direct_args.get("alamat") or ""
         else:
             # Fetch page 0 first (quick check to save time)
-            first_page = fetch_assignments(headers, pid, page=0)
+            first_page = await async_fetch_assignments(headers, pid, page=0)
             content = (first_page.get("data") or {}).get("content", [])
             total_server = (first_page.get("data") or {}).get("total", 0)
             
@@ -356,7 +413,7 @@ async def submit_fasih_safe(
 
             if not target and len(content) < total_server:
                 # Not found in page 0, fetch remaining assignments in parallel
-                content = fetch_all_assignments(headers, pid)
+                content = await async_fetch_all_assignments(headers, pid)
                 if assignment_id:
                     target = next((a for a in content if a.get("id") == assignment_id), None)
                 elif idpel or nometer:
@@ -404,7 +461,7 @@ async def submit_fasih_safe(
             md5_b64 = compute_md5_base64(photo_path)
             
             try:
-                resp = request_photo_presign_put(
+                resp = await async_request_photo_presign_put(
                     headers, tid, target.get("copyFromId") or "", target.get("surveyPeriodId"),
                     filename, os.path.getsize(photo_path), md5_b64
                 )
@@ -428,11 +485,11 @@ async def submit_fasih_safe(
                     return False, f"Gagal mendapatkan presigned URL foto: {str(e)}"
             
             if not dry_run and put_url != "http://mock-photo-put-url":
-                if not upload_photo_to_s3(put_url, photo_path, md5_b64):
+                if not await async_upload_photo_to_s3(put_url, photo_path, md5_b64):
                     return False, "Gagal mengunggah foto ke S3."
             
             try:
-                resp_get = request_photo_presign_get(
+                resp_get = await async_request_photo_presign_get(
                     headers, tid, target.get("copyFromId") or "", target.get("surveyPeriodId"), filename
                 )
                 get_data = resp_get.get("data", [])
@@ -472,7 +529,7 @@ async def submit_fasih_safe(
 
         # Resolve encryption key
         region_id = target.get("region", {}).get("id", "")
-        regions = fetch_regions(headers, pid)
+        regions = await async_fetch_regions(headers, pid)
         wrapped_key = None
         for r in regions:
             if r.get("region_id") == region_id or r.get("region", {}).get("id") == region_id:
@@ -508,7 +565,7 @@ async def submit_fasih_safe(
 
         # 7z compression and S3 upload
         with tempfile.TemporaryDirectory() as work_dir:
-            archive_path = create_7z_archive(encrypted, target["id"], work_dir)
+            archive_path = await async_create_7z_archive(encrypted, target["id"], work_dir)
             
             if status_callback:
                 await status_callback("☁️ Mengunggah arsip kuesioner ke S3 BPS...")
@@ -517,7 +574,7 @@ async def submit_fasih_safe(
             copy_from_id = target.get("copyFromId")
             error_detail = None
             try:
-                presign_resp = request_presign_url(headers, target["id"], pid, [f"{target['id']}.7z"], is_edit, copy_from_id)
+                presign_resp = await async_request_presign_url(headers, target["id"], pid, [f"{target['id']}.7z"], is_edit, copy_from_id)
                 data_obj = presign_resp.get("data", {})
                 if isinstance(data_obj, list):
                     urls = data_obj
@@ -546,9 +603,9 @@ async def submit_fasih_safe(
                     return False, msg
                 
             if not dry_run and put_url != "http://mock-s3-url":
-                if not upload_to_s3(put_url, archive_path):
+                if not await async_upload_to_s3(put_url, archive_path):
                     return False, "Gagal mengunggah arsip ke S3."
-                    
+                
             archive_md5 = compute_md5(archive_path)
 
         if status_callback:
@@ -586,7 +643,7 @@ async def submit_fasih_safe(
         }
         
         if not dry_run:
-            submit_resp = confirm_submit(headers, params, is_edit=is_edit)
+            submit_resp = await async_confirm_submit(headers, params, is_edit=is_edit)
             logger.info(f"BPS submit confirmation response: {submit_resp}")
             return True, "Sukses: Data berhasil dikirimkan ke server BPS!"
         else:
@@ -769,10 +826,10 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent_msg = await update.message.reply_text("⏳ Mengambil daftar tugas dari BPS...")
     try:
         token_file = get_user_token_file(chat_id)
-        token_data = refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
+        token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
         headers = get_headers(token_data)
         
-        surveys = fetch_surveys(headers)
+        surveys = await async_fetch_surveys(headers)
         if not surveys:
             await sent_msg.edit_text("📋 Tidak ada survei yang ditemukan.")
             return
@@ -786,20 +843,20 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pid = active_period["id"]
         
         # Fetch ALL assignments in parallel for fast loading
-        all_content = fetch_all_assignments(headers, pid)
+        all_content = await async_fetch_all_assignments(headers, pid)
             
         template_lookup = survey.get("templateLookup", [])
         template_mapping = {}
         if template_lookup:
             tl = template_lookup[0]
-            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+            template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
         context.user_data["template_mapping"] = template_mapping
             
         context.user_data["list_assignments"] = all_content
         context.user_data["list_page"] = 0
         
         response_text, markup = _build_list_page(all_content, 0, template_mapping=template_mapping)
-        await sent_msg.delete()
+        await safe_delete_message(sent_msg)
         await update.message.reply_text(response_text, reply_markup=markup, parse_mode="Markdown")
         
     except Exception as e:
@@ -883,10 +940,10 @@ async def start_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent_msg = await update.message.reply_text("⏳ Mengambil daftar tugas dari BPS...")
     try:
         token_file = get_user_token_file(chat_id)
-        token_data = refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
+        token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
         headers = get_headers(token_data)
         
-        surveys = fetch_surveys(headers)
+        surveys = await async_fetch_surveys(headers)
         if not surveys:
             await sent_msg.edit_text("📋 Tidak ada survei aktif.")
             return ConversationHandler.END
@@ -900,7 +957,7 @@ async def start_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pid = active_periode["id"]
         
         # Fetch ALL assignments in parallel for fast loading
-        all_content = fetch_all_assignments(headers, pid)
+        all_content = await async_fetch_all_assignments(headers, pid)
         if not all_content:
             await sent_msg.edit_text(
                 "📋 Tidak ada tugas acuan di akun BPS Anda.\n"
@@ -919,7 +976,7 @@ async def start_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("❌ Batalkan", callback_data="cancel")]
         ]
         
-        await sent_msg.delete()
+        await safe_delete_message(sent_msg)
         await update.message.reply_text(
             "📝 **Masukkan ID Pelanggan atau Nomor Meter:**\n\n"
             "Ketik ID Pelanggan/Nomor Meter yang ingin Anda isi kuesionernya (atau ketuk tombol di bawah untuk memilih dari daftar tugas):",
@@ -1030,17 +1087,20 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
         try:
             from pln_lookup import PLNLookupTool
             engine = PLNLookupTool()
-            res = None
-            if len(cleaned_digits) == 12:
-                res = engine.lookup_by_idpel(cleaned_digits)
-            elif len(cleaned_digits) == 11:
-                res = engine.lookup_by_nometer(cleaned_digits)
-            else:
-                # Fallback: check IDPel first, then NoMeter if empty
-                res = engine.lookup_by_idpel(cleaned_digits)
-                profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", []))) if res else []
-                if not profiles:
-                    res = engine.lookup_by_nometer(cleaned_digits)
+            def do_lookup():
+                if len(cleaned_digits) == 12:
+                    return engine.lookup_by_idpel(cleaned_digits)
+                elif len(cleaned_digits) == 11:
+                    return engine.lookup_by_nometer(cleaned_digits)
+                else:
+                    # Fallback: check IDPel first, then NoMeter if empty
+                    r = engine.lookup_by_idpel(cleaned_digits)
+                    profiles = r.get("dil_main", r.get("list", r.get("lInfoMasterNedisys", []))) if r else []
+                    if not profiles:
+                        r = engine.lookup_by_nometer(cleaned_digits)
+                    return r
+
+            res = await asyncio.to_thread(do_lookup)
                 
             pln_profile = None
             if res:
@@ -1048,13 +1108,18 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
                 if profiles:
                     pln_profile = profiles[0]
                     if not pln_profile.get("nama") and pln_profile.get("id_pelanggan"):
-                        second_res = engine.lookup_by_idpel(pln_profile.get("id_pelanggan"))
+                        def do_second_lookup():
+                            return engine.lookup_by_idpel(pln_profile.get("id_pelanggan"))
+                        second_res = await asyncio.to_thread(do_second_lookup)
                         if second_res:
                             second_profiles = second_res.get("dil_main", second_res.get("list", second_res.get("lInfoMasterNedisys", [])))
                             if second_profiles:
                                 pln_profile.update(second_profiles[0])
                     
-            await waiting_msg.delete()
+            try:
+                await waiting_msg.delete()
+            except Exception:
+                pass
             
             if pln_profile:
                 # Profil ditemukan!
@@ -1080,7 +1145,7 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
                     nama_kab = str(pln_profile.get("nama_kab") or "").strip()
                     nama_kec = str(pln_profile.get("nama_kec") or "").strip()
                     nama_kel = str(pln_profile.get("nama_kel") or "").strip()
-                    lat_num, lon_num = geocode_address_nominatim(alamat, nama_kel, nama_kec, nama_kab, nama_prov)
+                    lat_num, lon_num = await async_geocode_address_nominatim(alamat, nama_kel, nama_kec, nama_kab, nama_prov)
                     if lat_num is None or lon_num is None:
                         lat_num, lon_num = get_fallback_coordinate(nama_prov, nama_kab, nama_kec, alamat)
                 
@@ -1247,11 +1312,15 @@ async def retrieve_pln_profile_for_existing_assignment(target: dict, context: Co
     try:
         from pln_lookup import PLNLookupTool
         engine = PLNLookupTool()
-        res = None
-        if idpel:
-            res = engine.lookup_by_idpel(idpel)
-        if not res and nometer:
-            res = engine.lookup_by_nometer(nometer)
+        def do_lookup():
+            r = None
+            if idpel:
+                r = engine.lookup_by_idpel(idpel)
+            if not r and nometer:
+                r = engine.lookup_by_nometer(nometer)
+            return r
+
+        res = await asyncio.to_thread(do_lookup)
         
         if res:
             profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
@@ -1279,7 +1348,7 @@ async def retrieve_pln_profile_for_existing_assignment(target: dict, context: Co
                     nama_kab = str(pln_profile.get("nama_kab") or "").strip()
                     nama_kec = str(pln_profile.get("nama_kec") or "").strip()
                     nama_kel = str(pln_profile.get("nama_kel") or "").strip()
-                    lat_num, lon_num = geocode_address_nominatim(alamat, nama_kel, nama_kec, nama_kab, nama_prov)
+                    lat_num, lon_num = await async_geocode_address_nominatim(alamat, nama_kel, nama_kec, nama_kab, nama_prov)
                     if lat_num is None or lon_num is None:
                         lat_num, lon_num = get_fallback_coordinate(nama_prov, nama_kab, nama_kec, alamat)
                 
@@ -1380,7 +1449,7 @@ async def duplicate_choice_callback(update: Update, context: ContextTypes.DEFAUL
         
         status_msg = await query.message.edit_text("⏳ Menghubungkan ke PLN AP2T untuk mencocokkan data...")
         await retrieve_pln_profile_for_existing_assignment(target, context)
-        await status_msg.delete()
+        await safe_delete_message(status_msg)
         
         context.user_data["used_ap2t_autofill"] = False
         return await prompt_tarif_selection(update, context)
@@ -1435,7 +1504,7 @@ async def select_assignment_callback(update: Update, context: ContextTypes.DEFAU
     # Query PLN AP2T in the background
     status_msg = await query.message.edit_text("⏳ Menghubungkan ke PLN AP2T untuk mencocokkan data...")
     await retrieve_pln_profile_for_existing_assignment(target, context)
-    await status_msg.delete()
+    await safe_delete_message(status_msg)
     
     context.user_data["used_ap2t_autofill"] = False
     return await prompt_tarif_selection(update, context)
@@ -1633,7 +1702,10 @@ async def photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await photo_file.download_to_drive(photo_path)
     
     context.user_data["submit_args"]["photo_path"] = photo_path
-    await sent_msg.delete()
+    try:
+        await sent_msg.delete()
+    except Exception:
+        pass
     return await process_photo(update, context, True)
 
 async def process_location(update: Update, context: ContextTypes.DEFAULT_TYPE, has_loc: bool):
@@ -1911,14 +1983,19 @@ async def process_lookup_input(update: Update, context: ContextTypes.DEFAULT_TYP
             return index, q_type, val, res
 
         max_workers = min(10, total)
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(fetch_single, idx, q_type, val)
-                for idx, (q_type, val) in enumerate(search_queries)
-            ]
-            for future in futures:
-                idx, q_type, val, res = future.result()
-                results[idx] = res
+        def run_parallel_lookup():
+            res_list = [None] * total
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [
+                    executor.submit(fetch_single, idx, q_type, val)
+                    for idx, (q_type, val) in enumerate(search_queries)
+                ]
+                for future in futures:
+                    idx, q_type, val, res = future.result()
+                    res_list[idx] = res
+            return res_list
+
+        results = await asyncio.to_thread(run_parallel_lookup)
 
         # Chunking results into multiple messages to bypass Telegram's 4096 character limit
         import html
@@ -2089,7 +2166,7 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
             return ConversationHandler.END
 
         # 4. Display match(es)
-        await sent_msg.delete()
+        await safe_delete_message(sent_msg)
         for idx, m in enumerate(matches):
             nama = m.get("data2", "") or "NoName"
             idpel = m.get(idpel_slot) or "-"
@@ -2106,7 +2183,9 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
             query_val = idpel if idpel != "-" else nometer
             if query_val != "-":
                 try:
-                    res = pln_tool.lookup_by_idpel(query_val) if len(query_val) == 12 else pln_tool.lookup_by_nometer(query_val)
+                    def do_lookup():
+                        return pln_tool.lookup_by_idpel(query_val) if len(query_val) == 12 else pln_tool.lookup_by_nometer(query_val)
+                    res = await asyncio.to_thread(do_lookup)
                     if res:
                         profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
                         if profiles:
@@ -2244,11 +2323,11 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
     status_msg = await query.message.edit_text("⏳ Sedang memproses inisialisasi...")
     
     try:
-        token_data = refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
+        token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
         headers = get_headers(token_data)
         
         # Fetch surveys
-        surveys = fetch_surveys(headers)
+        surveys = await async_fetch_surveys(headers)
         if not surveys:
             await status_msg.edit_text("📋 Tidak ada survei yang aktif di akun Anda.")
             return ConversationHandler.END
@@ -2266,14 +2345,14 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         template_mapping = {}
         if template_lookup:
             tl = template_lookup[0]
-            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+            template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
             
         idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
         nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
         
         # Fetch all assignments once for fast lookup
         await status_msg.edit_text("📋 Sedang mengambil seluruh daftar tugas dari server BPS...")
-        open_assignments = fetch_all_assignments(headers, pid) or []
+        open_assignments = await async_fetch_all_assignments(headers, pid) or []
         
         from pln_lookup import PLNLookupTool
         pln_tool = PLNLookupTool()
@@ -2336,7 +2415,9 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 
                 # Fetch cache/live for tarif and daya
                 try:
-                    res = pln_tool.lookup_by_idpel(idpel_val) if idpel_val else pln_tool.lookup_by_nometer(nometer_val)
+                    def do_pln_lookup():
+                        return pln_tool.lookup_by_idpel(idpel_val) if idpel_val else pln_tool.lookup_by_nometer(nometer_val)
+                    res = await asyncio.to_thread(do_pln_lookup)
                     if res:
                         profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
                         if profiles:
@@ -2351,14 +2432,18 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 
                 # Retrieve PLN details
                 try:
-                    res = pln_tool.lookup_by_idpel(val) if is_idpel else pln_tool.lookup_by_nometer(val)
+                    def do_batch_lookup():
+                        return pln_tool.lookup_by_idpel(val) if is_idpel else pln_tool.lookup_by_nometer(val)
+                    res = await asyncio.to_thread(do_batch_lookup)
                     if res:
                         profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
                         if profiles:
                             pln_profile = profiles[0]
                             # Resolve second profiles if needed
                             if not pln_profile.get("nama") and pln_profile.get("id_pelanggan"):
-                                sec_res = pln_tool.lookup_by_idpel(pln_profile.get("id_pelanggan"))
+                                def do_sec_lookup():
+                                    return pln_tool.lookup_by_idpel(pln_profile.get("id_pelanggan"))
+                                sec_res = await asyncio.to_thread(do_sec_lookup)
                                 if sec_res:
                                     sec_prof = sec_res.get("dil_main", sec_res.get("list", sec_res.get("lInfoMasterNedisys", [])))
                                     if sec_prof:
@@ -2399,7 +2484,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                                 nama_kab = str(pln_profile.get("nama_kab") or "").strip()
                                 nama_kec = str(pln_profile.get("nama_kec") or "").strip()
                                 nama_kel = str(pln_profile.get("nama_kel") or "").strip()
-                                lat, lon = geocode_address_nominatim(direct_args["alamat"], nama_kel, nama_kec, nama_kab, nama_prov)
+                                lat, lon = await async_geocode_address_nominatim(direct_args["alamat"], nama_kel, nama_kec, nama_kab, nama_prov)
                                 if lat is None or lon is None:
                                     lat, lon = get_fallback_coordinate(nama_prov, nama_kab, nama_kec, direct_args["alamat"])
                 except Exception as pln_err:
@@ -2457,7 +2542,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
             writer.writeheader()
             writer.writerows(report_rows)
             
-        await status_msg.delete()
+        await safe_delete_message(status_msg)
         
         summary_text = (
             f"✅ **BATCH SUBMIT SELESAI**\n"
@@ -2629,7 +2714,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             writer.writeheader()
             writer.writerows(report_rows)
             
-        await status_msg.delete()
+        await safe_delete_message(status_msg)
         
         summary_text = (
             f"✅ **PROSES BATCH SUBMIT SELESAI**\n"
@@ -2680,7 +2765,14 @@ def main():
         print("❌ Error: TELEGRAM_BOT_TOKEN belum diset di .env")
         sys.exit(1)
         
-    app = Application.builder().token(token).post_init(post_init).build()
+    request_config = HTTPXRequest(
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=15.0,
+        connection_pool_size=100
+    )
+    app = Application.builder().token(token).request(request_config).post_init(post_init).build()
 
     # Conversation setup for /submit
     submit_conv = ConversationHandler(
