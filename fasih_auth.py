@@ -24,7 +24,10 @@ def get_headers(token_data: dict) -> dict:
     return {
         "Authorization": f"Bearer {token_data['access_token']}",
         "User-Agent": USER_AGENT,
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=UTF-8",
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+        "Connection": "keep-alive",
     }
 
 def try_direct_grant(email, password, realm, client_id):

@@ -86,6 +86,20 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
         try:
             return await func(*args, **kwargs)
         except Exception as e:
+            is_waf = False
+            if hasattr(e, "response") and e.response is not None:
+                status_code = getattr(e.response, "status_code", None)
+                if status_code in (405, 429):
+                    is_waf = True
+            
+            err_str = str(e).upper()
+            if "405" in err_str or "429" in err_str or "METHOD NOT ALLOWED" in err_str or "TOO MANY REQUESTS" in err_str:
+                is_waf = True
+                
+            if is_waf:
+                logger.warning(f"BPS call {func.__name__} encountered WAF block / rate limit. Raising immediately without retry.")
+                raise e
+                
             if attempt == max_retries - 1:
                 raise e
             logger.warning(f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}): {e}. Retrying in {delay} seconds...")
@@ -398,7 +412,8 @@ async def submit_fasih_safe(
     cached_assignments: Optional[list] = None,
     cached_survey: Optional[dict] = None,
     cached_active_periode: Optional[dict] = None,
-    cached_template_mapping: Optional[dict] = None
+    cached_template_mapping: Optional[dict] = None,
+    cached_regions: Optional[list] = None
 ) -> tuple[bool, str]:
     """
     Executes the submit pipeline safely without calling sys.exit(1).
@@ -670,7 +685,10 @@ async def submit_fasih_safe(
 
         # Resolve encryption key
         region_id = target.get("region", {}).get("id", "")
-        regions = await call_with_retry(async_fetch_regions, headers, pid)
+        if cached_regions is not None:
+            regions = cached_regions
+        else:
+            regions = await call_with_retry(async_fetch_regions, headers, pid)
         wrapped_key = None
         for r in regions:
             if r.get("region_id") == region_id or r.get("region", {}).get("id") == region_id:
@@ -2574,6 +2592,14 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         await status_msg.edit_text("📋 Sedang mengambil seluruh daftar tugas dari server BPS...")
         open_assignments = await async_fetch_all_assignments(headers, pid) or []
         
+        # Fetch regions list once for encryption keys
+        await status_msg.edit_text("📋 Sedang mengambil data region dari server BPS...")
+        try:
+            regions_list = await call_with_retry(async_fetch_regions, headers, pid)
+        except Exception as e:
+            logger.warning(f"Failed to fetch BPS regions: {e}. Falling back to dynamic fetching.")
+            regions_list = None
+            
         from pln_lookup import PLNLookupTool
         pln_tool = PLNLookupTool()
         
@@ -2582,7 +2608,11 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         failures = 0
         report_rows = []
         
-        for idx, val in enumerate(search_queries):
+        idx = 0
+        waf_retry_count = 0
+        max_waf_retries = 3
+        while idx < total:
+            val = search_queries[idx]
             is_idpel = len(val) == 12
             idpel_val = val if is_idpel else ""
             nometer_val = "" if is_idpel else val
@@ -2721,6 +2751,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                         "val": val, "nama": direct_args["nama"], "status": "FAILED",
                         "message": "Template assignment acuan tidak tersedia di BPS."
                     })
+                    idx += 1
                     continue
                     
                 template_assignment_id = template_assignment["id"]
@@ -2743,15 +2774,48 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 cached_assignments=open_assignments,
                 cached_survey=survey,
                 cached_active_periode=active_periode,
-                cached_template_mapping=template_mapping
+                cached_template_mapping=template_mapping,
+                cached_regions=regions_list
             )
             elapsed = time.time() - start_time
             
-            # Dynamic Throttling base delay
-            sleep_delay = 1.0
-            if elapsed > 10.0:
-                sleep_delay = 4.0
-                logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay.")
+            # Check if IP has been blocked by BPS WAF (HTTP 405 / 429)
+            msg_upper = str(message).upper()
+            is_waf_blocked = not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper)
+            
+            if is_waf_blocked:
+                if waf_retry_count < max_waf_retries:
+                    waf_retry_count += 1
+                    logger.warning(f"BPS WAF Block / Rate Limit detected ({message}). Initiating 90s cool-down (retry {waf_retry_count}/{max_waf_retries}).")
+                    await query.message.reply_text(
+                        f"⚠️ **TERDETEKSI BLOKIR BPS WAF**\n\n"
+                        f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429).\n"
+                        f"Bot akan **beristirahat selama 90 detik** (Cool-down ke-{waf_retry_count}/{max_waf_retries}) "
+                        f"untuk memulihkan IP, lalu otomatis melanjutkan sisa antrean..."
+                    )
+                    await asyncio.sleep(90.0)
+                    try:
+                        token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
+                        headers = get_headers(token_data)
+                    except Exception:
+                        pass
+                    continue
+                else:
+                    logger.error("BPS WAF block persists after maximum cool-down attempts. Aborting batch submit.")
+                    await query.message.reply_text(
+                        "❌ **PENGIRIMAN DIHENTIKAN OTOMATIS**\n\n"
+                        "Firewall BPS tetap memblokir koneksi setelah 3 kali masa cool-down.\n"
+                        "Sisa antrean telah dibatalkan untuk menghindari pemblokiran permanen."
+                    )
+                    # Fill remaining as skipped
+                    for remaining_val in search_queries[idx:]:
+                        report_rows.append({
+                            "val": remaining_val, "nama": "-",
+                            "status": "FAILED",
+                            "message": "Dibatalkan otomatis karena IP terblokir permanen."
+                        })
+                        failures += 1
+                    break
             
             if ok:
                 successes += 1
@@ -2763,29 +2827,16 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 "status": "SUCCESS" if ok else "FAILED",
                 "message": message
             })
-
-            # Check if IP has been blocked by BPS WAF (HTTP 405 / 429)
-            msg_upper = str(message).upper()
-            if not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper):
-                logger.warning(f"BPS WAF Block / Rate Limit detected ({message}). Aborting remaining queue to prevent further blocks.")
-                await query.message.reply_text(
-                    "⚠️ **PENGIRIMAN DIHENTIKAN OTOMATIS**\n\n"
-                    "Terdeteksi pemblokiran IP oleh server BPS (HTTP 405/429).\n"
-                    "Untuk menghindari pemblokiran akun/IP lebih lama, sisa antrean telah dibatalkan.\n"
-                    "Silakan tunggu **5 menit** sebelum melakukan pengiriman kembali."
-                )
-                # Fill remaining as skipped
-                for remaining_val in search_queries[idx+1:]:
-                    report_rows.append({
-                        "val": remaining_val, "nama": "-",
-                        "status": "FAILED",
-                        "message": "Dibatalkan otomatis karena IP terblokir sementara."
-                    })
-                    failures += 1
-                break
+            
+            # Dynamic Throttling base delay
+            sleep_delay = 1.0
+            if elapsed > 10.0:
+                sleep_delay = 4.0
+                logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay.")
             
             # Add dynamic delay to avoid rate limiting or WAF block
             await asyncio.sleep(sleep_delay)
+            idx += 1
             
         # Compile report
         temp_dir = tempfile.gettempdir()
@@ -2888,6 +2939,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
     active_periode = None
     template_mapping = {}
     cached_assignments = None
+    cached_regions = None
     
     try:
         token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
@@ -2904,8 +2956,13 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     tl = template_lookup[0]
                     template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
                 
-                await status_msg.edit_text("📊 Mengunduh seluruh daftar penugasan BPS (sekali saja)...")
+                await status_msg.edit_text("📊 Mengunduh seluruh daftar penugasan & region BPS...")
                 cached_assignments = await async_fetch_all_assignments(headers, active_periode["id"])
+                try:
+                    cached_regions = await call_with_retry(async_fetch_regions, headers, active_periode["id"])
+                except Exception as reg_err:
+                    logger.warning(f"Failed to fetch regions in initial CSV sync: {reg_err}")
+                    cached_regions = None
                 await status_msg.edit_text(f"✅ Sinkronisasi awal berhasil. Menemukan {len(cached_assignments)} tugas. Memulai bulk submit...")
     except Exception as e:
         await status_msg.edit_text(f"⚠️ Peringatan sinkronisasi awal gagal: {e}. Melanjutkan dengan mode dinamis (tanpa cache)...")
@@ -2914,13 +2971,18 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         active_periode = None
         template_mapping = {}
         cached_assignments = None
+        cached_regions = None
         await asyncio.sleep(2)
         
     report_rows = []
     successes = 0
     failures = 0
     
-    for idx, r in enumerate(records):
+    idx = 0
+    waf_retry_count = 0
+    max_waf_retries = 3
+    while idx < len(records):
+        r = records[idx]
         idpel = r.get("idpel")
         nometer = r.get("nometer")
         nama = r.get("nama", "PELANGGAN")
@@ -2931,6 +2993,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "status": "SKIPPED", "message": "Kolom idpel atau nometer kosong"
             })
             failures += 1
+            idx += 1
             continue
             
         await status_msg.edit_text(
@@ -2984,16 +3047,54 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             cached_assignments=cached_assignments,
             cached_survey=survey,
             cached_active_periode=active_periode,
-            cached_template_mapping=template_mapping
+            cached_template_mapping=template_mapping,
+            cached_regions=cached_regions
         )
         elapsed = time.time() - start_time
         
-        # Dynamic Throttling base delay
-        sleep_delay = 1.0
-        if elapsed > 10.0:
-            sleep_delay = 4.0
-            logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay for CSV.")
+        # Check if IP has been blocked by BPS WAF (HTTP 405 / 429)
+        msg_upper = str(message).upper()
+        is_waf_blocked = not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper)
         
+        if is_waf_blocked:
+            if waf_retry_count < max_waf_retries:
+                waf_retry_count += 1
+                logger.warning(f"BPS WAF Block / Rate Limit detected in CSV ({message}). Initiating 90s cool-down (retry {waf_retry_count}/{max_waf_retries}).")
+                await update.effective_message.reply_text(
+                    f"⚠️ **TERDETEKSI BLOKIR BPS WAF (CSV)**\n\n"
+                    f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429).\n"
+                    f"Bot akan **beristirahat selama 90 detik** (Cool-down ke-{waf_retry_count}/{max_waf_retries}) "
+                    f"untuk memulihkan IP, lalu otomatis melanjutkan sisa antrean berkas CSV..."
+                )
+                await asyncio.sleep(90.0)
+                try:
+                    token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
+                    headers = get_headers(token_data)
+                except Exception:
+                    pass
+                continue
+            else:
+                logger.error("BPS WAF block persists in CSV after maximum cool-down attempts. Aborting CSV batch.")
+                await update.effective_message.reply_text(
+                    "❌ **PENGIRIMAN DIHENTIKAN OTOMATIS**\n\n"
+                    "Firewall BPS tetap memblokir koneksi setelah 3 kali masa cool-down.\n"
+                    "Sisa antrean berkas CSV telah dibatalkan untuk menghindari pemblokiran permanen."
+                )
+                # Fill remaining as skipped
+                for remaining_r in records[idx:]:
+                    rem_idpel = remaining_r.get("idpel", "")
+                    rem_nometer = remaining_r.get("nometer", "")
+                    rem_nama = remaining_r.get("nama", "PELANGGAN")
+                    report_rows.append({
+                        "idpel": rem_idpel, "nometer": rem_nometer, "nama": rem_nama,
+                        "alamat": remaining_r.get("alamat", ""),
+                        "latitude": remaining_r.get("latitude", ""), "longitude": remaining_r.get("longitude", ""),
+                        "photo_path": "", "status": "FAILED",
+                        "message": "Dibatalkan otomatis karena IP terblokir permanen."
+                    })
+                    failures += 1
+                break
+                
         status_label = "SUCCESS" if ok else "FAILED"
         if ok:
             successes += 1
@@ -3006,33 +3107,15 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             "photo_path": photo_path or "", "status": status_label, "message": message
         })
 
-        # Check if IP has been blocked by BPS WAF (HTTP 405 / 429)
-        msg_upper = str(message).upper()
-        if not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper):
-            logger.warning(f"BPS WAF Block / Rate Limit detected ({message}). Aborting remaining CSV queue to prevent further blocks.")
-            await update.effective_message.reply_text(
-                "⚠️ **PENGIRIMAN DIHENTIKAN OTOMATIS**\n\n"
-                "Terdeteksi pemblokiran IP oleh server BPS (HTTP 405/429).\n"
-                "Untuk menghindari pemblokiran akun/IP lebih lama, sisa antrean berkas CSV telah dibatalkan.\n"
-                "Silakan tunggu **5 menit** sebelum mengunggah kembali berkas Anda."
-            )
-            # Fill remaining as skipped
-            for remaining_r in records[idx+1:]:
-                rem_idpel = remaining_r.get("idpel", "")
-                rem_nometer = remaining_r.get("nometer", "")
-                rem_nama = remaining_r.get("nama", "PELANGGAN")
-                report_rows.append({
-                    "idpel": rem_idpel, "nometer": rem_nometer, "nama": rem_nama,
-                    "alamat": remaining_r.get("alamat", ""),
-                    "latitude": remaining_r.get("latitude", ""), "longitude": remaining_r.get("longitude", ""),
-                    "photo_path": "", "status": "FAILED",
-                    "message": "Dibatalkan otomatis karena IP terblokir sementara."
-                })
-                failures += 1
-            break
+        # Dynamic Throttling base delay
+        sleep_delay = 1.0
+        if elapsed > 10.0:
+            sleep_delay = 4.0
+            logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay for CSV.")
             
         # Add dynamic delay to avoid rate limiting or WAF block
         await asyncio.sleep(sleep_delay)
+        idx += 1
 
     # Save and send report file
     report_filename = f"bulk_submit_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
