@@ -31,18 +31,37 @@ WEBSHARE_IPS = [
     "199.254.199.110"
 ]
 
+_proxy_dns_cache = {}
 def resolve_proxy_host(proxy_url: str) -> str:
     if not proxy_url:
         return ""
     try:
         parsed = urllib.parse.urlparse(proxy_url)
-        if parsed.hostname == "p.webshare.io":
-            ip = random.choice(WEBSHARE_IPS)
-            netloc = parsed.netloc.replace("p.webshare.io", ip, 1)
+        hostname = parsed.hostname
+        if hostname == "p.webshare.io":
+            ip = _proxy_dns_cache.get(hostname)
+            if not ip:
+                try:
+                    import socket
+                    ips = socket.getaddrinfo(hostname, None)
+                    ip_list = list(set([item[4][0] for item in ips if ":" not in item[4][0]]))
+                    if ip_list:
+                        ip = random.choice(ip_list)
+                        _proxy_dns_cache[hostname] = ip
+                        logger.info(f"Dynamically resolved {hostname} to IP {ip} for proxy gateway.")
+                except Exception as dns_err:
+                    logger.warning(f"Failed to dynamically resolve {hostname}: {dns_err}. Using fallback.")
+            
+            if not ip:
+                fallback_ips = [
+                    "185.24.10.161", "185.24.10.162", "91.242.215.211", "66.203.112.161",
+                    "91.242.215.219", "104.36.49.13", "185.24.10.166", "104.36.49.21"
+                ]
+                ip = random.choice(fallback_ips)
+            
+            netloc = parsed.netloc.replace(hostname, ip, 1)
             new_parsed = parsed._replace(netloc=netloc)
-            new_url = urllib.parse.urlunparse(new_parsed)
-            logger.info(f"Resolved proxy hostname p.webshare.io to IP {ip} to bypass DNS restrictions.")
-            return new_url
+            return urllib.parse.urlunparse(new_parsed)
     except Exception as e:
         logger.warning(f"Failed to resolve proxy host in {proxy_url}: {e}")
     return proxy_url
@@ -202,23 +221,7 @@ class RotatingProxySession(requests.Session):
                 'http': proxy,
                 'https': proxy
             }
-            # Bypassing Webshare "client_connect_forbidden_host" block by using direct IP resolution
-            original_url = request.url
-            parsed = urllib.parse.urlparse(original_url)
-            hostname = parsed.hostname
-            if hostname and not hostname.replace('.', '').isdigit(): # Avoid resolving if already an IP
-                try:
-                    import socket
-                    ip = socket.gethostbyname(hostname)
-                    request.url = original_url.replace(hostname, ip, 1)
-                    request.headers['Host'] = hostname
-                    kwargs['verify'] = False # Disable SSL verification for IP-based requests to bypass SSL mismatch
-                    logger.debug(f"Routing BPS request through proxy: {proxy} (Resolved {hostname} to IP {ip} for bypass)")
-                except Exception as e:
-                    logger.warning(f"Failed to resolve hostname {hostname} for proxy bypass: {e}")
-                    logger.debug(f"Routing BPS request through proxy: {proxy}")
-            else:
-                logger.debug(f"Routing BPS request through proxy: {proxy}")
+            logger.debug(f"Routing BPS request through proxy: {proxy}")
         return super().send(request, **kwargs)
 
 session = RotatingProxySession(proxy_list)

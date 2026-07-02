@@ -11,6 +11,68 @@ from urllib.parse import urlparse, parse_qs
 from dotenv import load_dotenv
 load_dotenv()
 
+import time
+
+class FileLock:
+    def __init__(self, lock_file_path: str):
+        self.lock_file_path = lock_file_path + ".lock"
+        self.lock_file = None
+
+    def __enter__(self):
+        start_time = time.time()
+        while True:
+            try:
+                self.lock_file = open(self.lock_file_path, "w")
+                try:
+                    import fcntl
+                    fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return self
+                except ImportError:
+                    try:
+                        import msvcrt
+                        self.lock_file.seek(0)
+                        msvcrt.locking(self.lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                        return self
+                    except (ImportError, OSError):
+                        fd = os.open(self.lock_file_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                        os.close(fd)
+                        return self
+            except (IOError, OSError):
+                if self.lock_file:
+                    try:
+                        self.lock_file.close()
+                    except Exception:
+                        pass
+                    self.lock_file = None
+                if time.time() - start_time > 30:
+                    raise TimeoutError(f"Timed out waiting for file lock on {self.lock_file_path}")
+                time.sleep(0.1)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.lock_file:
+            try:
+                import fcntl
+                fcntl.flock(self.lock_file, fcntl.LOCK_UN)
+            except ImportError:
+                try:
+                    import msvcrt
+                    self.lock_file.seek(0)
+                    msvcrt.locking(self.lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                except (ImportError, OSError):
+                    try:
+                        os.remove(self.lock_file_path)
+                    except Exception:
+                        pass
+            try:
+                self.lock_file.close()
+            except Exception:
+                pass
+            try:
+                if os.path.exists(self.lock_file_path):
+                    os.remove(self.lock_file_path)
+            except Exception:
+                pass
+
 # Suppress insecure HTTPS warning since we use direct IP connections to bypass Webshare filters
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -218,77 +280,83 @@ def is_token_valid(token_data: dict) -> bool:
         payload_b64 = token_data["access_token"].split(".")[1]
         payload_b64 += "=" * (4 - len(payload_b64) % 4)
         jwt_payload = json.loads(base64.b64decode(payload_b64))
-        return int(datetime.now().timestamp()) < jwt_payload.get("exp", 0) - 60
+        return int(datetime.now().timestamp()) < jwt_payload.get("exp", 0) - 10
     except Exception:
         return False
 
 def refresh_token_if_needed(token_data: dict, token_file: Optional[str] = None, exit_on_failure: bool = True) -> dict:
     """Check token expiry and refresh if needed. Retries up to 3 times with backoff."""
-    if is_token_valid(token_data):
-        return token_data
-    
-    import logging, time
-    logger = logging.getLogger(__name__)
-    logger.info("Token kedaluwarsa atau tidak valid, memperbarui token...")
-    
     target_file = token_file or TOKEN_FILE
-    token_url = f"{SSO_BASE}/auth/realms/{REALM_EKSTERNAL}/protocol/openid-connect/token"
     
-    max_retries = 3
-    last_error = None
-    
-    for attempt in range(max_retries):
-        # Reload the latest token from disk each attempt (handles single-use refresh token rotation)
-        if attempt > 0 and os.path.exists(target_file):
+    with FileLock(target_file):
+        if os.path.exists(target_file):
             try:
                 with open(target_file, "r") as f:
                     token_data = json.load(f)
-                # Check if someone else already refreshed it
-                if is_token_valid(token_data):
-                    logger.info("Token was refreshed by another process, reusing valid token from disk.")
-                    return token_data
             except Exception:
                 pass
+                
+        if is_token_valid(token_data):
+            return token_data
         
-        refresh_token = token_data.get("refresh_token")
-        if not refresh_token:
-            msg = "Tidak ada refresh token tersedia."
-            if exit_on_failure:
-                print(f"[-] {msg}")
-                sys.exit(1)
-            raise Exception(msg)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("Token kedaluwarsa atau tidak valid, memperbarui token...")
         
-        try:
-            session = get_sso_session()
-            resp = session.post(token_url, data={
-                "client_id": CLIENT_ID_EKSTERNAL,
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-            }, timeout=30)
-            if resp.status_code == 200:
-                new_token = resp.json()
-                with open(target_file, "w") as f:
-                    json.dump(new_token, f, indent=2)
-                logger.info(f"Token refreshed successfully on attempt {attempt+1}.")
-                return new_token
-            last_error = f"status {resp.status_code}"
-            # Log response body for debugging
+        token_url = f"{SSO_BASE}/auth/realms/{REALM_EKSTERNAL}/protocol/openid-connect/token"
+        
+        max_retries = 3
+        last_error = None
+        
+        for attempt in range(max_retries):
+            if attempt > 0 and os.path.exists(target_file):
+                try:
+                    with open(target_file, "r") as f:
+                        token_data = json.load(f)
+                    if is_token_valid(token_data):
+                        logger.info("Token was refreshed by another process, reusing valid token from disk.")
+                        return token_data
+                except Exception:
+                    pass
+            
+            refresh_token = token_data.get("refresh_token")
+            if not refresh_token:
+                msg = "Tidak ada refresh token tersedia."
+                if exit_on_failure:
+                    print(f"[-] {msg}")
+                    sys.exit(1)
+                raise Exception(msg)
+            
             try:
-                error_body = resp.text[:200]
-                logger.warning(f"Token refresh attempt {attempt+1}/{max_retries} failed: HTTP {resp.status_code} - {error_body}")
-            except Exception:
-                logger.warning(f"Token refresh attempt {attempt+1}/{max_retries} failed: HTTP {resp.status_code}")
-        except Exception as e:
-            last_error = str(e)
-            logger.warning(f"Token refresh attempt {attempt+1}/{max_retries} network error: {e}")
+                session = get_sso_session()
+                resp = session.post(token_url, data={
+                    "client_id": CLIENT_ID_EKSTERNAL,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                }, timeout=30)
+                if resp.status_code == 200:
+                    new_token = resp.json()
+                    with open(target_file, "w") as f:
+                        json.dump(new_token, f, indent=2)
+                    logger.info(f"Token refreshed successfully on attempt {attempt+1}.")
+                    return new_token
+                last_error = f"status {resp.status_code}"
+                try:
+                    error_body = resp.text[:200]
+                    logger.warning(f"Token refresh attempt {attempt+1}/{max_retries} failed: HTTP {resp.status_code} - {error_body}")
+                except Exception:
+                    logger.warning(f"Token refresh attempt {attempt+1}/{max_retries} failed: HTTP {resp.status_code}")
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"Token refresh attempt {attempt+1}/{max_retries} network error: {e}")
+            
+            if attempt < max_retries - 1:
+                backoff = 3 * (attempt + 1)
+                logger.info(f"Retrying token refresh in {backoff}s...")
+                time.sleep(backoff)
         
-        if attempt < max_retries - 1:
-            backoff = 3 * (attempt + 1)
-            logger.info(f"Retrying token refresh in {backoff}s...")
-            time.sleep(backoff)
-    
-    if exit_on_failure:
-        print(f"[-] Gagal memperbarui token setelah {max_retries} percobaan: {last_error}")
-        sys.exit(1)
-    else:
-        raise Exception(f"Gagal memperbarui token setelah {max_retries} percobaan: {last_error}")
+        if exit_on_failure:
+            print(f"[-] Gagal memperbarui token setelah {max_retries} percobaan: {last_error}")
+            sys.exit(1)
+        else:
+            raise Exception(f"Gagal memperbarui token setelah {max_retries} percobaan: {last_error}")
