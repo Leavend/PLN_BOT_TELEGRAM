@@ -26,13 +26,28 @@ REDIRECT_URI_INTERNAL = "id.go.bps://fasih-sso-internal"
 USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 8.1.0; Android SDK built for x86 Build/OSM1.180201.021)"
 
 
+def format_proxy_url(proxy_str: str) -> str:
+    proxy_str = proxy_str.strip()
+    if not proxy_str:
+        return ""
+    # Handle HOST:PORT:USER:PASS format
+    parts = proxy_str.split(":")
+    if len(parts) == 4:
+        host, port, user, pw = parts
+        return f"http://{user}:{pw}@{host}:{port}"
+    # Ensure scheme is present
+    if not (proxy_str.startswith("http://") or proxy_str.startswith("https://") or proxy_str.startswith("socks5://")):
+        return f"http://{proxy_str}"
+    return proxy_str
+
 def get_bps_proxy() -> Optional[dict]:
     # 1. First check if a context sticky proxy is set
     try:
         from fasih_api import sticky_proxy_var
         sticky = sticky_proxy_var.get()
         if sticky:
-            return {"http": sticky, "https": sticky}
+            formatted_sticky = format_proxy_url(sticky)
+            return {"http": formatted_sticky, "https": formatted_sticky}
     except Exception:
         pass
 
@@ -40,15 +55,18 @@ def get_bps_proxy() -> Optional[dict]:
     # 1. Single proxy from environment
     single_proxy = os.getenv("BPS_PROXY")
     if single_proxy:
-        pool.append(single_proxy.strip())
+        formatted = format_proxy_url(single_proxy)
+        if formatted:
+            pool.append(formatted)
         
     # 2. Proxy pool from environment (comma-separated list)
     env_pool = os.getenv("BPS_PROXY_POOL") or os.getenv("BPS_PROXIES")
     if env_pool:
         for p in env_pool.split(","):
-            if p.strip():
-                pool.append(p.strip())
-                
+            formatted = format_proxy_url(p)
+            if formatted:
+                pool.append(formatted)
+                 
     # 3. Proxy file
     proxy_file = os.getenv("BPS_PROXY_FILE")
     if proxy_file and os.path.exists(proxy_file):
@@ -57,7 +75,9 @@ def get_bps_proxy() -> Optional[dict]:
                 for line in f:
                     line_str = line.strip()
                     if line_str and not line_str.startswith("#"):
-                        pool.append(line_str)
+                        formatted = format_proxy_url(line_str)
+                        if formatted:
+                            pool.append(formatted)
         except Exception:
             pass
             
