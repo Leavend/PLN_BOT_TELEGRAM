@@ -149,11 +149,20 @@ def select_target_assignment(content: list, template_mapping: dict, assignment_i
         sys.exit(1)
     return target
 
+def select_prabayar_survey(surveys: list) -> dict:
+    if not surveys:
+        return None
+    for s in surveys:
+        name = s.get("name") or s.get("description") or ""
+        if "prabayar" in str(name).lower():
+            return s
+    return surveys[0]
+
 def resolve_survey_period_and_mapping(surveys: list, headers: dict) -> tuple:
     if not surveys:
         print("[-] No surveys found.")
         sys.exit(1)
-    survey = surveys[0]
+    survey = select_prabayar_survey(surveys)
     active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
     if not active_periode:
         print("[-] No active period found.")
@@ -608,10 +617,11 @@ def get_encryption_key(headers: dict, target: dict, region_id: str) -> bytes:
     pid = target.get("surveyPeriodId")
     regions = fetch_regions(headers, pid)
     wrapped_key = None
-    for r in regions:
-        if r.get("region_id") == region_id or r.get("region", {}).get("id") == region_id:
-            wrapped_key = r.get("wrappedDatakey")
-            break
+    if regions:
+        for r in regions:
+            if r.get("region_id") == region_id or r.get("region", {}).get("id") == region_id:
+                wrapped_key = r.get("wrappedDatakey")
+                break
     if not wrapped_key:
         wrapped_key = STATIC_LEGACY_KEY
     try:
