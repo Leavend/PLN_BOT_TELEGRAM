@@ -2611,6 +2611,14 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         waf_retry_count = 0
         max_waf_retries = 3
         while idx < total:
+            # Reload token data to get the latest refreshed token from previous iterations
+            if token_file and os.path.exists(token_file):
+                try:
+                    with open(token_file, "r") as f:
+                        token_data = json.load(f)
+                except Exception as e:
+                    logger.error(f"Failed to reload token in loop: {e}")
+
             val = search_queries[idx]
             
             # Select a sticky proxy for this customer run to ensure IP consistency
@@ -2785,6 +2793,26 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
             )
             elapsed = time.time() - start_time
             
+            # Check if auth session is dead (e.g. status 400 or Gagal memperbarui token)
+            is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
+            
+            if is_auth_failed:
+                logger.error(f"Authentication session expired/invalid ({message}). Aborting batch.")
+                await query.message.reply_text(
+                    "❌ **SESI LOGIN KEDALUWARSA / LOGOUT**\n\n"
+                    "Sesi login BPS Anda telah berakhir atau tidak valid lagi.\n"
+                    "Silakan lakukan login ulang menggunakan command `/login` terlebih dahulu, lalu mulai kembali proses submit."
+                )
+                # Fill remaining as skipped
+                for remaining_val in search_queries[idx:]:
+                    report_rows.append({
+                        "val": remaining_val, "nama": "-",
+                        "status": "FAILED",
+                        "message": "Dibatalkan karena sesi login kedaluwarsa."
+                    })
+                    failures += 1
+                break
+
             # Check if IP has been blocked by BPS WAF (HTTP 405 / 429)
             msg_upper = str(message).upper()
             is_waf_blocked = not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper)
@@ -2989,6 +3017,14 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
     waf_retry_count = 0
     max_waf_retries = 3
     while idx < len(records):
+        # Reload token data to get the latest refreshed token from previous iterations
+        if token_file and os.path.exists(token_file):
+            try:
+                with open(token_file, "r") as f:
+                    token_data = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to reload token in CSV loop: {e}")
+
         r = records[idx]
         
         # Select a sticky proxy for this customer run to ensure IP consistency
@@ -3067,6 +3103,31 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         elapsed = time.time() - start_time
         
+        # Check if auth session is dead (e.g. status 400 or Gagal memperbarui token)
+        is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
+        
+        if is_auth_failed:
+            logger.error(f"Authentication session expired/invalid in CSV ({message}). Aborting CSV batch.")
+            await update.effective_message.reply_text(
+                "❌ **SESI LOGIN KEDALUWARSA / LOGOUT (CSV)**\n\n"
+                "Sesi login BPS Anda telah berakhir atau tidak valid lagi.\n"
+                "Silakan lakukan login ulang menggunakan command `/login` terlebih dahulu, lalu unggah kembali berkas CSV."
+            )
+            # Fill remaining as skipped
+            for remaining_r in records[idx:]:
+                rem_idpel = remaining_r.get("idpel", "")
+                rem_nometer = remaining_r.get("nometer", "")
+                rem_nama = remaining_r.get("nama", "PELANGGAN")
+                report_rows.append({
+                    "idpel": rem_idpel, "nometer": rem_nometer, "nama": rem_nama,
+                    "alamat": remaining_r.get("alamat", ""),
+                    "latitude": remaining_r.get("latitude", ""), "longitude": remaining_r.get("longitude", ""),
+                    "photo_path": "", "status": "FAILED",
+                    "message": "Dibatalkan karena sesi login kedaluwarsa."
+                })
+                failures += 1
+            break
+
         # Check if IP has been blocked by BPS WAF (HTTP 405 / 429)
         msg_upper = str(message).upper()
         is_waf_blocked = not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper)
