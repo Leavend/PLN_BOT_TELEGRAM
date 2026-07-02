@@ -81,6 +81,16 @@ async def async_geocode_address_nominatim(*args, **kwargs):
 async def async_create_7z_archive(*args, **kwargs):
     return await asyncio.to_thread(create_7z_archive, *args, **kwargs)
 
+async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
+    for attempt in range(max_retries):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            logger.warning(f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}): {e}. Retrying in {delay} seconds...")
+            await asyncio.sleep(delay)
+
 # Load configuration
 load_dotenv()
 
@@ -577,9 +587,9 @@ async def submit_fasih_safe(
             tid = target.get("id")
             filename = f"{tid}_r106.png"
             md5_b64 = compute_md5_base64(photo_path)
-            
             try:
-                resp = await async_request_photo_presign_put(
+                resp = await call_with_retry(
+                    async_request_photo_presign_put,
                     headers, tid, target.get("copyFromId") or "", target.get("surveyPeriodId"),
                     filename, os.path.getsize(photo_path), md5_b64
                 )
@@ -607,7 +617,8 @@ async def submit_fasih_safe(
                     return False, "Gagal mengunggah foto ke S3."
             
             try:
-                resp_get = await async_request_photo_presign_get(
+                resp_get = await call_with_retry(
+                    async_request_photo_presign_get,
                     headers, tid, target.get("copyFromId") or "", target.get("surveyPeriodId"), filename
                 )
                 get_data = resp_get.get("data", [])
@@ -647,7 +658,7 @@ async def submit_fasih_safe(
 
         # Resolve encryption key
         region_id = target.get("region", {}).get("id", "")
-        regions = await async_fetch_regions(headers, pid)
+        regions = await call_with_retry(async_fetch_regions, headers, pid)
         wrapped_key = None
         for r in regions:
             if r.get("region_id") == region_id or r.get("region", {}).get("id") == region_id:
@@ -692,7 +703,7 @@ async def submit_fasih_safe(
             copy_from_id = target.get("copyFromId")
             error_detail = None
             try:
-                presign_resp = await async_request_presign_url(headers, target["id"], pid, [f"{target['id']}.7z"], is_edit, copy_from_id)
+                presign_resp = await call_with_retry(async_request_presign_url, headers, target["id"], pid, [f"{target['id']}.7z"], is_edit, copy_from_id)
                 data_obj = presign_resp.get("data", {})
                 if isinstance(data_obj, list):
                     urls = data_obj
@@ -761,7 +772,7 @@ async def submit_fasih_safe(
         }
         
         if not dry_run:
-            submit_resp = await async_confirm_submit(headers, params, is_edit=is_edit)
+            submit_resp = await call_with_retry(async_confirm_submit, headers, params, is_edit=is_edit)
             logger.info(f"BPS submit confirmation response: {submit_resp}")
             return True, "Sukses: Data berhasil dikirimkan ke server BPS!"
         else:
