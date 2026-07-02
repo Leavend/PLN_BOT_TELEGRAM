@@ -2749,6 +2749,26 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 "status": "SUCCESS" if ok else "FAILED",
                 "message": message
             })
+
+            # Check if IP has been blocked by BPS WAF (HTTP 405 / 429)
+            msg_upper = str(message).upper()
+            if not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper):
+                logger.warning(f"BPS WAF Block / Rate Limit detected ({message}). Aborting remaining queue to prevent further blocks.")
+                await update.message.reply_text(
+                    "⚠️ **PENGIRIMAN DIHENTIKAN OTOMATIS**\n\n"
+                    "Terdeteksi pemblokiran IP oleh server BPS (HTTP 405/429).\n"
+                    "Untuk menghindari pemblokiran akun/IP lebih lama, sisa antrean telah dibatalkan.\n"
+                    "Silakan tunggu **5 menit** sebelum melakukan pengiriman kembali."
+                )
+                # Fill remaining as skipped
+                for remaining_val in search_queries[idx+1:]:
+                    report_rows.append({
+                        "val": remaining_val, "nama": "-",
+                        "status": "FAILED",
+                        "message": "Dibatalkan otomatis karena IP terblokir sementara."
+                    })
+                    failures += 1
+                break
             
             # Add 1.0 second delay to avoid rate limiting or WAF block
             await asyncio.sleep(1.0)
@@ -2962,7 +2982,32 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
             "photo_path": photo_path or "", "status": status_label, "message": message
         })
-        
+
+        # Check if IP has been blocked by BPS WAF (HTTP 405 / 429)
+        msg_upper = str(message).upper()
+        if not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper):
+            logger.warning(f"BPS WAF Block / Rate Limit detected ({message}). Aborting remaining CSV queue to prevent further blocks.")
+            await update.message.reply_text(
+                "⚠️ **PENGIRIMAN DIHENTIKAN OTOMATIS**\n\n"
+                "Terdeteksi pemblokiran IP oleh server BPS (HTTP 405/429).\n"
+                "Untuk menghindari pemblokiran akun/IP lebih lama, sisa antrean berkas CSV telah dibatalkan.\n"
+                "Silakan tunggu **5 menit** sebelum mengunggah kembali berkas Anda."
+            )
+            # Fill remaining as skipped
+            for remaining_r in records[idx+1:]:
+                rem_idpel = remaining_r.get("idpel", "")
+                rem_nometer = remaining_r.get("nometer", "")
+                rem_nama = remaining_r.get("nama", "PELANGGAN")
+                report_rows.append({
+                    "idpel": rem_idpel, "nometer": rem_nometer, "nama": rem_nama,
+                    "alamat": remaining_r.get("alamat", ""),
+                    "latitude": remaining_r.get("latitude", ""), "longitude": remaining_r.get("longitude", ""),
+                    "photo_path": "", "status": "FAILED",
+                    "message": "Dibatalkan otomatis karena IP terblokir sementara."
+                })
+                failures += 1
+            break
+            
         # Add 1.0 second delay to avoid trigger ASM WAF blocks
         await asyncio.sleep(1.0)
 

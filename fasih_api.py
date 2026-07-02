@@ -23,7 +23,7 @@ session.mount("http://", adapter)
 
 def fetch_surveys(headers: dict) -> list:
     """Fetch surveys assigned to the current user."""
-    resp = session.get(f"{BASE_URL}/mobile/assignment-sync/api/mobile/survey/get-survey-for-capi", headers=headers, timeout=15)
+    resp = session.get(f"{BASE_URL}/mobile/assignment-sync/api/mobile/survey/get-survey-for-capi", headers=headers, timeout=30)
     resp.raise_for_status()
     return resp.json().get("data", [])
 
@@ -31,7 +31,7 @@ def fetch_assignments(headers: dict, survey_period_id: str, page: int = 0) -> di
     """Fetch assignment datatable for a given survey period."""
     resp = session.get(
         f"{BASE_URL}/mobile/assignment-sync/api/mobile/s3/assignment/datatable",
-        headers=headers, params={"surveyPeriodId": survey_period_id, "page": page}, timeout=15
+        headers=headers, params={"surveyPeriodId": survey_period_id, "page": page}, timeout=30
     )
     resp.raise_for_status()
     return resp.json()
@@ -81,7 +81,7 @@ def fetch_regions(headers: dict, survey_period_id: str) -> list:
     """Fetch assignment regions (contains wrappedDataKey)."""
     resp = session.get(
         f"{BASE_URL}/mobile/assignment-sync/api/mobile/assignment-region/get-by-survey-periode-id",
-        headers=headers, params={"surveyPeriodeId": survey_period_id}, timeout=15
+        headers=headers, params={"surveyPeriodeId": survey_period_id}, timeout=30
     )
     resp.raise_for_status()
     return resp.json().get("data", [])
@@ -98,7 +98,7 @@ def request_presign_url(headers: dict, assignment_id: str, survey_period_id: str
     resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/assignment/s3/{url_path}",
         headers=headers, json=body,
-        params={"surveyPeriodId": survey_period_id}, timeout=15
+        params={"surveyPeriodId": survey_period_id}, timeout=30
     )
     resp.raise_for_status()
     res_json = resp.json()
@@ -128,7 +128,7 @@ def request_photo_presign_put(headers: dict, assignment_id: str, copy_from_id: s
     }]
     resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/image/v2/presigned-url-put",
-        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=15
+        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=30
     )
     resp.raise_for_status()
     res_json = resp.json()
@@ -156,7 +156,7 @@ def request_photo_presign_get(headers: dict, assignment_id: str, copy_from_id: s
     body = [{"assignmentId": assignment_id, "copyFromId": copy_from_id or "", "fileNames": [filename]}]
     resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/image/presigned-url-get",
-        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=15
+        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=30
     )
     resp.raise_for_status()
     res_json = resp.json()
@@ -172,7 +172,7 @@ def confirm_submit(headers: dict, params: dict, is_edit: bool = False) -> dict:
     url_path = "edit" if is_edit else "submit"
     resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/assignment/s3/{url_path}",
-        headers=headers, json=params, timeout=15
+        headers=headers, json=params, timeout=60
     )
     if resp.status_code != 200:
         # Raise HTTPError with body text to allow propagation to the user
@@ -192,7 +192,7 @@ def fetch_template_mapping(headers: dict, template_id: str, version: str) -> dic
     """Fetch template custom data mapping (data1-data10 → field keys)."""
     resp = session.get(
         f"{BASE_URL}/mobile/assignment-sync/api/mobile/template/custom-data/{template_id}",
-        headers=headers, params={"version": version}, timeout=15
+        headers=headers, params={"version": version}, timeout=30
     )
     resp.raise_for_status()
     result = resp.json()
