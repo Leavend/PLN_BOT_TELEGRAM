@@ -278,7 +278,9 @@ class PLNLookupTool:
         ttl_seconds = int(os.getenv("PLN_CACHE_TTL_DAYS", "30")) * 86400
         cached_data = self.cache.get("idpel", idpel, ttl_seconds)
         if cached_data:
-            return cached_data
+            profiles = cached_data.get("dil_main", cached_data.get("list", cached_data.get("lInfoMasterNedisys", [])))
+            if profiles and "keperluan" in profiles[0]:
+                return cached_data
 
         data = self.make_gwt_rpc_request("getJsonInfoDilByIdpel", [idpel])
         if not data:
@@ -295,7 +297,9 @@ class PLNLookupTool:
         ttl_seconds = int(os.getenv("PLN_CACHE_TTL_DAYS", "30")) * 86400
         cached_data = self.cache.get("nometer", nometer, ttl_seconds)
         if cached_data:
-            return cached_data
+            profiles = cached_data.get("dil_main", cached_data.get("list", cached_data.get("lInfoMasterNedisys", [])))
+            if profiles and "keperluan" in profiles[0]:
+                return cached_data
 
         data = self.make_gwt_rpc_request("getJsonMasterNedisysByNomorMeter", [nometer])
         if not data:

@@ -278,6 +278,78 @@ def resolve_r204_from_keperluan(keperluan: str) -> str:
         return "4. Dinas"
     return "1. Milik sendiri"
 
+_kec_lookup_cache = None
+_desa_lookup_cache = None
+
+def load_regional_lookups():
+    global _kec_lookup_cache, _desa_lookup_cache
+    if _kec_lookup_cache is not None and _desa_lookup_cache is not None:
+        return _kec_lookup_cache, _desa_lookup_cache
+        
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    kec_path = os.path.join(script_dir, "lookups", "mfd25s1_kec_1_batch.json")
+    desa_path = os.path.join(script_dir, "lookups", "mfd25s1_desa_1_batch.json")
+    
+    kec_cache = {}
+    desa_cache = {}
+    
+    if os.path.exists(kec_path):
+        try:
+            import json
+            import ast
+            with open(kec_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for chunk in data.get("data", []):
+                parsed = ast.literal_eval(f"[{chunk}]")
+                for row in parsed:
+                    code = row[0]
+                    name_raw = row[1]
+                    if name_raw.startswith("[") and "]" in name_raw:
+                        name = name_raw.split("]", 1)[1].strip().upper()
+                    else:
+                        name = name_raw.strip().upper()
+                    kec_cache[name] = {
+                        "code": code,
+                        "full_name": name_raw,
+                        "l1_code": row[3],
+                        "l2_code": row[4]
+                    }
+        except Exception as e:
+            print(f"[!] Error loading kec lookup: {e}")
+            
+    if os.path.exists(desa_path):
+        try:
+            import json
+            import ast
+            with open(desa_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for chunk in data.get("data", []):
+                parsed = ast.literal_eval(f"[{chunk}]")
+                for row in parsed:
+                    kec_code = row[0]
+                    name_raw = row[1]
+                    full_code = row[2]
+                    if name_raw.startswith("[") and "]" in name_raw:
+                        name = name_raw.split("]", 1)[1].strip().upper()
+                    else:
+                        name = name_raw.strip().upper()
+                    desa_cache[(kec_code, name)] = {
+                        "full_code": full_code,
+                        "full_name": name_raw
+                    }
+                    if name not in desa_cache:
+                        desa_cache[name] = {
+                            "full_code": full_code,
+                            "full_name": name_raw,
+                            "kec_code": kec_code
+                        }
+        except Exception as e:
+            print(f"[!] Error loading desa lookup: {e}")
+            
+    _kec_lookup_cache = kec_cache
+    _desa_lookup_cache = desa_cache
+    return kec_cache, desa_cache
+
 def resolve_region_codes_and_names(target: dict, direct_args: dict):
     # Default from BPS target assignment
     region = target.get("region") or {}
@@ -298,38 +370,74 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
     l4_name = l4.get("name") or "BERBAS PANTAI"
     l4_fullcode = l4.get("fullCode") or "6474020003"
     
-    # Override with PLN/AP2T database values if present
-    pln_kd_kel = str(direct_args.get("pln_kd_kel") or "").strip()
-    if len(pln_kd_kel) == 10 and pln_kd_kel.isdigit():
-        # PLN format: 2 Prov + 2 Kab + 2 Kec + 4 Kel = 10 digits
-        # BPS format: 2 Prov + 2 Kab + 3 Kec + 3 Kel = 10 digits
-        pln_prov = pln_kd_kel[0:2]
-        pln_kab = pln_kd_kel[2:4]
-        pln_kec = pln_kd_kel[4:6]
-        pln_kel = pln_kd_kel[6:10]
+    # Try name-based lookup resolution using the BPS lookups
+    pln_nama_kec = str(direct_args.get("pln_nama_kec") or "").strip().upper()
+    pln_nama_kel = str(direct_args.get("pln_nama_kel") or "").strip().upper()
+    
+    lookup_success = False
+    if pln_nama_kec and pln_nama_kel:
+        try:
+            kec_cache, desa_cache = load_regional_lookups()
+            target_kec = pln_nama_kec
+            target_kel = pln_nama_kel
+            
+            kec_info = kec_cache.get(target_kec)
+            if kec_info:
+                l1_code = kec_info["l1_code"]
+                l1_name = "KALIMANTAN TIMUR"
+                l2_code = kec_info["l2_code"][-2:]
+                l2_name = "KOTA BONTANG"
+                l2_fullcode = kec_info["l2_code"]
+                l3_code = kec_info["code"][-3:]
+                l3_name = kec_info["full_name"]
+                l3_fullcode = kec_info["code"]
+                
+                # Look up village using kec_code and kel_name
+                desa_info = desa_cache.get((kec_info["code"], target_kel))
+                if not desa_info:
+                    desa_info = desa_cache.get(target_kel)
+                    
+                if desa_info:
+                    l4_code = desa_info["full_code"][-3:]
+                    l4_name = desa_info["full_name"]
+                    l4_fullcode = desa_info["full_code"]
+                    lookup_success = True
+        except Exception as e:
+            print(f"[!] Warning during name-based lookup: {e}")
+            
+    if not lookup_success:
+        # Override with PLN/AP2T database values if present (slicing fallback)
+        pln_kd_kel = str(direct_args.get("pln_kd_kel") or "").strip()
+        if len(pln_kd_kel) == 10 and pln_kd_kel.isdigit():
+            # PLN format: 2 Prov + 2 Kab + 2 Kec + 4 Kel = 10 digits
+            # BPS format: 2 Prov + 2 Kab + 3 Kec + 3 Kel = 10 digits
+            pln_prov = pln_kd_kel[0:2]
+            pln_kab = pln_kd_kel[2:4]
+            pln_kec = pln_kd_kel[4:6]
+            pln_kel = pln_kd_kel[6:10]
 
-        l1_code = pln_prov
-        l2_code = pln_kab
-        l2_fullcode = pln_prov + pln_kab
-        l3_code = pln_kec + "0"
-        l3_fullcode = pln_prov + pln_kab + pln_kec + "0"
-        l4_code = pln_kel[1:4]
-        l4_fullcode = pln_prov + pln_kab + pln_kec + "0" + pln_kel[1:4]
-        
-        l1_name = str(direct_args.get("pln_nama_prov") or l1_name).strip().upper()
-        l2_name = str(direct_args.get("pln_nama_kab") or l2_name).strip().upper()
-        l3_name = str(direct_args.get("pln_nama_kec") or l3_name).strip().upper()
-        l4_name = str(direct_args.get("pln_nama_kel") or l4_name).strip().upper()
-    else:
-        # Fallback to name-only overrides if no code is present but names are
-        if direct_args.get("pln_nama_prov"):
-            l1_name = str(direct_args.get("pln_nama_prov")).strip().upper()
-        if direct_args.get("pln_nama_kab"):
-            l2_name = str(direct_args.get("pln_nama_kab")).strip().upper()
-        if direct_args.get("pln_nama_kec"):
-            l3_name = str(direct_args.get("pln_nama_kec")).strip().upper()
-        if direct_args.get("pln_nama_kel"):
-            l4_name = str(direct_args.get("pln_nama_kel")).strip().upper()
+            l1_code = pln_prov
+            l2_code = pln_kab
+            l2_fullcode = pln_prov + pln_kab
+            l3_code = pln_kec + "0"
+            l3_fullcode = pln_prov + pln_kab + pln_kec + "0"
+            l4_code = pln_kel[1:4]
+            l4_fullcode = pln_prov + pln_kab + pln_kec + "0" + pln_kel[1:4]
+            
+            l1_name = str(direct_args.get("pln_nama_prov") or l1_name).strip().upper()
+            l2_name = str(direct_args.get("pln_nama_kab") or l2_name).strip().upper()
+            l3_name = str(direct_args.get("pln_nama_kec") or l3_name).strip().upper()
+            l4_name = str(direct_args.get("pln_nama_kel") or l4_name).strip().upper()
+        else:
+            # Fallback to name-only overrides if no code is present but names are
+            if direct_args.get("pln_nama_prov"):
+                l1_name = str(direct_args.get("pln_nama_prov")).strip().upper()
+            if direct_args.get("pln_nama_kab"):
+                l2_name = str(direct_args.get("pln_nama_kab")).strip().upper()
+            if direct_args.get("pln_nama_kec"):
+                l3_name = str(direct_args.get("pln_nama_kec")).strip().upper()
+            if direct_args.get("pln_nama_kel"):
+                l4_name = str(direct_args.get("pln_nama_kel")).strip().upper()
 
     return {
         "l1_code": l1_code, "l1_name": l1_name,
@@ -1020,7 +1128,7 @@ def execute_args(args, headers: dict, parser):
         lon = args.lon
         
         # Check if we should fetch missing details from PLN AP2T
-        missing_details = not direct["nama"] or not direct["alamat"] or not direct["tarif"] or not direct["daya"] or lat is None or lon is None or not direct["idpel"] or not direct["nometer"]
+        missing_details = not direct["nama"] or not direct["alamat"] or not direct["tarif"] or not direct["daya"] or lat is None or lon is None or not direct["idpel"] or not direct["nometer"] or not direct.get("keperluan")
         if missing_details:
             print("[*] InfoPelanggan details missing or incomplete. Querying AP2T database...")
             try:

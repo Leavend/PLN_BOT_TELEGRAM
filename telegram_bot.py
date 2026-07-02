@@ -379,7 +379,11 @@ async def submit_fasih_safe(
     lon: Optional[float] = None,
     status_callback=None,
     create_new: bool = False,
-    template_assignment_id: Optional[str] = None
+    template_assignment_id: Optional[str] = None,
+    cached_assignments: Optional[list] = None,
+    cached_survey: Optional[dict] = None,
+    cached_active_periode: Optional[dict] = None,
+    cached_template_mapping: Optional[dict] = None
 ) -> tuple[bool, str]:
     """
     Executes the submit pipeline safely without calling sys.exit(1).
@@ -392,29 +396,37 @@ async def submit_fasih_safe(
         token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
         headers = get_headers(token_data)
 
-        if status_callback:
-            await status_callback("📊 Mengambil daftar tugas dari BPS...")
-            
-        surveys = await async_fetch_surveys(headers)
-        if not surveys:
-            return False, "Tidak ada survei yang aktif di akun Anda."
+        if cached_survey:
+            survey = cached_survey
+        else:
+            if status_callback:
+                await status_callback("📊 Mengambil daftar tugas dari BPS...")
+            surveys = await async_fetch_surveys(headers)
+            if not surveys:
+                return False, "Tidak ada survei yang aktif di akun Anda."
+            survey = surveys[0]
         
-        survey = surveys[0]
-        active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
-        if not active_periode:
-            return False, "Tidak ada periode aktif untuk survei ini."
+        if cached_active_periode:
+            active_periode = cached_active_periode
+        else:
+            active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
+            if not active_periode:
+                return False, "Tidak ada periode aktif untuk survei ini."
             
-        template_lookup = survey.get("templateLookup", [])
-        template_mapping = {}
-        if template_lookup:
-            tl = template_lookup[0]
-            template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+        if cached_template_mapping is not None:
+            template_mapping = cached_template_mapping
+        else:
+            template_lookup = survey.get("templateLookup", [])
+            template_mapping = {}
+            if template_lookup:
+                tl = template_lookup[0]
+                template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
 
         pid = active_periode["id"]
         
         target = None
         if create_new:
-            content = await async_fetch_all_assignments(headers, pid)
+            content = cached_assignments if cached_assignments is not None else await async_fetch_all_assignments(headers, pid)
             template_target = next((a for a in content if a.get("id") == template_assignment_id), None)
             if not template_target:
                 return False, "Template assignment acuan tidak ditemukan di server BPS."
@@ -425,26 +437,25 @@ async def submit_fasih_safe(
                 target["data4"] = direct_args.get("alamat") or ""
                 target["data5"] = direct_args.get("alamat") or ""
         else:
-            # Fetch page 0 first (quick check to save time)
-            first_page = await async_fetch_assignments(headers, pid, page=0)
-            content = (first_page.get("data") or {}).get("content", [])
-            total_server = (first_page.get("data") or {}).get("total", 0)
-            
-            if assignment_id:
-                target = next((a for a in content if a.get("id") == assignment_id), None)
-            elif idpel or nometer:
+            if cached_assignments is not None:
+                content = cached_assignments
                 idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
                 nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
-                target = next((
-                    a for a in content
-                    if (not idpel or a.get(idpel_slot) == idpel) and (not nometer or a.get(nometer_slot) == nometer)
-                ), None)
+                if assignment_id:
+                    target = next((a for a in content if a.get("id") == assignment_id), None)
+                elif idpel or nometer:
+                    target = next((
+                        a for a in content
+                        if (not idpel or a.get(idpel_slot) == idpel) and (not nometer or a.get(nometer_slot) == nometer)
+                    ), None)
+                else:
+                    target = next((a for a in content if "OPEN" in (a.get("assignmentStatusAlias") or "") or "SUBMITTED" in (a.get("assignmentStatusAlias") or "")), None)
             else:
-                target = next((a for a in content if "OPEN" in (a.get("assignmentStatusAlias") or "") or "SUBMITTED" in (a.get("assignmentStatusAlias") or "")), None)
-
-            if not target and len(content) < total_server:
-                # Not found in page 0, fetch remaining assignments in parallel
-                content = await async_fetch_all_assignments(headers, pid)
+                # Fetch page 0 first (quick check to save time)
+                first_page = await async_fetch_assignments(headers, pid, page=0)
+                content = (first_page.get("data") or {}).get("content", [])
+                total_server = (first_page.get("data") or {}).get("total", 0)
+                
                 if assignment_id:
                     target = next((a for a in content if a.get("id") == assignment_id), None)
                 elif idpel or nometer:
@@ -456,6 +467,21 @@ async def submit_fasih_safe(
                     ), None)
                 else:
                     target = next((a for a in content if "OPEN" in (a.get("assignmentStatusAlias") or "") or "SUBMITTED" in (a.get("assignmentStatusAlias") or "")), None)
+
+                if not target and len(content) < total_server:
+                    # Not found in page 0, fetch remaining assignments in parallel
+                    content = await async_fetch_all_assignments(headers, pid)
+                    if assignment_id:
+                        target = next((a for a in content if a.get("id") == assignment_id), None)
+                    elif idpel or nometer:
+                        idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
+                        nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
+                        target = next((
+                            a for a in content
+                            if (not idpel or a.get(idpel_slot) == idpel) and (not nometer or a.get(nometer_slot) == nometer)
+                        ), None)
+                    else:
+                        target = next((a for a in content if "OPEN" in (a.get("assignmentStatusAlias") or "") or "SUBMITTED" in (a.get("assignmentStatusAlias") or "")), None)
 
         if not target:
             return False, "Tugas tidak ditemukan atau tidak berstatus OPEN/SUBMITTED."
@@ -2793,8 +2819,41 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
         
     total = len(records)
-    await status_msg.edit_text(f"📊 Menemukan {total} data pelanggan di CSV. Memulai pengiriman massal...")
+    await status_msg.edit_text(f"📊 Menemukan {total} data pelanggan di CSV. Mempersiapkan data sinkronisasi awal...")
     
+    # Pre-fetch cache data once to optimize performance and prevent rate limiting
+    survey = None
+    active_periode = None
+    template_mapping = {}
+    cached_assignments = None
+    
+    try:
+        token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
+        headers = get_headers(token_data)
+        
+        await status_msg.edit_text("📊 Mengambil info survei aktif dari BPS...")
+        surveys = await async_fetch_surveys(headers)
+        if surveys:
+            survey = surveys[0]
+            active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
+            if active_periode:
+                template_lookup = survey.get("templateLookup", [])
+                if template_lookup:
+                    tl = template_lookup[0]
+                    template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+                
+                await status_msg.edit_text("📊 Mengunduh seluruh daftar penugasan BPS (sekali saja)...")
+                cached_assignments = await async_fetch_all_assignments(headers, active_periode["id"])
+                await status_msg.edit_text(f"✅ Sinkronisasi awal berhasil. Menemukan {len(cached_assignments)} tugas. Memulai bulk submit...")
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Peringatan sinkronisasi awal gagal: {e}. Melanjutkan dengan mode dinamis (tanpa cache)...")
+        # Ensure they are None so submit_fasih_safe queries normally
+        survey = None
+        active_periode = None
+        template_mapping = {}
+        cached_assignments = None
+        await asyncio.sleep(2)
+        
     report_rows = []
     successes = 0
     failures = 0
@@ -2848,7 +2907,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not photo_path or not os.path.exists(photo_path):
             photo_path = get_random_house_photo()
         
-        # Call safe submission (Live Submit)
+        # Call safe submission (Live Submit) with pre-fetched cached data
         ok, message = await submit_fasih_safe(
             token_data, token_file,
             idpel=idpel,
@@ -2857,7 +2916,11 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             direct_args=direct_args,
             photo_path=photo_path,
             lat=lat,
-            lon=lon
+            lon=lon,
+            cached_assignments=cached_assignments,
+            cached_survey=survey,
+            cached_active_periode=active_periode,
+            cached_template_mapping=template_mapping
         )
         
         status_label = "SUCCESS" if ok else "FAILED"
@@ -2871,6 +2934,9 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
             "photo_path": photo_path or "", "status": status_label, "message": message
         })
+        
+        # Add 1.0 second delay to avoid trigger ASM WAF blocks
+        await asyncio.sleep(1.0)
 
     # Save and send report file
     report_filename = f"bulk_submit_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
