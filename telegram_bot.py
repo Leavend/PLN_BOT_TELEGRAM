@@ -184,6 +184,14 @@ allowed_str = os.getenv("ALLOWED_TELEGRAM_USERNAMES", "")
 if allowed_str:
     ALLOWED_USERS = [u.strip().lower().replace("@", "") for u in allowed_str.split(",") if u.strip()]
 
+# Admin whitelist for /logs and server monitoring commands
+ADMIN_USERS = []
+admin_str = os.getenv("ADMIN_TELEGRAM_USERNAMES", "")
+if admin_str:
+    ADMIN_USERS = [u.strip().lower().replace("@", "") for u in admin_str.split(",") if u.strip()]
+
+LOG_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot.log")
+
 def get_random_house_photo() -> Optional[str]:
     dirs_to_check = ["house_photos", "FOTORUMAH_PAK_ANWAR"]
     import random
@@ -213,6 +221,21 @@ def is_user_allowed(username: Optional[str]) -> bool:
     if not username:
         return False
     return username.lower() in ALLOWED_USERS
+
+def is_admin(username: Optional[str]) -> bool:
+    if not username:
+        return False
+    return username.lower().replace("@", "") in ADMIN_USERS
+
+def admin_only(func):
+    """Decorator to restrict commands to admin users only."""
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        username = update.effective_user.username if update.effective_user else None
+        if not is_admin(username):
+            await update.message.reply_text("🚫 Anda tidak memiliki akses admin untuk perintah ini.")
+            return
+        return await func(update, context)
+    return wrapper
 
 async def safe_delete_message(message) -> bool:
     if message:
@@ -3327,6 +3350,139 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         if report_path and os.path.exists(report_path):
             os.remove(report_path)
 
+# --- ADMIN LOG VIEWER ---
+
+@admin_only
+async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show log viewer menu with tail options."""
+    # Check if log file exists
+    if not os.path.exists(LOG_FILE_PATH):
+        await update.message.reply_text("📄 File `bot.log` tidak ditemukan di server.")
+        return
+    
+    file_size = os.path.getsize(LOG_FILE_PATH)
+    size_label = f"{file_size / 1024:.1f} KB" if file_size < 1024 * 1024 else f"{file_size / (1024*1024):.1f} MB"
+    
+    # Show active runs info
+    active_runs = ActiveRunsTracker._count
+    active_label = f"🟢 {active_runs} batch aktif" if active_runs > 0 else "⚪ Tidak ada batch aktif"
+    
+    keyboard = [
+        [InlineKeyboardButton("📋 Tail 50 Baris", callback_data="logs_tail_50"),
+         InlineKeyboardButton("📋 Tail 100 Baris", callback_data="logs_tail_100")],
+        [InlineKeyboardButton("📋 Tail 250 Baris", callback_data="logs_tail_250"),
+         InlineKeyboardButton("📋 Tail 500 Baris", callback_data="logs_tail_500")],
+        [InlineKeyboardButton("🔍 Cari Error Terakhir", callback_data="logs_errors")],
+        [InlineKeyboardButton("📥 Download Full Log", callback_data="logs_download")],
+    ]
+    
+    await update.message.reply_text(
+        f"🖥️ **SERVER LOG VIEWER**\n"
+        f"{'='*30}\n"
+        f"📄 File: `bot.log`\n"
+        f"📊 Ukuran: {size_label}\n"
+        f"📍 Status: {active_label}\n"
+        f"{'='*30}\n\n"
+        f"Pilih opsi di bawah untuk melihat log:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+async def logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle log viewer button callbacks."""
+    query = update.callback_query
+    username = update.effective_user.username if update.effective_user else None
+    if not is_admin(username):
+        await query.answer("🚫 Akses ditolak.", show_alert=True)
+        return
+    
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    
+    action = query.data
+    
+    if not os.path.exists(LOG_FILE_PATH):
+        await query.message.reply_text("📄 File `bot.log` tidak ditemukan.")
+        return
+    
+    if action == "logs_download":
+        # Send full log file as document
+        try:
+            with open(LOG_FILE_PATH, "rb") as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=f"bot_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
+                    caption="📥 Full server log file."
+                )
+        except Exception as e:
+            await query.message.reply_text(f"❌ Gagal mengirim file log: {e}")
+        return
+    
+    if action == "logs_errors":
+        # Find last 20 ERROR/WARNING lines
+        try:
+            with open(LOG_FILE_PATH, "r", encoding="utf-8", errors="replace") as f:
+                all_lines = f.readlines()
+            error_lines = [
+                line.rstrip() for line in all_lines 
+                if " - ERROR - " in line or " - WARNING - " in line
+            ]
+            last_errors = error_lines[-20:] if error_lines else []
+            if not last_errors:
+                text = "✅ Tidak ada ERROR atau WARNING ditemukan di log."
+            else:
+                text = f"🔍 **20 Error/Warning Terakhir:**\n\n```\n{'\n'.join(last_errors)}\n```"
+                if len(text) > 4000:
+                    # Too long for message, send as file
+                    content = "\n".join(last_errors)
+                    import io
+                    buf = io.BytesIO(content.encode("utf-8"))
+                    buf.name = "errors.log"
+                    await query.message.reply_document(document=buf, caption="🔍 Error/Warning terakhir.")
+                    return
+            await query.message.reply_text(text, parse_mode="Markdown")
+        except Exception as e:
+            await query.message.reply_text(f"❌ Gagal membaca log: {e}")
+        return
+    
+    # Handle tail_N actions
+    if action.startswith("logs_tail_"):
+        try:
+            n_lines = int(action.replace("logs_tail_", ""))
+        except ValueError:
+            n_lines = 50
+        
+        try:
+            with open(LOG_FILE_PATH, "r", encoding="utf-8", errors="replace") as f:
+                all_lines = f.readlines()
+            tail = all_lines[-n_lines:] if len(all_lines) >= n_lines else all_lines
+            tail_text = "".join(tail).rstrip()
+            
+            if not tail_text:
+                await query.message.reply_text("📄 Log file kosong.")
+                return
+            
+            # Telegram message limit is ~4096 chars
+            if len(tail_text) > 4000:
+                # Send as file instead
+                import io
+                buf = io.BytesIO(tail_text.encode("utf-8"))
+                buf.name = f"tail_{n_lines}.log"
+                await query.message.reply_document(
+                    document=buf,
+                    caption=f"📋 Tail {n_lines} baris terakhir (terlalu panjang untuk pesan)."
+                )
+            else:
+                await query.message.reply_text(
+                    f"📋 **Tail {n_lines} baris:**\n\n```\n{tail_text}\n```",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            await query.message.reply_text(f"❌ Gagal membaca log: {e}")
+        return
+
 async def post_init(application: Application) -> None:
     from telegram import BotCommand
     commands = [
@@ -3337,6 +3493,7 @@ async def post_init(application: Application) -> None:
         BotCommand("batch", "⚡ Kirim kuesioner massal (Batch Submit)"),
         BotCommand("list", "📋 Lihat daftar tugas yang OPEN"),
         BotCommand("submit", "⚡ Kirim kuesioner interaktif (Wizard)"),
+        BotCommand("logs", "🖥️ Lihat server log (Admin)"),
         BotCommand("logout", "🚪 Keluar & hapus sesi")
     ]
     await application.bot.set_my_commands(commands)
@@ -3514,6 +3671,10 @@ def main():
     app.add_handler(search_conv)
     app.add_handler(batch_conv)
     app.add_handler(CallbackQueryHandler(list_callback, pattern="^(lpage_|lnoop|lclose)"))
+    
+    # Admin log viewer
+    app.add_handler(CommandHandler("logs", logs_command))
+    app.add_handler(CallbackQueryHandler(logs_callback, pattern="^logs_"))
     
     # Message handler to process uploaded CSV files
     app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), handle_csv_document))
