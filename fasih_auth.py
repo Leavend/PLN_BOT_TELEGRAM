@@ -4,6 +4,7 @@ import json
 import base64
 import re
 import requests
+from typing import Optional, Dict
 from urllib.parse import urlparse, parse_qs
 from dotenv import load_dotenv
 load_dotenv()
@@ -73,6 +74,24 @@ def get_headers(token_data: dict) -> dict:
         "Connection": "keep-alive",
     }
 
+def get_sso_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Linux; Android 13)"})
+    cf_proxy = os.getenv("CLOUDFLARE_PROXY_URL")
+    if cf_proxy:
+        original_send = session.send
+        def wrapped_send(request, **kwargs):
+            original_url = request.url
+            request.url = cf_proxy
+            request.headers['x-target-url'] = original_url
+            return original_send(request, **kwargs)
+        session.send = wrapped_send
+    else:
+        bps_proxy = get_bps_proxy()
+        if bps_proxy:
+            session.proxies.update(bps_proxy)
+    return session
+
 def try_direct_grant(email, password, realm, client_id):
     """Mencoba Resource Owner Password Credentials (direct access grant)."""
     token_url = f"{SSO_BASE}/auth/realms/{realm}/protocol/openid-connect/token"
@@ -83,7 +102,8 @@ def try_direct_grant(email, password, realm, client_id):
         "password": password,
     }
     try:
-        resp = requests.post(token_url, data=data, timeout=15, proxies=get_bps_proxy())
+        session = get_sso_session()
+        resp = session.post(token_url, data=data, timeout=15)
         if resp.status_code == 200:
             return resp.json()
     except Exception:
@@ -111,19 +131,19 @@ def exchange_code_for_token(token_url, client_id, redirect_uri, code):
         "redirect_uri": redirect_uri,
         "code": code,
     }
-    resp = requests.post(token_url, data=exchange_data, timeout=15, proxies=get_bps_proxy())
-    return resp.json() if resp.status_code == 200 else None
+    try:
+        session = get_sso_session()
+        resp = session.post(token_url, data=exchange_data, timeout=15)
+        return resp.json() if resp.status_code == 200 else None
+    except Exception:
+        return None
 
 def try_browser_auth_code_flow(email, password, realm, client_id, redirect_uri):
     """Simulasi browser-based authorization code flow."""
     auth_url = f"{SSO_BASE}/auth/realms/{realm}/protocol/openid-connect/auth"
     token_url = f"{SSO_BASE}/auth/realms/{realm}/protocol/openid-connect/token"
     params = {"client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code"}
-    session = requests.Session()
-    session.headers.update({"User-Agent": "Mozilla/5.0 (Linux; Android 13)"})
-    bps_proxy = get_bps_proxy()
-    if bps_proxy:
-        session.proxies.update(bps_proxy)
+    session = get_sso_session()
     try:
         resp = session.get(auth_url, params=params, timeout=15)
         action = get_login_action(resp.text) if resp.status_code == 200 else None
@@ -194,11 +214,12 @@ def refresh_token_if_needed(token_data: dict, token_file: Optional[str] = None, 
             raise Exception("Tidak ada refresh token tersedia.")
     token_url = f"{SSO_BASE}/auth/realms/{REALM_EKSTERNAL}/protocol/openid-connect/token"
     try:
-        resp = requests.post(token_url, data={
+        session = get_sso_session()
+        resp = session.post(token_url, data={
             "client_id": CLIENT_ID_EKSTERNAL,
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
-        }, timeout=15, proxies=get_bps_proxy())
+        }, timeout=15)
         if resp.status_code == 200:
             new_token = resp.json()
             target_file = token_file or TOKEN_FILE

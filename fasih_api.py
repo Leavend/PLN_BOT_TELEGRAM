@@ -59,10 +59,18 @@ class RotatingProxySession(requests.Session):
             logger.info(f"Initialized BPS RotatingProxySession with pool size: {len(self.proxy_pool)}")
 
     def send(self, request, **kwargs):
-        # 1. First check if a sticky proxy is configured in the current context
+        # 1. Check if Cloudflare Worker Proxy is active
+        cf_proxy_url = os.getenv("CLOUDFLARE_PROXY_URL")
+        if cf_proxy_url:
+            # Route requests through Cloudflare Worker Tunnel Proxy
+            original_url = request.url
+            request.url = cf_proxy_url
+            request.headers['x-target-url'] = original_url
+            logger.debug(f"Routing BPS request through Cloudflare Worker proxy tunnel to: {original_url}")
+            return super().send(request, **kwargs)
+
+        # 2. Otherwise fall back to Standard Proxy Rotation (Context/Sticky)
         proxy = sticky_proxy_var.get()
-        
-        # 2. If no sticky proxy is active, fall back to selecting a random proxy from the pool
         if not proxy and self.proxy_pool:
             proxy = random.choice(self.proxy_pool)
             
