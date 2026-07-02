@@ -122,24 +122,30 @@ while true; do
         REMOTE=$(git rev-parse @{u})
         
         if [ "$LOCAL" != "$REMOTE" ]; then
-            echo "[+] Terdeteksi kode baru di remote! Melakukan pull..."
-            git pull origin $BRANCH
-            
-            echo "[*] Menghentikan bot lama..."
-            terminate_bot
-            
-            echo "[+] Menjalankan kembali Bot Telegram dengan kode terbaru..."
-            $PYTHON_CMD "$BOT_SCRIPT" > bot.log 2>&1 &
-            echo $! > bot.pid
-            sleep 2
-            PID=$(cat bot.pid)
-            if ! ps -p $PID >/dev/null 2>&1; then
-                PID=$(get_bot_pid)
-                if [ -n "$PID" ]; then
-                    echo $PID > bot.pid
+            # Cek apakah bot sedang memproses batch submit (file lock ada)
+            if [ -f bot_active_runs.lock ]; then
+                local active_count=$(cat bot_active_runs.lock 2>/dev/null || echo "1")
+                echo "[-] Terdeteksi kode baru, tetapi bot sedang memproses $active_count batch submit aktif. Menunda pembaruan agar tidak menggangu..."
+            else
+                echo "[+] Terdeteksi kode baru di remote! Melakukan pull..."
+                git pull origin $BRANCH
+                
+                echo "[*] Menghentikan bot lama..."
+                terminate_bot
+                
+                echo "[+] Menjalankan kembali Bot Telegram dengan kode terbaru..."
+                $PYTHON_CMD "$BOT_SCRIPT" > bot.log 2>&1 &
+                echo $! > bot.pid
+                sleep 2
+                PID=$(cat bot.pid)
+                if ! ps -p $PID >/dev/null 2>&1; then
+                    PID=$(get_bot_pid)
+                    if [ -n "$PID" ]; then
+                        echo $PID > bot.pid
+                    fi
                 fi
+                echo "[+] Bot berhasil diperbarui dan dijalankan kembali dengan PID: $PID!"
             fi
-            echo "[+] Bot berhasil diperbarui dan dijalankan kembali dengan PID: $PID!"
         fi
     else
         echo "[-] Gagal terhubung ke Git remote. Memeriksa kembali nanti..."

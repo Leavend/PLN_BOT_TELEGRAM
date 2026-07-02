@@ -83,6 +83,36 @@ async def async_geocode_address_nominatim(*args, **kwargs):
 async def async_create_7z_archive(*args, **kwargs):
     return await asyncio.to_thread(create_7z_archive, *args, **kwargs)
 
+class ActiveRunsTracker:
+    _lock = threading.Lock()
+    _count = 0
+    _lock_file = "bot_active_runs.lock"
+
+    @classmethod
+    def increment(cls):
+        with cls._lock:
+            cls._count += 1
+            try:
+                with open(cls._lock_file, "w") as f:
+                    f.write(str(cls._count))
+            except Exception as e:
+                logger.error(f"Failed to write lock file: {e}")
+
+    @classmethod
+    def decrement(cls):
+        with cls._lock:
+            if cls._count > 0:
+                cls._count -= 1
+            try:
+                if cls._count == 0:
+                    if os.path.exists(cls._lock_file):
+                        os.remove(cls._lock_file)
+                else:
+                    with open(cls._lock_file, "w") as f:
+                        f.write(str(cls._count))
+            except Exception as e:
+                logger.error(f"Failed to update/remove lock file: {e}")
+
 async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
     for attempt in range(max_retries):
         try:
@@ -2559,6 +2589,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         
     status_msg = await query.message.edit_text("⏳ Sedang memproses inisialisasi...")
     
+    ActiveRunsTracker.increment()
     try:
         token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
         headers = get_headers(token_data)
@@ -2909,6 +2940,8 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         logger.error("Error in batch_confirm_callback", exc_info=True)
         await status_msg.edit_text(f"❌ Terjadi kesalahan sistem: {str(e)}")
+    finally:
+        ActiveRunsTracker.decrement()
         
     return ConversationHandler.END
 
@@ -2936,6 +2969,9 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("🔑 Anda belum login. Silakan `/login` terlebih dahulu.")
         return
         
+    csv_path = None
+    report_path = None
+    ActiveRunsTracker.increment()
     token_file = get_user_token_file(chat_id)
     
     status_msg = await update.message.reply_text("📥 Mengunduh berkas CSV...")
@@ -3229,10 +3265,11 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         await update.message.reply_text(f"❌ Gagal mengirimkan laporan hasil bulk: {str(e)}")
     finally:
+        ActiveRunsTracker.decrement()
         # Cleanup
-        if os.path.exists(csv_path):
+        if csv_path and os.path.exists(csv_path):
             os.remove(csv_path)
-        if os.path.exists(report_path):
+        if report_path and os.path.exists(report_path):
             os.remove(report_path)
 
 async def post_init(application: Application) -> None:
@@ -3256,6 +3293,14 @@ def main():
         print("❌ Error: TELEGRAM_BOT_TOKEN belum diset di .env")
         sys.exit(1)
         
+    # Clean up stale lock files on startup
+    if os.path.exists("bot_active_runs.lock"):
+        try:
+            os.remove("bot_active_runs.lock")
+            logger.info("Cleaned up stale bot_active_runs.lock file on startup.")
+        except Exception as e:
+            logger.warning(f"Failed to clean up stale lock file: {e}")
+
     request_config = HTTPXRequest(
         connect_timeout=30.0,
         read_timeout=30.0,
@@ -3263,7 +3308,7 @@ def main():
         pool_timeout=15.0,
         connection_pool_size=100
     )
-    app = Application.builder().token(token).request(request_config).post_init(post_init).build()
+    app = Application.builder().token(token).concurrent_updates(True).request(request_config).post_init(post_init).build()
 
     # Conversation setup for /submit
     submit_conv = ConversationHandler(
