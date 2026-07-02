@@ -115,12 +115,16 @@ class ActiveRunsTracker:
                 logger.error(f"Failed to update/remove lock file: {e}")
 
 async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
-    from fasih_api import proxy_list, sticky_proxy_var
-    blocked_proxies = set()  # Track proxies that failed within this call
+    from fasih_api import proxy_manager, sticky_proxy_var
     last_exception = None
     for attempt in range(max_retries):
         try:
-            return await func(*args, **kwargs)
+            res = await func(*args, **kwargs)
+            # Report success to global proxy manager
+            current_proxy = sticky_proxy_var.get()
+            if current_proxy:
+                proxy_manager.report_success(current_proxy)
+            return res
         except Exception as e:
             last_exception = e
             is_waf = False
@@ -133,42 +137,28 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
             if "405" in err_str or "429" in err_str or "METHOD NOT ALLOWED" in err_str or "TOO MANY REQUESTS" in err_str:
                 is_waf = True
                 
-            is_timeout = isinstance(e, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)) or "TIMEOUT" in err_str or "TIME OUT" in err_str or "READ TIMED OUT" in err_str
-            
-            if (is_waf or is_timeout) and proxy_list:
-                old_proxy = sticky_proxy_var.get()
-                if old_proxy:
-                    blocked_proxies.add(old_proxy)
-                # Prefer proxies not blocked during this call
-                available_proxies = [p for p in proxy_list if p not in blocked_proxies]
-                if not available_proxies:
-                    available_proxies = [p for p in proxy_list if p != old_proxy]
-                if not available_proxies:
-                    available_proxies = proxy_list
-                new_proxy = random.choice(available_proxies)
+            old_proxy = sticky_proxy_var.get()
+            if old_proxy:
+                proxy_manager.report_failure(old_proxy, is_waf=is_waf)
+                
+            if proxy_manager.proxy_pool:
+                new_proxy = proxy_manager.get_proxy(exclude_proxy=old_proxy)
                 sticky_proxy_var.set(new_proxy)
                 # Exponential backoff: 3s, 6s, 12s ...
                 backoff_delay = delay * (2 ** attempt)
                 logger.warning(
                     f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}) via proxy ...{(old_proxy or 'direct')[-25:]}. "
-                    f"Error: {type(e).__name__}. Rotating to new proxy and retrying in {backoff_delay:.0f}s..."
+                    f"Error: {type(e).__name__} ({e}). Rotating to new proxy and retrying in {backoff_delay:.0f}s..."
                 )
                 if attempt < max_retries - 1:
                     await asyncio.sleep(backoff_delay)
                     continue
                 else:
-                    # All retries exhausted with proxy rotation
                     logger.warning(f"BPS call {func.__name__} exhausted all {max_retries} proxy-rotation retries. Raising last error.")
                     raise e
-                    
-            if is_waf and not proxy_list:
-                logger.warning(f"BPS call {func.__name__} encountered WAF block with no proxy pool configured. Raising immediately.")
+            else:
+                logger.warning(f"BPS call {func.__name__} failed with no proxy pool configured. Raising immediately.")
                 raise e
-                
-            if attempt == max_retries - 1:
-                raise e
-            logger.warning(f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}): {e}. Retrying in {delay} seconds...")
-            await asyncio.sleep(delay)
 
 # Setup logging
 logging.basicConfig(
@@ -533,7 +523,7 @@ async def submit_fasih_safe(
         else:
             if status_callback:
                 await status_callback("📊 Mengambil daftar tugas dari BPS...")
-            surveys = await async_fetch_surveys(headers)
+            surveys = await call_with_retry(async_fetch_surveys, headers)
             if not surveys:
                 return False, "Tidak ada survei yang aktif di akun Anda."
             survey = surveys[0]
@@ -552,13 +542,13 @@ async def submit_fasih_safe(
             template_mapping = {}
             if template_lookup:
                 tl = template_lookup[0]
-                template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+                template_mapping = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
 
         pid = active_periode["id"]
         
         target = None
         if create_new:
-            content = cached_assignments if cached_assignments is not None else await async_fetch_all_assignments(headers, pid)
+            content = cached_assignments if cached_assignments is not None else await call_with_retry(async_fetch_all_assignments, headers, pid)
             template_target = next((a for a in content if a.get("id") == template_assignment_id), None)
             if not template_target:
                 return False, "Template assignment acuan tidak ditemukan di server BPS."
@@ -584,7 +574,7 @@ async def submit_fasih_safe(
                     target = next((a for a in content if "OPEN" in (a.get("assignmentStatusAlias") or "") or "SUBMITTED" in (a.get("assignmentStatusAlias") or "")), None)
             else:
                 # Fetch page 0 first (quick check to save time)
-                first_page = await async_fetch_assignments(headers, pid, page=0)
+                first_page = await call_with_retry(async_fetch_assignments, headers, pid, page=0)
                 content = (first_page.get("data") or {}).get("content", [])
                 total_server = (first_page.get("data") or {}).get("total", 0)
                 
@@ -602,7 +592,7 @@ async def submit_fasih_safe(
 
                 if not target and len(content) < total_server:
                     # Not found in page 0, fetch remaining assignments in parallel
-                    content = await async_fetch_all_assignments(headers, pid)
+                    content = await call_with_retry(async_fetch_all_assignments, headers, pid)
                     if assignment_id:
                         target = next((a for a in content if a.get("id") == assignment_id), None)
                     elif idpel or nometer:
@@ -1096,7 +1086,7 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
         headers = get_headers(token_data)
         
-        surveys = await async_fetch_surveys(headers)
+        surveys = await call_with_retry(async_fetch_surveys, headers)
         if not surveys:
             await sent_msg.edit_text("📋 Tidak ada survei yang ditemukan.")
             return
@@ -1110,13 +1100,13 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pid = active_period["id"]
         
         # Fetch ALL assignments in parallel for fast loading
-        all_content = await async_fetch_all_assignments(headers, pid)
+        all_content = await call_with_retry(async_fetch_all_assignments, headers, pid)
             
         template_lookup = survey.get("templateLookup", [])
         template_mapping = {}
         if template_lookup:
             tl = template_lookup[0]
-            template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+            template_mapping = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
         context.user_data["template_mapping"] = template_mapping
             
         context.user_data["list_assignments"] = all_content
@@ -1210,7 +1200,7 @@ async def start_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
         headers = get_headers(token_data)
         
-        surveys = await async_fetch_surveys(headers)
+        surveys = await call_with_retry(async_fetch_surveys, headers)
         if not surveys:
             await sent_msg.edit_text("📋 Tidak ada survei aktif.")
             return ConversationHandler.END
@@ -1224,7 +1214,7 @@ async def start_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pid = active_periode["id"]
         
         # Fetch ALL assignments in parallel for fast loading
-        all_content = await async_fetch_all_assignments(headers, pid)
+        all_content = await call_with_retry(async_fetch_all_assignments, headers, pid)
         if not all_content:
             await sent_msg.edit_text(
                 "📋 Tidak ada tugas acuan di akun BPS Anda.\n"
@@ -2685,7 +2675,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         headers = get_headers(token_data)
         
         # Fetch surveys
-        surveys = await async_fetch_surveys(headers)
+        surveys = await call_with_retry(async_fetch_surveys, headers)
         if not surveys:
             await status_msg.edit_text("📋 Tidak ada survei yang aktif di akun Anda.")
             return ConversationHandler.END
@@ -2703,14 +2693,14 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         template_mapping = {}
         if template_lookup:
             tl = template_lookup[0]
-            template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+            template_mapping = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
             
         idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
         nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
         
         # Fetch all assignments once for fast lookup
         await status_msg.edit_text("📋 Sedang mengambil seluruh daftar tugas dari server BPS...")
-        open_assignments = await async_fetch_all_assignments(headers, pid) or []
+        open_assignments = await call_with_retry(async_fetch_all_assignments, headers, pid) or []
         
         # Fetch regions list once for encryption keys
         await status_msg.edit_text("📋 Sedang mengambil data region dari server BPS...")
@@ -2743,8 +2733,8 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
             val = search_queries[idx]
             
             # Select a sticky proxy for this customer run to ensure IP consistency
-            from fasih_api import proxy_list, sticky_proxy_var
-            current_proxy = random.choice(proxy_list) if proxy_list else None
+            from fasih_api import proxy_manager, sticky_proxy_var
+            current_proxy = proxy_manager.get_proxy()
             sticky_proxy_var.set(current_proxy)
             if current_proxy:
                 logger.info(f"Assigned sticky proxy for batch item {val}: {current_proxy}")
@@ -3109,7 +3099,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         headers = get_headers(token_data)
         
         await status_msg.edit_text("📊 Mengambil info survei aktif dari BPS...")
-        surveys = await async_fetch_surveys(headers)
+        surveys = await call_with_retry(async_fetch_surveys, headers)
         if surveys:
             survey = surveys[0]
             active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
@@ -3117,10 +3107,10 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 template_lookup = survey.get("templateLookup", [])
                 if template_lookup:
                     tl = template_lookup[0]
-                    template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+                    template_mapping = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
                 
                 await status_msg.edit_text("📊 Mengunduh seluruh daftar penugasan & region BPS...")
-                cached_assignments = await async_fetch_all_assignments(headers, active_periode["id"])
+                cached_assignments = await call_with_retry(async_fetch_all_assignments, headers, active_periode["id"])
                 try:
                     cached_regions = await call_with_retry(async_fetch_regions, headers, active_periode["id"])
                 except Exception as reg_err:
@@ -3156,8 +3146,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         r = records[idx]
         
         # Select a sticky proxy for this customer run to ensure IP consistency
-        from fasih_api import proxy_list, sticky_proxy_var
-        current_proxy = random.choice(proxy_list) if proxy_list else None
+        from fasih_api import proxy_manager, sticky_proxy_var
+        current_proxy = proxy_manager.get_proxy()
         sticky_proxy_var.set(current_proxy)
         if current_proxy:
             logger.info(f"Assigned sticky proxy for CSV item {r.get('idpel') or r.get('nometer')}: {current_proxy}")
@@ -3445,12 +3435,58 @@ async def logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         if action == "logs_download":
-            with open(LOG_FILE_PATH, "rb") as f:
-                await query.message.reply_document(
-                    document=f,
-                    filename=f"bot_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
-                    caption="📥 Full server log file."
-                )
+            import shutil
+            import tempfile
+            
+            # Use to_thread to copy the active log file to a temp file, avoiding blocking and sharing locks on Windows
+            def _copy_log():
+                temp_dir = tempfile.gettempdir()
+                temp_path = os.path.join(temp_dir, f"bot_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+                shutil.copy2(LOG_FILE_PATH, temp_path)
+                return temp_path
+                
+            temp_log_path = await asyncio.to_thread(_copy_log)
+            
+            try:
+                # Check size
+                file_size = os.path.getsize(temp_log_path)
+                max_bytes = 45 * 1024 * 1024 # 45MB limit
+                
+                if file_size > max_bytes:
+                    # Truncate and send only the tail to fit within Telegram's 50MB limit
+                    def _truncate_log():
+                        truncated_path = temp_log_path + ".truncated.log"
+                        with open(temp_log_path, "rb") as src, open(truncated_path, "wb") as dst:
+                            src.seek(file_size - max_bytes)
+                            # Skip the first partial line if we seeked to the middle of a line
+                            src.readline()
+                            shutil.copyfileobj(src, dst)
+                        return truncated_path
+                        
+                    send_path = await asyncio.to_thread(_truncate_log)
+                    caption = "📥 Full server log (Truncated to last 45MB due to Telegram file size limit)."
+                else:
+                    send_path = temp_log_path
+                    caption = "📥 Full server log file."
+                    
+                with open(send_path, "rb") as f:
+                    await query.message.reply_document(
+                        document=f,
+                        filename=os.path.basename(send_path),
+                        caption=caption
+                    )
+            finally:
+                # Clean up temporary files
+                try:
+                    if os.path.exists(temp_log_path):
+                        os.remove(temp_log_path)
+                except Exception:
+                    pass
+                try:
+                    if 'send_path' in locals() and send_path != temp_log_path and os.path.exists(send_path):
+                        os.remove(send_path)
+                except Exception:
+                    pass
             return
         
         if action == "logs_errors":
