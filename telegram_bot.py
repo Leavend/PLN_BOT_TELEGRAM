@@ -42,8 +42,27 @@ from fasih_api import (
 async def async_perform_login(*args, **kwargs):
     return await asyncio.to_thread(perform_login, *args, **kwargs)
 
-async def async_refresh_token_if_needed(*args, **kwargs):
-    return await asyncio.to_thread(refresh_token_if_needed, *args, **kwargs)
+_token_locks = {}
+_token_locks_lock = asyncio.Lock()
+
+async def get_token_lock(token_file: str) -> asyncio.Lock:
+    async with _token_locks_lock:
+        if token_file not in _token_locks:
+            _token_locks[token_file] = asyncio.Lock()
+        return _token_locks[token_file]
+
+async def async_refresh_token_if_needed(token_data: dict, token_file: Optional[str] = None, exit_on_failure: bool = False, **kwargs):
+    import fasih_auth
+    target_file = token_file or fasih_auth.TOKEN_FILE
+    lock = await get_token_lock(target_file)
+    async with lock:
+        if os.path.exists(target_file):
+            try:
+                with open(target_file, "r") as f:
+                    token_data = json.load(f)
+            except Exception:
+                pass
+        return await asyncio.to_thread(refresh_token_if_needed, token_data, token_file=target_file, exit_on_failure=exit_on_failure)
 
 async def async_fetch_surveys(*args, **kwargs):
     return await asyncio.to_thread(fetch_surveys, *args, **kwargs)
@@ -78,8 +97,13 @@ async def async_confirm_submit(*args, **kwargs):
 async def async_fetch_template_mapping(*args, **kwargs):
     return await asyncio.to_thread(fetch_template_mapping, *args, **kwargs)
 
+_nominatim_lock = asyncio.Lock()
+
 async def async_geocode_address_nominatim(*args, **kwargs):
-    return await asyncio.to_thread(geocode_address_nominatim, *args, **kwargs)
+    async with _nominatim_lock:
+        res = await asyncio.to_thread(geocode_address_nominatim, *args, **kwargs)
+        await asyncio.sleep(1.0)
+        return res
 
 async def async_create_7z_archive(*args, **kwargs):
     return await asyncio.to_thread(create_7z_archive, *args, **kwargs)
@@ -2718,273 +2742,255 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         failures = 0
         report_rows = []
         
-        idx = 0
-        waf_retry_count = 0
-        max_waf_retries = 3
-        while idx < total:
-            # Reload token data to get the latest refreshed token from previous iterations
-            if token_file and os.path.exists(token_file):
-                try:
-                    with open(token_file, "r") as f:
-                        token_data = json.load(f)
-                except Exception as e:
-                    logger.error(f"Failed to reload token in loop: {e}")
+        # Concurrency control
+        concurrency = 5
+        semaphore = asyncio.Semaphore(concurrency)
+        progress_lock = asyncio.Lock()
+        completed_count = 0
+        last_update_time = 0
+        is_aborted = False
 
-            val = search_queries[idx]
-            
-            # Select a sticky proxy for this customer run to ensure IP consistency
-            from fasih_api import proxy_manager, sticky_proxy_var
-            current_proxy = proxy_manager.get_proxy()
-            sticky_proxy_var.set(current_proxy)
-            if current_proxy:
-                logger.info(f"Assigned sticky proxy for batch item {val}: {current_proxy}")
-            is_idpel = len(val) == 12
-            idpel_val = val if is_idpel else ""
-            nometer_val = "" if is_idpel else val
-            
-            await safe_edit_text(
-                status_msg,
-                f"⏳ **Memproses {idx+1}/{total}**\n"
-                f"• IDPel/NoMeter: `{val}`\n"
-                f"• Sukses: {successes} | Gagal: {failures}",
-                parse_mode="Markdown"
-            )
-            
-            # 1. Check if assignment exists
-            target = None
-            for a in open_assignments:
-                v_idpel = (a.get(idpel_slot) or "").strip()
-                v_nometer = (a.get(nometer_slot) or "").strip()
-                if (is_idpel and v_idpel == val) or (not is_idpel and v_nometer == val):
-                    target = a
-                    break
-                    
-            create_new = False
-            template_assignment_id = None
-            pln_profile = None
-            
-            # Setup default/initial direct_args
-            direct_args = {
-                "idpel": idpel_val,
-                "nometer": nometer_val,
-                "nama": "PELANGGAN BARU",
-                "alamat": "",
-                "tarif": "R-1",
-                "daya": "900",
-                "hasil": "1. Berhasil didata",
-                "kelurahan": "001",
-                "kdpm": "01",
-                "kddk": "1",
-                "status_dil": "1"
-            }
-            
-            lat = None
-            lon = None
-            
-            if target:
-                # Existing assignment found
-                direct_args["nama"] = target.get("data2", "") or "PELANGGAN"
-                direct_args["alamat"] = target.get("data4", target.get("data5", "")) or ""
-                idpel_val = target.get(idpel_slot) or idpel_val
-                nometer_val = target.get(nometer_slot) or nometer_val
-                direct_args["idpel"] = idpel_val
-                direct_args["nometer"] = nometer_val
-                
-                # Fetch cache/live for tarif and daya
-                try:
-                    def do_pln_lookup():
-                        return pln_tool.lookup_by_idpel(idpel_val) if idpel_val else pln_tool.lookup_by_nometer(nometer_val)
-                    res = await asyncio.to_thread(do_pln_lookup)
-                    if res:
-                        profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
-                        if profiles:
-                            pln_profile = profiles[0]
-                            direct_args["tarif"] = str(pln_profile.get("tarif", pln_profile.get("gol_tarif", "R-1"))).strip()
-                            direct_args["daya"] = str(pln_profile.get("daya", pln_profile.get("daya_51", "900"))).strip()
-                except Exception:
-                    pass
-            else:
-                # No assignment exists. Create new penugasan
-                create_new = True
-                
-                # Retrieve PLN details
-                try:
-                    def do_batch_lookup():
-                        return pln_tool.lookup_by_idpel(val) if is_idpel else pln_tool.lookup_by_nometer(val)
-                    res = await asyncio.to_thread(do_batch_lookup)
-                    if res:
-                        profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
-                        if profiles:
-                            pln_profile = profiles[0]
-                            # Resolve second profiles if needed
-                            if not pln_profile.get("nama") and pln_profile.get("id_pelanggan"):
-                                def do_sec_lookup():
-                                    return pln_tool.lookup_by_idpel(pln_profile.get("id_pelanggan"))
-                                sec_res = await asyncio.to_thread(do_sec_lookup)
-                                if sec_res:
-                                    sec_prof = sec_res.get("dil_main", sec_res.get("list", sec_res.get("lInfoMasterNedisys", [])))
-                                    if sec_prof:
-                                        pln_profile.update(sec_prof[0])
-                                        
-                            direct_args["nama"] = str(pln_profile.get("nama", "PELANGGAN BARU")).strip()
-                            direct_args["alamat"] = str(pln_profile.get("alamat") or pln_profile.get("namapnj") or pln_profile.get("alamat_51") or "").strip()
-                            direct_args["tarif"] = str(pln_profile.get("tarif", pln_profile.get("gol_tarif", "R-1"))).strip()
-                            direct_args["daya"] = str(pln_profile.get("daya", "900")).strip()
-                            
-                            idpel_val = str(pln_profile.get("id_pelanggan", "")).strip() or idpel_val
-                            nometer_val = str(
-                                pln_profile.get("nometer_kwh") or 
-                                pln_profile.get("nomor_meter_kwh") or 
-                                pln_profile.get("no_meter_kwh") or 
-                                pln_profile.get("no_meter") or 
-                                pln_profile.get("nomor_meter") or 
-                                pln_profile.get("nometer") or 
-                                pln_profile.get("meter_number") or 
-                                ""
-                            ).strip() or nometer_val
-                            
-                            direct_args["idpel"] = idpel_val
-                            direct_args["nometer"] = nometer_val
-                            
-                            lat_val = pln_profile.get("koordinat_y", pln_profile.get("latitude"))
-                            lon_val = pln_profile.get("koordinat_x", pln_profile.get("longitude"))
-                            try:
-                                if lat_val and float(lat_val) != 0.0:
-                                    lat = float(lat_val)
-                                if lon_val and float(lon_val) != 0.0:
-                                    lon = float(lon_val)
-                            except ValueError:
-                                pass
-                                
-                            if lat is None or lon is None:
-                                nama_prov = str(pln_profile.get("nama_prov") or "").strip()
-                                nama_kab = str(pln_profile.get("nama_kab") or "").strip()
-                                nama_kec = str(pln_profile.get("nama_kec") or "").strip()
-                                nama_kel = str(pln_profile.get("nama_kel") or "").strip()
-                                lat, lon = await async_geocode_address_nominatim(direct_args["alamat"], nama_kel, nama_kec, nama_kab, nama_prov)
-                                if lat is None or lon is None:
-                                    lat, lon = get_fallback_coordinate(nama_prov, nama_kab, nama_kec, direct_args["alamat"])
-                except Exception as pln_err:
-                    logger.warning(f"PLN lookup failed for batch item {val}: {pln_err}")
-                
-                # Find template assignment
-                template_assignment = None
-                if open_assignments:
-                    template_assignment = find_template_assignment_for_region(open_assignments, pln_profile)
-                
-                if not template_assignment:
-                    failures += 1
-                    report_rows.append({
-                        "val": val, "nama": direct_args["nama"], "status": "FAILED",
-                        "message": "Template assignment acuan tidak tersedia di BPS."
-                    })
-                    idx += 1
-                    continue
-                    
-                template_assignment_id = template_assignment["id"]
-            
-            photo_path = get_random_house_photo()
-
-            # Submit to BPS with pre-fetched cached objects
-            import time
-            start_time = time.time()
-            ok, message = await submit_fasih_safe(
-                token_data, token_file,
-                idpel=idpel_val,
-                nometer=nometer_val,
-                create_new=create_new,
-                template_assignment_id=template_assignment_id,
-                direct_args=direct_args,
-                photo_path=photo_path,
-                lat=lat,
-                lon=lon,
-                cached_assignments=open_assignments,
-                cached_survey=survey,
-                cached_active_periode=active_periode,
-                cached_template_mapping=template_mapping,
-                cached_regions=regions_list
-            )
-            elapsed = time.time() - start_time
-            
-            # Check if auth session is dead (e.g. status 400 or Gagal memperbarui token)
-            is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
-            
-            if is_auth_failed:
-                logger.error(f"Authentication session expired/invalid ({message}). Aborting batch.")
-                await query.message.reply_text(
-                    "❌ **SESI LOGIN KEDALUWARSA / LOGOUT**\n\n"
-                    "Sesi login BPS Anda telah berakhir atau tidak valid lagi.\n"
-                    "Silakan lakukan login ulang menggunakan command `/login` terlebih dahulu, lalu mulai kembali proses submit."
+        async def update_status_message_throttled(force=False):
+            nonlocal last_update_time
+            now = time.time()
+            if force or (now - last_update_time >= 1.5):
+                last_update_time = now
+                status_text = (
+                    f"⏳ **Memproses Massal (Concurrency: {concurrency})**\n"
+                    f"• Progress: {completed_count}/{total}\n"
+                    f"• Sukses: {successes} | Gagal: {failures}\n"
+                    f"• Sisa: {total - completed_count}"
                 )
-                # Fill remaining as skipped
-                for remaining_val in search_queries[idx:]:
+                await safe_edit_text(status_msg, status_text, parse_mode="Markdown")
+
+        async def worker(val):
+            nonlocal successes, failures, completed_count, token_data, is_aborted
+            if is_aborted:
+                async with progress_lock:
+                    failures += 1
+                    completed_count += 1
                     report_rows.append({
-                        "val": remaining_val, "nama": "-",
-                        "status": "FAILED",
+                        "val": val, "nama": "PELANGGAN", "status": "FAILED",
                         "message": "Dibatalkan karena sesi login kedaluwarsa."
                     })
-                    failures += 1
-                break
+                    await update_status_message_throttled()
+                return
 
-            # Check if IP has been blocked by BPS WAF (HTTP 405 / 429)
-            msg_upper = str(message).upper()
-            is_waf_blocked = not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper)
-            
-            if is_waf_blocked:
-                if waf_retry_count < max_waf_retries:
-                    waf_retry_count += 1
-                    logger.warning(f"BPS WAF Block / Rate Limit detected ({message}). Initiating 90s cool-down (retry {waf_retry_count}/{max_waf_retries}).")
-                    await query.message.reply_text(
-                        f"⚠️ **TERDETEKSI BLOKIR BPS WAF**\n\n"
-                        f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429).\n"
-                        f"Bot akan **beristirahat selama 90 detik** (Cool-down ke-{waf_retry_count}/{max_waf_retries}) "
-                        f"untuk memulihkan IP, lalu otomatis melanjutkan sisa antrean..."
-                    )
-                    await asyncio.sleep(90.0)
+            async with semaphore:
+                # Reload token data to get the latest refreshed token from disk
+                t_data = token_data
+                if token_file and os.path.exists(token_file):
                     try:
-                        token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
-                        headers = get_headers(token_data)
+                        with open(token_file, "r") as f:
+                            t_data = json.load(f)
+                    except Exception as e:
+                        logger.error(f"Failed to reload token in worker: {e}")
+
+                # Select a sticky proxy for this customer run to ensure IP consistency
+                from fasih_api import proxy_manager, sticky_proxy_var
+                current_proxy = proxy_manager.get_proxy()
+                sticky_proxy_var.set(current_proxy)
+                if current_proxy:
+                    logger.info(f"Worker assigned sticky proxy for item {val}: {current_proxy}")
+                
+                is_idpel = len(val) == 12
+                idpel_val = val if is_idpel else ""
+                nometer_val = "" if is_idpel else val
+                
+                # Check if assignment exists
+                target = None
+                for a in open_assignments:
+                    v_idpel = (a.get(idpel_slot) or "").strip()
+                    v_nometer = (a.get(nometer_slot) or "").strip()
+                    if (is_idpel and v_idpel == val) or (not is_idpel and v_nometer == val):
+                        target = a
+                        break
+                        
+                create_new = False
+                template_assignment_id = None
+                pln_profile = None
+                
+                # Setup default/initial direct_args
+                direct_args = {
+                    "idpel": idpel_val,
+                    "nometer": nometer_val,
+                    "nama": "PELANGGAN BARU",
+                    "alamat": "",
+                    "tarif": "R-1",
+                    "daya": "900",
+                    "hasil": "1. Berhasil didata",
+                    "kelurahan": "001",
+                    "kdpm": "01",
+                    "kddk": "1",
+                    "status_dil": "1"
+                }
+                
+                lat = None
+                lon = None
+                
+                if target:
+                    # Existing assignment found
+                    direct_args["nama"] = target.get("data2", "") or "PELANGGAN"
+                    direct_args["alamat"] = target.get("data4", target.get("data5", "")) or ""
+                    idpel_val = target.get(idpel_slot) or idpel_val
+                    nometer_val = target.get(nometer_slot) or nometer_val
+                    direct_args["idpel"] = idpel_val
+                    direct_args["nometer"] = nometer_val
+                    
+                    # Fetch cache/live for tarif and daya
+                    try:
+                        def do_pln_lookup():
+                            return pln_tool.lookup_by_idpel(idpel_val) if idpel_val else pln_tool.lookup_by_nometer(nometer_val)
+                        res = await asyncio.to_thread(do_pln_lookup)
+                        if res:
+                            profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
+                            if profiles:
+                                pln_profile = profiles[0]
+                                direct_args["tarif"] = str(pln_profile.get("tarif", pln_profile.get("gol_tarif", "R-1"))).strip()
+                                direct_args["daya"] = str(pln_profile.get("daya", pln_profile.get("daya_51", "900"))).strip()
                     except Exception:
                         pass
-                    continue
                 else:
-                    logger.error("BPS WAF block persists after maximum cool-down attempts. Aborting batch submit.")
-                    await query.message.reply_text(
-                        "❌ **PENGIRIMAN DIHENTIKAN OTOMATIS**\n\n"
-                        "Firewall BPS tetap memblokir koneksi setelah 3 kali masa cool-down.\n"
-                        "Sisa antrean telah dibatalkan untuk menghindari pemblokiran permanen."
-                    )
-                    # Fill remaining as skipped
-                    for remaining_val in search_queries[idx:]:
-                        report_rows.append({
-                            "val": remaining_val, "nama": "-",
-                            "status": "FAILED",
-                            "message": "Dibatalkan otomatis karena IP terblokir permanen."
-                        })
-                        failures += 1
-                    break
-            
-            if ok:
-                successes += 1
-            else:
-                failures += 1
+                    # No assignment exists. Create new penugasan
+                    create_new = True
+                    
+                    # Retrieve PLN details
+                    try:
+                        def do_batch_lookup():
+                            return pln_tool.lookup_by_idpel(val) if is_idpel else pln_tool.lookup_by_nometer(val)
+                        res = await asyncio.to_thread(do_batch_lookup)
+                        if res:
+                            profiles = res.get("dil_main", res.get("list", res.get("lInfoMasterNedisys", [])))
+                            if profiles:
+                                pln_profile = profiles[0]
+                                if not pln_profile.get("nama") and pln_profile.get("id_pelanggan"):
+                                    def do_sec_lookup():
+                                        return pln_tool.lookup_by_idpel(pln_profile.get("id_pelanggan"))
+                                    sec_res = await asyncio.to_thread(do_sec_lookup)
+                                    if sec_res:
+                                        sec_prof = sec_res.get("dil_main", sec_res.get("list", sec_res.get("lInfoMasterNedisys", [])))
+                                        if sec_prof:
+                                            pln_profile.update(sec_prof[0])
+                                            
+                                direct_args["nama"] = str(pln_profile.get("nama", "PELANGGAN BARU")).strip()
+                                direct_args["alamat"] = str(pln_profile.get("alamat") or pln_profile.get("namapnj") or pln_profile.get("alamat_51") or "").strip()
+                                direct_args["tarif"] = str(pln_profile.get("tarif", pln_profile.get("gol_tarif", "R-1"))).strip()
+                                direct_args["daya"] = str(pln_profile.get("daya", "900")).strip()
+                                
+                                idpel_val = str(pln_profile.get("id_pelanggan", "")).strip() or idpel_val
+                                nometer_val = str(
+                                    pln_profile.get("nometer_kwh") or 
+                                    pln_profile.get("nomor_meter_kwh") or 
+                                    pln_profile.get("no_meter_kwh") or 
+                                    pln_profile.get("no_meter") or 
+                                    pln_profile.get("nomor_meter") or 
+                                    pln_profile.get("nometer") or 
+                                    pln_profile.get("meter_number") or 
+                                    ""
+                                ).strip() or nometer_val
+                                
+                                direct_args["idpel"] = idpel_val
+                                direct_args["nometer"] = nometer_val
+                                
+                                lat_val = pln_profile.get("koordinat_y", pln_profile.get("latitude"))
+                                lon_val = pln_profile.get("koordinat_x", pln_profile.get("longitude"))
+                                try:
+                                    if lat_val and float(lat_val) != 0.0:
+                                        lat = float(lat_val)
+                                    if lon_val and float(lon_val) != 0.0:
+                                        lon = float(lon_val)
+                                except ValueError:
+                                    pass
+                                    
+                                if lat is None or lon is None:
+                                    nama_prov = str(pln_profile.get("nama_prov") or "").strip()
+                                    nama_kab = str(pln_profile.get("nama_kab") or "").strip()
+                                    nama_kec = str(pln_profile.get("nama_kec") or "").strip()
+                                    nama_kel = str(pln_profile.get("nama_kel") or "").strip()
+                                    lat, lon = await async_geocode_address_nominatim(direct_args["alamat"], nama_kel, nama_kec, nama_kab, nama_prov)
+                                    if lat is None or lon is None:
+                                        lat, lon = get_fallback_coordinate(nama_prov, nama_kab, nama_kec, direct_args["alamat"])
+                    except Exception as pln_err:
+                        logger.warning(f"PLN lookup failed for batch item {val}: {pln_err}")
+                    
+                    # Find template assignment
+                    template_assignment = None
+                    if open_assignments:
+                        template_assignment = find_template_assignment_for_region(open_assignments, pln_profile)
+                    
+                    if not template_assignment:
+                        async with progress_lock:
+                            failures += 1
+                            completed_count += 1
+                            report_rows.append({
+                                "val": val, "nama": direct_args["nama"], "status": "FAILED",
+                                "message": "Template assignment acuan tidak tersedia di BPS."
+                            })
+                            await update_status_message_throttled()
+                        return
+                        
+                    template_assignment_id = template_assignment["id"]
                 
-            report_rows.append({
-                "val": val, "nama": direct_args["nama"],
-                "status": "SUCCESS" if ok else "FAILED",
-                "message": message
-            })
-            
-            # Dynamic Throttling base delay
-            sleep_delay = 1.0
-            if elapsed > 10.0:
-                sleep_delay = 4.0
-                logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay.")
-            
-            # Add dynamic delay with randomized jitter to avoid rate limiting or WAF block patterns
-            jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
-            await asyncio.sleep(jitter_delay)
-            idx += 1
+                photo_path = get_random_house_photo()
+                
+                # Submit to BPS with pre-fetched cached objects
+                import time as time_mod
+                start_time = time_mod.time()
+                ok, message = await submit_fasih_safe(
+                    t_data, token_file,
+                    idpel=idpel_val,
+                    nometer=nometer_val,
+                    create_new=create_new,
+                    template_assignment_id=template_assignment_id,
+                    direct_args=direct_args,
+                    photo_path=photo_path,
+                    lat=lat,
+                    lon=lon,
+                    cached_assignments=open_assignments,
+                    cached_survey=survey,
+                    cached_active_periode=active_periode,
+                    cached_template_mapping=template_mapping,
+                    cached_regions=regions_list
+                )
+                elapsed = time_mod.time() - start_time
+                
+                # Check if auth session is dead
+                is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
+                if is_auth_failed:
+                    is_aborted = True
+                    logger.error(f"Authentication session expired/invalid ({message}). Aborting batch.")
+                    await query.message.reply_text(
+                        "❌ **SESI LOGIN KEDALUWARSA / LOGOUT**\n\n"
+                        "Sesi login BPS Anda telah berakhir atau tidak valid lagi.\n"
+                        "Silakan lakukan login ulang menggunakan command `/login` terlebih dahulu."
+                    )
+                
+                async with progress_lock:
+                    if ok:
+                        successes += 1
+                    else:
+                        failures += 1
+                    completed_count += 1
+                    report_rows.append({
+                        "val": val, "nama": direct_args["nama"],
+                        "status": "SUCCESS" if ok else "FAILED",
+                        "message": message
+                    })
+                    await update_status_message_throttled()
+                
+                # Dynamic Throttling base delay inside worker
+                sleep_delay = 1.0
+                if elapsed > 10.0:
+                    sleep_delay = 4.0
+                
+                # Add dynamic delay with randomized jitter to avoid rate limiting or WAF block patterns
+                jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
+                await asyncio.sleep(jitter_delay)
+
+        # Run all workers concurrently
+        await update_status_message_throttled(force=True)
+        worker_tasks = [worker(val) for val in search_queries]
+        await asyncio.gather(*worker_tasks)
             
         # Compile report
         temp_dir = tempfile.gettempdir()
@@ -3131,188 +3137,166 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
     successes = 0
     failures = 0
     
-    idx = 0
-    waf_retry_count = 0
-    max_waf_retries = 3
-    while idx < len(records):
-        # Reload token data to get the latest refreshed token from previous iterations
-        if token_file and os.path.exists(token_file):
-            try:
-                with open(token_file, "r") as f:
-                    token_data = json.load(f)
-            except Exception as e:
-                logger.error(f"Failed to reload token in CSV loop: {e}")
+    # Concurrency control
+    concurrency = 5
+    semaphore = asyncio.Semaphore(concurrency)
+    progress_lock = asyncio.Lock()
+    completed_count = 0
+    last_update_time = 0
+    is_aborted = False
 
-        r = records[idx]
+    async def update_status_message_throttled(force=False):
+        nonlocal last_update_time
+        now = time.time()
+        if force or (now - last_update_time >= 1.5):
+            last_update_time = now
+            status_text = (
+                f"📊 **Memproses CSV (Concurrency: {concurrency})**\n"
+                f"• Progress: {completed_count}/{total}\n"
+                f"• Sukses: {successes} | Gagal: {failures}\n"
+                f"• Sisa: {total - completed_count}"
+            )
+            await safe_edit_text(status_msg, status_text, parse_mode="Markdown")
+
+    async def worker(r):
+        nonlocal successes, failures, completed_count, token_data, is_aborted
         
-        # Select a sticky proxy for this customer run to ensure IP consistency
-        from fasih_api import proxy_manager, sticky_proxy_var
-        current_proxy = proxy_manager.get_proxy()
-        sticky_proxy_var.set(current_proxy)
-        if current_proxy:
-            logger.info(f"Assigned sticky proxy for CSV item {r.get('idpel') or r.get('nometer')}: {current_proxy}")
-            
         idpel = r.get("idpel")
         nometer = r.get("nometer")
         nama = r.get("nama", "PELANGGAN")
-        
+
         if not idpel or not nometer:
-            report_rows.append({
-                "idpel": idpel or "", "nometer": nometer or "", "nama": nama,
-                "status": "SKIPPED", "message": "Kolom idpel atau nometer kosong"
-            })
-            failures += 1
-            idx += 1
-            continue
-            
-        await safe_edit_text(
-            status_msg,
-            f"⏳ **Memproses {idx+1}/{total}**\n"
-            f"• Nama: {nama}\n"
-            f"• IDPel: `{idpel}` | NoMeter: `{nometer}`",
-            parse_mode="Markdown"
-        )
-        
-        # Build direct_args
-        direct_args = {
-            "idpel": idpel,
-            "nometer": nometer,
-            "nama": nama,
-            "alamat": r.get("alamat", ""),
-            "tarif": r.get("tarif", "R-1"),
-            "daya": r.get("daya", "900"),
-            "hasil": r.get("hasil", "1"),
-            "kelurahan": r.get("kelurahan", "001"),
-            "kdpm": "01",
-            "kddk": "1",
-            "status_dil": "1",
-            "nik": r.get("nik") or ""
-        }
-        
-        lat = None
-        lon = None
-        try:
-            if r.get("latitude"):
-                lat = float(r["latitude"])
-            if r.get("longitude"):
-                lon = float(r["longitude"])
-        except ValueError:
-            pass
-            
-        photo_path = r.get("photo_path")
-        if not photo_path or not os.path.exists(photo_path):
-            photo_path = get_random_house_photo()
-        
-        # Call safe submission (Live Submit) with pre-fetched cached data
-        import time
-        start_time = time.time()
-        ok, message = await submit_fasih_safe(
-            token_data, token_file,
-            idpel=idpel,
-            nometer=nometer,
-            dry_run=False,
-            direct_args=direct_args,
-            photo_path=photo_path,
-            lat=lat,
-            lon=lon,
-            cached_assignments=cached_assignments,
-            cached_survey=survey,
-            cached_active_periode=active_periode,
-            cached_template_mapping=template_mapping,
-            cached_regions=cached_regions
-        )
-        elapsed = time.time() - start_time
-        
-        # Check if auth session is dead (e.g. status 400 or Gagal memperbarui token)
-        is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
-        
-        if is_auth_failed:
-            logger.error(f"Authentication session expired/invalid in CSV ({message}). Aborting CSV batch.")
-            await update.effective_message.reply_text(
-                "❌ **SESI LOGIN KEDALUWARSA / LOGOUT (CSV)**\n\n"
-                "Sesi login BPS Anda telah berakhir atau tidak valid lagi.\n"
-                "Silakan lakukan login ulang menggunakan command `/login` terlebih dahulu, lalu unggah kembali berkas CSV."
-            )
-            # Fill remaining as skipped
-            for remaining_r in records[idx:]:
-                rem_idpel = remaining_r.get("idpel", "")
-                rem_nometer = remaining_r.get("nometer", "")
-                rem_nama = remaining_r.get("nama", "PELANGGAN")
+            async with progress_lock:
                 report_rows.append({
-                    "idpel": rem_idpel, "nometer": rem_nometer, "nama": rem_nama,
-                    "alamat": remaining_r.get("alamat", ""),
-                    "latitude": remaining_r.get("latitude", ""), "longitude": remaining_r.get("longitude", ""),
+                    "idpel": idpel or "", "nometer": nometer or "", "nama": nama,
+                    "alamat": r.get("alamat", ""), "latitude": r.get("latitude", ""),
+                    "longitude": r.get("longitude", ""), "photo_path": "",
+                    "status": "SKIPPED", "message": "Kolom idpel atau nometer kosong"
+                })
+                failures += 1
+                completed_count += 1
+                await update_status_message_throttled()
+            return
+
+        if is_aborted:
+            async with progress_lock:
+                report_rows.append({
+                    "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
+                    "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
                     "photo_path": "", "status": "FAILED",
                     "message": "Dibatalkan karena sesi login kedaluwarsa."
                 })
                 failures += 1
-            break
+                completed_count += 1
+                await update_status_message_throttled()
+            return
 
-        # Check if IP has been blocked by BPS WAF (HTTP 405 / 429)
-        msg_upper = str(message).upper()
-        is_waf_blocked = not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper)
-        
-        if is_waf_blocked:
-            if waf_retry_count < max_waf_retries:
-                waf_retry_count += 1
-                logger.warning(f"BPS WAF Block / Rate Limit detected in CSV ({message}). Initiating 90s cool-down (retry {waf_retry_count}/{max_waf_retries}).")
-                await update.effective_message.reply_text(
-                    f"⚠️ **TERDETEKSI BLOKIR BPS WAF (CSV)**\n\n"
-                    f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429).\n"
-                    f"Bot akan **beristirahat selama 90 detik** (Cool-down ke-{waf_retry_count}/{max_waf_retries}) "
-                    f"untuk memulihkan IP, lalu otomatis melanjutkan sisa antrean berkas CSV..."
-                )
-                await asyncio.sleep(90.0)
+        async with semaphore:
+            # Reload token data to get the latest refreshed token from disk
+            t_data = token_data
+            if token_file and os.path.exists(token_file):
                 try:
-                    token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
-                    headers = get_headers(token_data)
-                except Exception:
-                    pass
-                continue
-            else:
-                logger.error("BPS WAF block persists in CSV after maximum cool-down attempts. Aborting CSV batch.")
-                await update.effective_message.reply_text(
-                    "❌ **PENGIRIMAN DIHENTIKAN OTOMATIS**\n\n"
-                    "Firewall BPS tetap memblokir koneksi setelah 3 kali masa cool-down.\n"
-                    "Sisa antrean berkas CSV telah dibatalkan untuk menghindari pemblokiran permanen."
-                )
-                # Fill remaining as skipped
-                for remaining_r in records[idx:]:
-                    rem_idpel = remaining_r.get("idpel", "")
-                    rem_nometer = remaining_r.get("nometer", "")
-                    rem_nama = remaining_r.get("nama", "PELANGGAN")
-                    report_rows.append({
-                        "idpel": rem_idpel, "nometer": rem_nometer, "nama": rem_nama,
-                        "alamat": remaining_r.get("alamat", ""),
-                        "latitude": remaining_r.get("latitude", ""), "longitude": remaining_r.get("longitude", ""),
-                        "photo_path": "", "status": "FAILED",
-                        "message": "Dibatalkan otomatis karena IP terblokir permanen."
-                    })
-                    failures += 1
-                break
-                
-        status_label = "SUCCESS" if ok else "FAILED"
-        if ok:
-            successes += 1
-        else:
-            failures += 1
-            
-        report_rows.append({
-            "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
-            "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
-            "photo_path": photo_path or "", "status": status_label, "message": message
-        })
+                    with open(token_file, "r") as f:
+                        t_data = json.load(f)
+                except Exception as e:
+                    logger.error(f"Failed to reload token in CSV worker: {e}")
 
-        # Dynamic Throttling base delay
-        sleep_delay = 1.0
-        if elapsed > 10.0:
-            sleep_delay = 4.0
-            logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay for CSV.")
+            # Select a sticky proxy for this customer run to ensure IP consistency
+            from fasih_api import proxy_manager, sticky_proxy_var
+            current_proxy = proxy_manager.get_proxy()
+            sticky_proxy_var.set(current_proxy)
+            if current_proxy:
+                logger.info(f"Worker assigned sticky proxy for CSV item {idpel or nometer}: {current_proxy}")
+                
+            # Build direct_args
+            direct_args = {
+                "idpel": idpel,
+                "nometer": nometer,
+                "nama": nama,
+                "alamat": r.get("alamat", ""),
+                "tarif": r.get("tarif", "R-1"),
+                "daya": r.get("daya", "900"),
+                "hasil": r.get("hasil", "1"),
+                "kelurahan": r.get("kelurahan", "001"),
+                "kdpm": "01",
+                "kddk": "1",
+                "status_dil": "1",
+                "nik": r.get("nik") or ""
+            }
             
-        # Add dynamic delay with randomized jitter to avoid rate limiting or WAF block patterns
-        jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
-        await asyncio.sleep(jitter_delay)
-        idx += 1
+            lat = None
+            lon = None
+            try:
+                if r.get("latitude"):
+                    lat = float(r["latitude"])
+                if r.get("longitude"):
+                    lon = float(r["longitude"])
+            except ValueError:
+                pass
+                
+            photo_path = r.get("photo_path")
+            if not photo_path or not os.path.exists(photo_path):
+                photo_path = get_random_house_photo()
+            
+            # Call safe submission (Live Submit) with pre-fetched cached data
+            import time as time_mod
+            start_time = time_mod.time()
+            ok, message = await submit_fasih_safe(
+                t_data, token_file,
+                idpel=idpel,
+                nometer=nometer,
+                dry_run=False,
+                direct_args=direct_args,
+                photo_path=photo_path,
+                lat=lat,
+                lon=lon,
+                cached_assignments=cached_assignments,
+                cached_survey=survey,
+                cached_active_periode=active_periode,
+                cached_template_mapping=template_mapping,
+                cached_regions=cached_regions
+            )
+            elapsed = time_mod.time() - start_time
+            
+            # Check if auth session is dead
+            is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
+            if is_auth_failed:
+                is_aborted = True
+                logger.error(f"Authentication session expired/invalid in CSV ({message}). Aborting CSV batch.")
+                await update.effective_message.reply_text(
+                    "❌ **SESI LOGIN KEDALUWARSA / LOGOUT (CSV)**\n\n"
+                    "Sesi login BPS Anda telah berakhir atau tidak valid lagi.\n"
+                    "Silakan lakukan login ulang menggunakan command `/login` terlebih dahulu."
+                )
+
+            async with progress_lock:
+                status_label = "SUCCESS" if ok else "FAILED"
+                if ok:
+                    successes += 1
+                else:
+                    failures += 1
+                    
+                completed_count += 1
+                report_rows.append({
+                    "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
+                    "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
+                    "photo_path": photo_path or "", "status": status_label, "message": message
+                })
+                await update_status_message_throttled()
+
+            # Dynamic Throttling base delay inside worker
+            sleep_delay = 1.0
+            if elapsed > 10.0:
+                sleep_delay = 4.0
+                
+            # Add dynamic delay with randomized jitter to avoid rate limiting or WAF block patterns
+            jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
+            await asyncio.sleep(jitter_delay)
+
+    # Run all workers concurrently
+    await update_status_message_throttled(force=True)
+    worker_tasks = [worker(r) for r in records]
+    await asyncio.gather(*worker_tasks)
 
     # Save and send report file
     report_filename = f"bulk_submit_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
