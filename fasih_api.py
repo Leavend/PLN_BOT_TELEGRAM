@@ -88,7 +88,7 @@ def fetch_regions(headers: dict, survey_period_id: str) -> list:
 
 def assign_by_selection(headers: dict, survey_period_id: str, role_user_id: str, template_assignment_id: str) -> dict:
     """Assign a template assignment to the Pencacah using assign-by-selection."""
-    url = f"{BASE_URL}/mobile/assignment-submit-2/api/assignment/assign-by-selection/{survey_period_id}"
+    url = f"{BASE_URL}/mobile/assignment-general/api/mobile/assign-by-selection/{survey_period_id}"
     body = {
         "surveyPeriodRoleUserIds": [role_user_id],
         "assignmentIds": [template_assignment_id],
