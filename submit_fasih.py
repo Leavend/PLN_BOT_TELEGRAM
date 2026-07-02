@@ -702,7 +702,7 @@ def handle_coords(answers: dict, lat: Optional[float], lon: Optional[float], tar
                 raise ValueError
         except (ValueError, TypeError):
             addr = target.get("data5", "") or target.get("data6", "") or ""
-            region_name = target.get("region", {}).get("name", "")
+            region_name = (target.get("region") or {}).get("name", "")
             lat, lon = get_fallback_coordinate(region_name, "", "", addr)
             
     answers["r105"] = {
@@ -717,7 +717,7 @@ def get_encryption_key(headers: dict, target: dict, region_id: str) -> bytes:
     regions = fetch_regions(headers, pid)
     wrapped_key = None
     for r in regions:
-        if r.get("region_id") == region_id or r.get("region", {}).get("id") == region_id:
+        if r.get("region_id") == region_id or (r.get("region") or {}).get("id") == region_id:
             wrapped_key = r.get("wrappedDatakey")
             break
     if not wrapped_key:
@@ -734,7 +734,7 @@ def get_user_name_from_headers(headers: dict) -> str:
             token = auth.split(" ")[1]
             payload_b64 = token.split(".")[1]
             payload_b64 += "=" * (4 - len(payload_b64) % 4)
-            jwt_payload = json.loads(base64.b64decode(payload_b64.encode("utf-8")))
+            jwt_payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode("utf-8")))
             return jwt_payload.get("name") or jwt_payload.get("email") or "Nadif Firjatullah"
     except Exception:
         pass
@@ -763,11 +763,12 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     l4_fullcode = flat_answers.get("_l4_fullcode") or l4.get("fullCode") or "6474020003"
     
     now_ms = int(time.time() * 1000)
-    created_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-    
+    now = datetime.now()
+    created_at = now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
     # 15 minutes duration
-    start_time = (datetime.now() - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%S")
-    end_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    start_time = (now - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%S")
+    end_time = now.strftime("%Y-%m-%dT%H:%M:%S")
     
     # IDPel HTML Check status
     idpel = flat_answers.get("r101a") or ""
@@ -973,7 +974,7 @@ def upload_archive_flow(headers: dict, target: dict, archive_path: str, dry_run:
     return compute_md5(archive_path)
 
 def get_submit_params(target: dict, data_slots: dict, archive_md5: str, lat: Optional[float], lon: Optional[float]) -> dict:
-    region_id = target.get("region", {}).get("id") or ""
+    region_id = (target.get("region") or {}).get("id") or ""
     # Ensure all data1-data10 keys are present and string-serialized
     for i in range(1, 11):
         key = f"data{i}"
@@ -1024,7 +1025,7 @@ def cmd_submit(headers: dict, input_path: Optional[str], assignment_id: Optional
     answers = resolve_answers(input_path, target, direct_args, template_mapping, verbose)
     handle_photo_upload(headers, target, answers, photo_path, dry_run)
     lat, lon = handle_coords(answers, lat, lon, target)
-    key_bytes = get_encryption_key(headers, target, target.get("region", {}).get("id", ""))
+    key_bytes = get_encryption_key(headers, target, (target.get("region") or {}).get("id", ""))
     user_name = get_user_name_from_headers(headers)
     encrypted = stage_and_encrypt(answers, key_bytes, target, user_name)
     with tempfile.TemporaryDirectory() as work_dir:
@@ -1036,7 +1037,7 @@ def verify_auth_with_sso(token_data: dict, headers: dict):
     try:
         payload_b64 = token_data["access_token"].split(".")[1]
         payload_b64 += "=" * (4 - len(payload_b64) % 4)
-        jwt_payload = json.loads(base64.b64decode(payload_b64))
+        jwt_payload = json.loads(base64.urlsafe_b64decode(payload_b64))
         iss = jwt_payload.get("iss", "")
         realm_name = iss.split("/")[-1] if iss else "eksternal"
         r = requests.get(
@@ -1218,8 +1219,12 @@ def main():
     print("  Fasih BPS Auto-Fill Tool")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
-    headers = setup_token_and_headers(args)
-    execute_args(args, headers, parser)
+    try:
+        headers = setup_token_and_headers(args)
+        execute_args(args, headers, parser)
+    except (FileNotFoundError, RuntimeError) as e:
+        print(f"[-] {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

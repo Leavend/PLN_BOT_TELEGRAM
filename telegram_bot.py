@@ -57,12 +57,6 @@ async def async_refresh_token_if_needed(token_data: dict, token_file: Optional[s
     target_file = token_file or fasih_auth.TOKEN_FILE
     lock = await get_token_lock(target_file)
     async with lock:
-        if os.path.exists(target_file):
-            try:
-                with open(target_file, "r") as f:
-                    token_data = json.load(f)
-            except Exception:
-                pass
         return await asyncio.to_thread(refresh_token_if_needed, token_data, token_file=target_file, exit_on_failure=exit_on_failure)
 
 async def async_fetch_surveys(*args, **kwargs):
@@ -118,30 +112,26 @@ class ActiveRunsTracker:
     def increment(cls):
         with cls._lock:
             cls._count += 1
-            def _write():
-                try:
-                    with open(cls._lock_file, "w") as f:
-                        f.write(str(cls._count))
-                except Exception as e:
-                    logger.error(f"Failed to write lock file: {e}")
-            threading.Thread(target=_write, daemon=True).start()
+            try:
+                with open(cls._lock_file, "w") as f:
+                    f.write(str(cls._count))
+            except Exception as e:
+                logger.error(f"Failed to write lock file: {e}")
 
     @classmethod
     def decrement(cls):
         with cls._lock:
             if cls._count > 0:
                 cls._count -= 1
-            def _write():
-                try:
-                    if cls._count == 0:
-                        if os.path.exists(cls._lock_file):
-                            os.remove(cls._lock_file)
-                    else:
-                        with open(cls._lock_file, "w") as f:
-                            f.write(str(cls._count))
-                except Exception as e:
-                    logger.error(f"Failed to update/remove lock file: {e}")
-            threading.Thread(target=_write, daemon=True).start()
+            try:
+                if cls._count == 0:
+                    if os.path.exists(cls._lock_file):
+                        os.remove(cls._lock_file)
+                else:
+                    with open(cls._lock_file, "w") as f:
+                        f.write(str(cls._count))
+            except Exception as e:
+                logger.error(f"Failed to update/remove lock file: {e}")
 
 async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
     from fasih_api import proxy_manager, sticky_proxy_var
@@ -191,8 +181,17 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
                     logger.warning(f"BPS call {func.__name__} exhausted all {max_retries} proxy-rotation retries. Raising last error.")
                     raise e
             else:
-                logger.warning(f"BPS call {func.__name__} failed with no proxy pool configured. Raising immediately.")
-                raise e
+                backoff_delay = delay * (2 ** attempt)
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}, no proxy). "
+                        f"Error: {type(e).__name__} ({e}). Retrying in {backoff_delay:.0f}s..."
+                    )
+                    await asyncio.sleep(backoff_delay)
+                    continue
+                else:
+                    logger.warning(f"BPS call {func.__name__} exhausted all {max_retries} retries (no proxy). Raising last error.")
+                    raise e
 
 # Setup logging
 logging.basicConfig(
@@ -850,13 +849,13 @@ async def submit_fasih_safe(
         try:
             payload_b64 = token_data["access_token"].split(".")[1]
             payload_b64 += "=" * (4 - len(payload_b64) % 4)
-            jwt_payload = json.loads(base64.b64decode(payload_b64.encode('utf-8')))
+            jwt_payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode('utf-8')))
             user_name = jwt_payload.get("name") or jwt_payload.get("email") or "Nadif Firjatullah"
         except Exception:
             pass
 
         try:
-            encrypted = stage_and_encrypt(answers, key_bytes, target, user_name)
+            encrypted = await asyncio.to_thread(stage_and_encrypt, answers, key_bytes, target, user_name)
         except Exception as enc_err:
             logger.error(f"Encryption failed: {enc_err}", exc_info=True)
             return False, f"Enkripsi jawaban gagal: {enc_err}"
@@ -982,7 +981,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             import json
             payload_b64 = token_data["access_token"].split(".")[1]
             payload_b64 += "=" * (4 - len(payload_b64) % 4)
-            jwt_payload = json.loads(base64.b64decode(payload_b64.encode('utf-8')))
+            jwt_payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode('utf-8')))
             email = jwt_payload.get("email") or jwt_payload.get("preferred_username")
         except Exception:
             pass
@@ -2620,8 +2619,8 @@ def find_template_assignment_for_region(open_assignments, pln_profile):
 
     # Try to match by kelurahan / kecamatan name
     if pln_profile:
-        nama_kel = pln_profile.get("nama_kel", "").lower()
-        nama_kec = pln_profile.get("nama_kec", "").lower()
+        nama_kel = (pln_profile.get("nama_kel") or "").lower()
+        nama_kec = (pln_profile.get("nama_kec") or "").lower()
         for a in open_assignments:
             r_name = (a.get("region") or {}).get("name", "").lower()
             if nama_kel and nama_kel in r_name:
@@ -3040,7 +3039,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                         pass
 
                 # Check if auth session is dead
-                is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
+                is_auth_failed = not ok and ("Gagal memperbarui token" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower() or "HTTP 401" in message)
                 if is_auth_failed:
                     async with progress_lock:
                         is_aborted = True
@@ -3080,7 +3079,10 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         # Run all workers concurrently
         await update_status_message_throttled(force=True)
         worker_tasks = [worker(val, idx) for idx, val in enumerate(search_queries)]
-        await asyncio.gather(*worker_tasks)
+        results = await asyncio.gather(*worker_tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                logger.error(f"Batch worker exception: {r}", exc_info=r)
             
         # Compile report
         temp_dir = tempfile.gettempdir()
@@ -3149,10 +3151,10 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         
     csv_path = None
     report_path = None
-    ActiveRunsTracker.increment()
     token_file = get_user_token_file(chat_id)
-    
+
     status_msg = await update.message.reply_text("📥 Mengunduh berkas CSV...")
+    ActiveRunsTracker.increment()
     try:
         temp_dir = tempfile.gettempdir()
         csv_path = os.path.join(temp_dir, f"bulk_{chat_id}_{int(datetime.now().timestamp())}.csv")
@@ -3390,7 +3392,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     except Exception:
                         pass
                         
-                is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
+                is_auth_failed = not ok and ("Gagal memperbarui token" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower() or "HTTP 401" in message)
                 if is_auth_failed:
                     async with progress_lock:
                         is_aborted = True
@@ -3428,7 +3430,10 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 
         await update_status_message_throttled(force=True)
         worker_tasks = [worker(r, idx) for idx, r in enumerate(records)]
-        await asyncio.gather(*worker_tasks)
+        results = await asyncio.gather(*worker_tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                logger.error(f"CSV worker exception: {r}", exc_info=r)
         
         report_filename = f"bulk_submit_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         report_path = os.path.join(temp_dir, report_filename)

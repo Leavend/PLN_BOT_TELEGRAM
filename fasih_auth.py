@@ -3,6 +3,7 @@ import sys
 import json
 import base64
 import re
+import tempfile
 import requests
 import urllib3
 from datetime import datetime
@@ -279,7 +280,7 @@ def is_token_valid(token_data: dict) -> bool:
     try:
         payload_b64 = token_data["access_token"].split(".")[1]
         payload_b64 += "=" * (4 - len(payload_b64) % 4)
-        jwt_payload = json.loads(base64.b64decode(payload_b64))
+        jwt_payload = json.loads(base64.urlsafe_b64decode(payload_b64))
         return int(datetime.now().timestamp()) < jwt_payload.get("exp", 0) - 10
     except Exception:
         return False
@@ -336,8 +337,16 @@ def refresh_token_if_needed(token_data: dict, token_file: Optional[str] = None, 
                 }, timeout=30)
                 if resp.status_code == 200:
                     new_token = resp.json()
-                    with open(target_file, "w") as f:
-                        json.dump(new_token, f, indent=2)
+                    dir_name = os.path.dirname(target_file) or "."
+                    fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix="token_tmp_")
+                    try:
+                        with os.fdopen(fd, "w") as f:
+                            json.dump(new_token, f, indent=2)
+                        os.replace(tmp_path, target_file)
+                    except Exception:
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
+                        raise
                     logger.info(f"Token refreshed successfully on attempt {attempt+1}.")
                     return new_token
                 last_error = f"status {resp.status_code}"
