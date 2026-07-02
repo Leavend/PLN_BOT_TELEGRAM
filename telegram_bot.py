@@ -26,6 +26,9 @@ from telegram.ext import (
     ConversationHandler,
     filters,
 )
+import warnings
+warnings.filterwarnings("ignore", message=".*per_message.*", category=UserWarning)
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -3656,6 +3659,11 @@ async def logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 async def post_init(application: Application) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=64))
+    logger.info("Set asyncio default ThreadPoolExecutor to 64 workers.")
+
     from telegram import BotCommand
     commands = [
         BotCommand("start", "Memulai bot & melihat status sesi"),
@@ -3688,13 +3696,6 @@ def main():
             logger.info("Cleaned up stale bot_active_runs.lock file on startup.")
         except Exception as e:
             logger.warning(f"Failed to clean up stale lock file: {e}")
-
-    # Expand the default asyncio thread pool so BPS blocking calls don't starve
-    # the event loop. Default is min(32, cpu+4) which is too small for concurrent batch ops.
-    from concurrent.futures import ThreadPoolExecutor
-    import asyncio
-    asyncio.get_event_loop().set_default_executor(ThreadPoolExecutor(max_workers=64))
-    logger.info("Set asyncio default ThreadPoolExecutor to 64 workers.")
 
     request_config = HTTPXRequest(
         connect_timeout=30.0,
