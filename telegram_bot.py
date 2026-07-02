@@ -109,16 +109,21 @@ if allowed_str:
     ALLOWED_USERS = [u.strip().lower().replace("@", "") for u in allowed_str.split(",") if u.strip()]
 
 def get_random_house_photo() -> Optional[str]:
-    photos_dir = "house_photos"
-    if os.path.isdir(photos_dir):
-        import random
-        valid_extensions = (".jpg", ".jpeg", ".png")
-        dir_photos = [
-            os.path.join(photos_dir, f) for f in os.listdir(photos_dir)
-            if f.lower().endswith(valid_extensions)
-        ]
-        if dir_photos:
-            return random.choice(dir_photos)
+    dirs_to_check = ["house_photos", "FOTORUMAH_PAK_ANWAR"]
+    import random
+    valid_extensions = (".jpg", ".jpeg", ".png")
+    all_photos = []
+    
+    for photos_dir in dirs_to_check:
+        if os.path.isdir(photos_dir):
+            dir_photos = [
+                os.path.join(photos_dir, f) for f in os.listdir(photos_dir)
+                if f.lower().endswith(valid_extensions)
+            ]
+            all_photos.extend(dir_photos)
+            
+    if all_photos:
+        return random.choice(all_photos)
             
     # Fallback to local default files
     for p_name in ["foto_default.jpg", "default_house.jpg", "foto_default.png", "default_house.png"]:
