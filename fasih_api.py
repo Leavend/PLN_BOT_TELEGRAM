@@ -25,7 +25,13 @@ def fetch_surveys(headers: dict) -> list:
     """Fetch surveys assigned to the current user."""
     resp = session.get(f"{BASE_URL}/mobile/assignment-sync/api/mobile/survey/get-survey-for-capi", headers=headers, timeout=60)
     resp.raise_for_status()
-    return resp.json().get("data", [])
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal fetch surveys'}",
+            response=resp
+        )
+    return res_json.get("data", [])
 
 def fetch_assignments(headers: dict, survey_period_id: str, page: int = 0) -> dict:
     """Fetch assignment datatable for a given survey period."""
@@ -34,7 +40,13 @@ def fetch_assignments(headers: dict, survey_period_id: str, page: int = 0) -> di
         headers=headers, params={"surveyPeriodId": survey_period_id, "page": page}, timeout=60
     )
     resp.raise_for_status()
-    return resp.json()
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal fetch assignments'}",
+            response=resp
+        )
+    return res_json
 
 def fetch_all_assignments(headers: dict, survey_period_id: str) -> list:
     """Fetch all assignments from BPS server in parallel using ThreadPoolExecutor."""
@@ -84,7 +96,13 @@ def fetch_regions(headers: dict, survey_period_id: str) -> list:
         headers=headers, params={"surveyPeriodeId": survey_period_id}, timeout=60
     )
     resp.raise_for_status()
-    return resp.json().get("data", [])
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal fetch regions'}",
+            response=resp
+        )
+    return res_json.get("data", [])
 
 def assign_by_selection(headers: dict, survey_period_id: str, role_user_id: str, template_assignment_id: str) -> dict:
     """Assign a template assignment to the Pencacah using assign-by-selection."""
@@ -214,6 +232,11 @@ def fetch_template_mapping(headers: dict, template_id: str, version: str) -> dic
     )
     resp.raise_for_status()
     result = resp.json()
+    if not result.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {result.get('message') or 'Gagal fetch template mapping'}",
+            response=resp
+        )
     mapping = {}
     if result.get("data"):
         for slot_name, slot_data in result["data"].items():

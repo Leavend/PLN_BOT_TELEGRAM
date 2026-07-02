@@ -555,6 +555,10 @@ async def submit_fasih_safe(
         if not target:
             return False, "Tugas tidak ditemukan atau tidak berstatus OPEN/SUBMITTED."
 
+        status_alias = str(target.get("assignmentStatusAlias") or "").upper()
+        if "SUBMITTED" in status_alias:
+            return True, "Tugas sudah dikirimkan sebelumnya (Status: SUBMITTED)."
+
         if status_callback:
             await status_callback("📝 Menyusun data jawaban kuesioner...")
 
@@ -2380,11 +2384,11 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
             await sent_msg.edit_text("🔑 Sesi Anda kedaluwarsa atau belum login. Silakan `/login` kembali.")
             return ConversationHandler.END
 
-        token_data = refresh_token_if_needed(token_data, token_file=get_user_token_file(chat_id), exit_on_failure=False)
+        token_data = await async_refresh_token_if_needed(token_data, token_file=get_user_token_file(chat_id), exit_on_failure=False)
         headers = get_headers(token_data)
 
         # 1. Fetch surveys
-        surveys = fetch_surveys(headers)
+        surveys = await async_fetch_surveys(headers)
         if not surveys:
             await sent_msg.edit_text("📋 Tidak ada survei yang aktif di akun Anda.")
             return ConversationHandler.END
@@ -2402,13 +2406,13 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
         template_mapping = {}
         if template_lookup:
             tl = template_lookup[0]
-            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+            template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
         
         idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
         nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
 
         # 2. Fetch assignments
-        all_content = fetch_all_assignments(headers, pid)
+        all_content = await async_fetch_all_assignments(headers, pid)
         if not all_content:
             await sent_msg.edit_text("📋 Tidak ada tugas di akun BPS Anda.")
             return ConversationHandler.END
