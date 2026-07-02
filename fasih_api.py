@@ -241,7 +241,13 @@ def fetch_surveys(headers: dict) -> list:
     """Fetch surveys assigned to the current user."""
     resp = session.get(f"{BASE_URL}/mobile/assignment-sync/api/mobile/survey/get-survey-for-capi", headers=headers, timeout=30)
     resp.raise_for_status()
-    return resp.json().get("data", [])
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal mengambil daftar survei'}",
+            response=resp
+        )
+    return res_json.get("data") or []
 
 def fetch_assignments(headers: dict, survey_period_id: str, page: int = 0) -> dict:
     """Fetch assignment datatable for a given survey period."""
@@ -250,7 +256,14 @@ def fetch_assignments(headers: dict, survey_period_id: str, page: int = 0) -> di
         headers=headers, params={"surveyPeriodId": survey_period_id, "page": page}, timeout=30
     )
     resp.raise_for_status()
-    return resp.json()
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal mengambil daftar tugas'}",
+            response=resp
+        )
+    return res_json
+
 
 def fetch_all_assignments(headers: dict, survey_period_id: str) -> list:
     """Fetch all assignments from BPS server in parallel using ThreadPoolExecutor."""
@@ -297,7 +310,14 @@ def fetch_regions(headers: dict, survey_period_id: str) -> list:
         headers=headers, params={"surveyPeriodeId": survey_period_id}, timeout=30
     )
     resp.raise_for_status()
-    return resp.json().get("data", [])
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal mengambil daftar region'}",
+            response=resp
+        )
+    return res_json.get("data") or []
+
 
 def request_presign_url(headers: dict, assignment_id: str, survey_period_id: str, file_names: list, is_edit: bool = False, copy_from_id: str = None) -> dict:
     """Step 1: Request presigned upload URL from server."""
@@ -412,13 +432,19 @@ def fetch_template_mapping(headers: dict, template_id: str, version: str) -> dic
         headers=headers, params={"version": version}, timeout=30
     )
     resp.raise_for_status()
-    result = resp.json()
+    res_json = resp.json()
+    if not res_json.get("success"):
+        raise requests.exceptions.HTTPError(
+            f"BPS Server Error: {res_json.get('message') or 'Gagal mengambil template mapping'}",
+            response=resp
+        )
     mapping = {}
-    if result.get("data"):
-        for slot_name, slot_data in result["data"].items():
+    if res_json.get("data"):
+        for slot_name, slot_data in res_json["data"].items():
             if slot_data and isinstance(slot_data, dict) and slot_data.get("dataKey"):
                 mapping[slot_name] = slot_data["dataKey"]
     return mapping
+
 
 def map_answers_to_data_slots(answers: dict, template_mapping: dict) -> dict:
     """Map answer keys to data1-data10 slots based on template mapping."""

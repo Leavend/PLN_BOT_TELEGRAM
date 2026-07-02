@@ -140,6 +140,8 @@ class ActiveRunsTracker:
 
 async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
     from fasih_api import proxy_manager, sticky_proxy_var
+    if not sticky_proxy_var.get() and proxy_manager.proxy_pool:
+        sticky_proxy_var.set(proxy_manager.get_proxy())
     last_exception = None
     for attempt in range(max_retries):
         try:
@@ -1300,7 +1302,12 @@ async def process_submit_search_input(update: Update, context: ContextTypes.DEFA
     template_mapping = {}
     if template_lookup:
         tl = template_lookup[0]
-        template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+        try:
+            template_mapping = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
+        except Exception as e:
+            logger.error("Error fetching template mapping in process_submit_search_input", exc_info=True)
+            await update.message.reply_text(f"❌ Gagal mengambil template mapping dari server BPS: {str(e)}")
+            return WAITING_SUBMIT_SEARCH_INPUT
     context.user_data["template_mapping"] = template_mapping
     
     idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
@@ -2488,7 +2495,7 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
         headers = get_headers(token_data)
 
         # 1. Fetch surveys
-        surveys = fetch_surveys(headers)
+        surveys = await call_with_retry(async_fetch_surveys, headers)
         if not surveys:
             await sent_msg.edit_text("📋 Tidak ada survei yang aktif di akun Anda.")
             return ConversationHandler.END
@@ -2506,13 +2513,13 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
         template_mapping = {}
         if template_lookup:
             tl = template_lookup[0]
-            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+            template_mapping = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
         
         idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
         nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
 
         # 2. Fetch assignments
-        all_content = fetch_all_assignments(headers, pid)
+        all_content = await call_with_retry(async_fetch_all_assignments, headers, pid)
         if not all_content:
             await sent_msg.edit_text("📋 Tidak ada tugas di akun BPS Anda.")
             return ConversationHandler.END
