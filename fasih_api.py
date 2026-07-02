@@ -20,20 +20,51 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://fasih-survey.bps.go.id"
 USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 8.1.0; Android SDK built for x86 Build/OSM1.180201.021)"
 
+WEBSHARE_IPS = [
+    "23.81.44.182",
+    "89.187.161.115",
+    "23.106.231.9",
+    "199.254.199.189",
+    "23.81.44.112",
+    "23.81.44.12",
+    "173.234.67.227",
+    "199.254.199.110"
+]
+
+def resolve_proxy_host(proxy_url: str) -> str:
+    if not proxy_url:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(proxy_url)
+        if parsed.hostname == "p.webshare.io":
+            ip = random.choice(WEBSHARE_IPS)
+            netloc = parsed.netloc.replace("p.webshare.io", ip, 1)
+            new_parsed = parsed._replace(netloc=netloc)
+            new_url = urllib.parse.urlunparse(new_parsed)
+            logger.info(f"Resolved proxy hostname p.webshare.io to IP {ip} to bypass DNS restrictions.")
+            return new_url
+    except Exception as e:
+        logger.warning(f"Failed to resolve proxy host in {proxy_url}: {e}")
+    return proxy_url
+
 def format_proxy_url(proxy_str: str) -> str:
     proxy_str = proxy_str.strip()
     if not proxy_str:
         return ""
+    formatted = proxy_str
     # If it already starts with a scheme, it is already a formatted URL
-    if proxy_str.startswith("http://") or proxy_str.startswith("https://") or proxy_str.startswith("socks5://"):
-        return proxy_str
-    # Handle HOST:PORT:USER:PASS format
-    parts = proxy_str.split(":")
-    if len(parts) == 4:
-        host, port, user, pw = parts
-        return f"http://{user}:{pw}@{host}:{port}"
-    # Ensure scheme is present
-    return f"http://{proxy_str}"
+    if not (proxy_str.startswith("http://") or proxy_str.startswith("https://") or proxy_str.startswith("socks5://")):
+        # Handle HOST:PORT:USER:PASS format
+        parts = proxy_str.split(":")
+        if len(parts) == 4:
+            host, port, user, pw = parts
+            formatted = f"http://{user}:{pw}@{host}:{port}"
+        else:
+            # Ensure scheme is present
+            formatted = f"http://{proxy_str}"
+            
+    # Resolve hostnames to IP addresses if applicable to bypass DNS block (like p.webshare.io)
+    return resolve_proxy_host(formatted)
 
 def load_proxy_pool() -> list:
     pool = []
