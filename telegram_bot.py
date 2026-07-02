@@ -2626,16 +2626,25 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         failures = 0
         report_rows = []
         
+        import time
+        last_update_time = 0.0
+        
         for idx, val in enumerate(search_queries):
             is_idpel = len(val) == 12
             idpel_val = val if is_idpel else ""
             nometer_val = "" if is_idpel else val
             
-            await status_msg.edit_text(
-                f"⏳ **Memproses {idx+1}/{total}**\n"
-                f"• IDPel/NoMeter: `{val}`\n"
-                f"• Sukses: {successes} | Gagal: {failures}"
-            )
+            current_time = time.time()
+            if idx == 0 or idx == total - 1 or (current_time - last_update_time) >= 4.0:
+                try:
+                    await status_msg.edit_text(
+                        f"⏳ **Memproses {idx+1}/{total}**\n"
+                        f"• IDPel/NoMeter: `{val}`\n"
+                        f"• Sukses: {successes} | Gagal: {failures}"
+                    )
+                    last_update_time = current_time
+                except Exception as tg_err:
+                    logger.warning(f"Failed to update batch progress status: {tg_err}")
             
             # 1. Check if assignment exists
             target = None
