@@ -22,6 +22,15 @@ USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 8.1.0; Android SDK built for x86 B
 
 
 def get_bps_proxy() -> Optional[dict]:
+    # 1. First check if a context sticky proxy is set
+    try:
+        from fasih_api import sticky_proxy_var
+        sticky = sticky_proxy_var.get()
+        if sticky:
+            return {"http": sticky, "https": sticky}
+    except Exception:
+        pass
+
     pool = []
     # 1. Single proxy from environment
     single_proxy = os.getenv("BPS_PROXY")

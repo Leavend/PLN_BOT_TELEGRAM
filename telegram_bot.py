@@ -2612,6 +2612,13 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         max_waf_retries = 3
         while idx < total:
             val = search_queries[idx]
+            
+            # Select a sticky proxy for this customer run to ensure IP consistency
+            from fasih_api import proxy_list, sticky_proxy_var
+            current_proxy = random.choice(proxy_list) if proxy_list else None
+            sticky_proxy_var.set(current_proxy)
+            if current_proxy:
+                logger.info(f"Assigned sticky proxy for batch item {val}: {current_proxy}")
             is_idpel = len(val) == 12
             idpel_val = val if is_idpel else ""
             nometer_val = "" if is_idpel else val
@@ -2983,6 +2990,14 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
     max_waf_retries = 3
     while idx < len(records):
         r = records[idx]
+        
+        # Select a sticky proxy for this customer run to ensure IP consistency
+        from fasih_api import proxy_list, sticky_proxy_var
+        current_proxy = random.choice(proxy_list) if proxy_list else None
+        sticky_proxy_var.set(current_proxy)
+        if current_proxy:
+            logger.info(f"Assigned sticky proxy for CSV item {r.get('idpel') or r.get('nometer')}: {current_proxy}")
+            
         idpel = r.get("idpel")
         nometer = r.get("nometer")
         nama = r.get("nama", "PELANGGAN")

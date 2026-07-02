@@ -46,6 +46,11 @@ def load_proxy_pool() -> list:
     deduped_pool = [x for x in pool if not (x in seen or seen.add(x))]
     return deduped_pool
 
+import contextvars
+
+# Context local variable to hold a sticky proxy for a single customer submit context
+sticky_proxy_var = contextvars.ContextVar("sticky_proxy", default=None)
+
 class RotatingProxySession(requests.Session):
     def __init__(self, proxy_pool: list):
         super().__init__()
@@ -54,8 +59,14 @@ class RotatingProxySession(requests.Session):
             logger.info(f"Initialized BPS RotatingProxySession with pool size: {len(self.proxy_pool)}")
 
     def send(self, request, **kwargs):
-        if self.proxy_pool:
+        # 1. First check if a sticky proxy is configured in the current context
+        proxy = sticky_proxy_var.get()
+        
+        # 2. If no sticky proxy is active, fall back to selecting a random proxy from the pool
+        if not proxy and self.proxy_pool:
             proxy = random.choice(self.proxy_pool)
+            
+        if proxy:
             kwargs['proxies'] = {
                 'http': proxy,
                 'https': proxy
