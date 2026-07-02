@@ -234,7 +234,9 @@ def upload_to_s3(presigned_url: str, file_path: str) -> bool:
         presigned_url, data=file_data,
         headers={"Content-Type": "application/x-7z-compressed", "User-Agent": USER_AGENT}, timeout=60
     )
-    return resp.status_code in (200, 201)
+    if resp.status_code not in (200, 201):
+        resp.raise_for_status()
+    return True
 
 def request_photo_presign_put(headers: dict, assignment_id: str, copy_from_id: str, survey_period_id: str, filename: str, size: int, md5_base64: str) -> dict:
     """Request presigned PUT URL for media upload."""
@@ -266,7 +268,9 @@ def upload_photo_to_s3(presigned_url: str, file_path: str, md5_base64: str) -> b
         headers={"Content-Type": "image/png", "Content-MD5": md5_base64, "Content-Length": str(size), "User-Agent": USER_AGENT},
         timeout=60
     )
-    return resp.status_code in (200, 201)
+    if resp.status_code not in (200, 201):
+        resp.raise_for_status()
+    return True
 
 def request_photo_presign_get(headers: dict, assignment_id: str, copy_from_id: str, survey_period_id: str, filename: str) -> dict:
     """Request presigned GET URL for media download/reference."""

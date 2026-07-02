@@ -115,6 +115,7 @@ class ActiveRunsTracker:
                 logger.error(f"Failed to update/remove lock file: {e}")
 
 async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
+    from fasih_api import proxy_list, sticky_proxy_var
     for attempt in range(max_retries):
         try:
             return await func(*args, **kwargs)
@@ -129,8 +130,23 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
             if "405" in err_str or "429" in err_str or "METHOD NOT ALLOWED" in err_str or "TOO MANY REQUESTS" in err_str:
                 is_waf = True
                 
+            is_timeout = isinstance(e, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)) or "TIMEOUT" in err_str or "TIME OUT" in err_str
+            
+            if (is_waf or is_timeout) and proxy_list:
+                old_proxy = sticky_proxy_var.get()
+                available_proxies = [p for p in proxy_list if p != old_proxy]
+                new_proxy = random.choice(available_proxies if available_proxies else proxy_list)
+                sticky_proxy_var.set(new_proxy)
+                logger.warning(
+                    f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}) using proxy {old_proxy}. "
+                    f"Error: {e}. Rotating to new proxy {new_proxy} and retrying..."
+                )
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(delay)
+                    continue
+                    
             if is_waf:
-                logger.warning(f"BPS call {func.__name__} encountered WAF block / rate limit. Raising immediately without retry.")
+                logger.warning(f"BPS call {func.__name__} encountered WAF block without proxy pool. Raising immediately.")
                 raise e
                 
             if attempt == max_retries - 1:
@@ -670,8 +686,10 @@ async def submit_fasih_safe(
                     return False, f"Gagal mendapatkan presigned URL foto: {str(e)}"
             
             if not dry_run and put_url != "http://mock-photo-put-url":
-                if not await async_upload_photo_to_s3(put_url, photo_path, md5_b64):
-                    return False, "Gagal mengunggah foto ke S3."
+                try:
+                    await call_with_retry(async_upload_photo_to_s3, put_url, photo_path, md5_b64)
+                except Exception as e:
+                    return False, f"Gagal mengunggah foto ke S3: {e}"
             
             try:
                 resp_get = await call_with_retry(
@@ -792,8 +810,10 @@ async def submit_fasih_safe(
                     return False, msg
                 
             if not dry_run and put_url != "http://mock-s3-url":
-                if not await async_upload_to_s3(put_url, archive_path):
-                    return False, "Gagal mengunggah arsip ke S3."
+                try:
+                    await call_with_retry(async_upload_to_s3, put_url, archive_path)
+                except Exception as e:
+                    return False, f"Gagal mengunggah arsip ke S3: {e}"
                 
             archive_md5 = compute_md5(archive_path)
 
