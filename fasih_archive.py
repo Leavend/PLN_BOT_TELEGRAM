@@ -40,14 +40,12 @@ def run_compress(archive_path: str, staging_dir: str):
                 archive.writeall(staging_dir, arcname=os.path.basename(staging_dir))
             return
         except ImportError:
-            print("[-] Error: '7z' executable not found in PATH or standard installation directories.")
-            if os.name == 'nt':
-                print("[-] Silakan install 7-Zip (https://www.7-zip.org/) dan pastikan terinstall di C:\\Program Files\\7-Zip\\")
-                print("[-] Atau install library python: pip install py7zr")
-            else:
-                print("[-] Silakan install p7zip (sudo apt install p7zip-full / brew install p7zip)")
-                print("[-] Atau install library python: pip install py7zr")
-            sys.exit(1)
+            msg = (
+                "Error: '7z' executable not found in PATH or standard installation directories.\n"
+                "Silakan install 7-Zip (Windows) atau p7zip (Mac/Linux), atau install library py7zr: pip install py7zr"
+            )
+            print(f"[-] {msg}")
+            raise FileNotFoundError(msg)
 
     # 4. Run standard 7z subprocess
     try:
@@ -58,8 +56,9 @@ def run_compress(archive_path: str, staging_dir: str):
             check=True,
         )
     except subprocess.CalledProcessError as e:
-        print(f"[-] 7z archive creation failed: {e.stderr.decode()}")
-        sys.exit(1)
+        err_msg = f"7z archive creation failed: {e.stderr.decode()}"
+        print(f"[-] {err_msg}")
+        raise RuntimeError(err_msg)
 
 def create_7z_archive(data_json_encrypted: str, assignment_id: str, work_dir: str) -> str:
     """Creates a passwordless .7z archive containing the encrypted survey payload."""

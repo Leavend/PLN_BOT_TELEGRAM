@@ -118,26 +118,30 @@ class ActiveRunsTracker:
     def increment(cls):
         with cls._lock:
             cls._count += 1
-            try:
-                with open(cls._lock_file, "w") as f:
-                    f.write(str(cls._count))
-            except Exception as e:
-                logger.error(f"Failed to write lock file: {e}")
+            def _write():
+                try:
+                    with open(cls._lock_file, "w") as f:
+                        f.write(str(cls._count))
+                except Exception as e:
+                    logger.error(f"Failed to write lock file: {e}")
+            threading.Thread(target=_write, daemon=True).start()
 
     @classmethod
     def decrement(cls):
         with cls._lock:
             if cls._count > 0:
                 cls._count -= 1
-            try:
-                if cls._count == 0:
-                    if os.path.exists(cls._lock_file):
-                        os.remove(cls._lock_file)
-                else:
-                    with open(cls._lock_file, "w") as f:
-                        f.write(str(cls._count))
-            except Exception as e:
-                logger.error(f"Failed to update/remove lock file: {e}")
+            def _write():
+                try:
+                    if cls._count == 0:
+                        if os.path.exists(cls._lock_file):
+                            os.remove(cls._lock_file)
+                    else:
+                        with open(cls._lock_file, "w") as f:
+                            f.write(str(cls._count))
+                except Exception as e:
+                    logger.error(f"Failed to update/remove lock file: {e}")
+            threading.Thread(target=_write, daemon=True).start()
 
 async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
     from fasih_api import proxy_manager, sticky_proxy_var
@@ -161,6 +165,9 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
                     is_waf = True
             
             err_str = str(e).upper()
+            if isinstance(e, (json.JSONDecodeError, ValueError)) or "EXPECTING VALUE" in err_str or "JSON" in err_str or "HTML" in err_str or "BLOKIR" in err_str:
+                is_waf = True
+
             if "405" in err_str or "429" in err_str or "METHOD NOT ALLOWED" in err_str or "TOO MANY REQUESTS" in err_str:
                 is_waf = True
                 
@@ -297,8 +304,21 @@ def load_user_token(chat_id: int) -> Optional[dict]:
 
 def save_user_token(chat_id: int, token_data: dict):
     token_file = get_user_token_file(chat_id)
-    with open(token_file, "w") as f:
-        json.dump(token_data, f, indent=2)
+    dir_name = os.path.dirname(token_file)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+    temp_fd, temp_path = tempfile.mkstemp(dir=dir_name, prefix="token_tmp_")
+    try:
+        with os.fdopen(temp_fd, "w") as f:
+            json.dump(token_data, f, indent=2)
+        os.replace(temp_path, token_file)
+    except Exception as e:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+        raise e
 
 INDONESIAN_PROVINCES = {
     "aceh": (-5.5483, 95.3238),
@@ -793,7 +813,7 @@ async def submit_fasih_safe(
                     raise ValueError
             except (ValueError, TypeError):
                 addr = target.get("data5", "") or target.get("data6", "") or ""
-                region_name = target.get("region", {}).get("name", "")
+                region_name = (target.get("region") or {}).get("name", "")
                 lat, lon = get_fallback_coordinate(region_name, "", "", addr)
 
         answers["r105"] = {
@@ -806,14 +826,14 @@ async def submit_fasih_safe(
             await status_callback("🔐 Mengenkripsi data jawaban...")
 
         # Resolve encryption key
-        region_id = target.get("region", {}).get("id", "")
+        region_id = (target.get("region") or {}).get("id", "")
         if cached_regions is not None:
             regions = cached_regions
         else:
             regions = await call_with_retry(async_fetch_regions, headers, pid)
         wrapped_key = None
         for r in regions:
-            if r.get("region_id") == region_id or r.get("region", {}).get("id") == region_id:
+            if r.get("region_id") == region_id or (r.get("region") or {}).get("id") == region_id:
                 wrapped_key = r.get("wrappedDatakey")
                 break
         if not wrapped_key:
@@ -895,7 +915,7 @@ async def submit_fasih_safe(
             await status_callback("📡 Mengirimkan konfirmasi akhir ke server BPS...")
 
         # Confirm submission
-        region_id = target.get("region", {}).get("id") or ""
+        region_id = (target.get("region") or {}).get("id") or ""
         data_slots = map_answers_to_data_slots(answers, template_mapping)
         
         # Ensure all data1-data10 keys are present and string-serialized
@@ -1012,7 +1032,7 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         email, password = args[0], args[1]
         sent_msg = await update.message.reply_text("🔄 Melakukan login SSO BPS...")
         try:
-            token_data = perform_login(email, password, exit_on_failure=False)
+            token_data = await async_perform_login(email, password, exit_on_failure=False)
             save_user_token(chat.id, token_data)
             await sent_msg.edit_text("✅ Login berhasil! Sesi Anda telah disimpan.")
             await update.message.reply_text("Silakan gunakan tombol menu di bawah untuk bernavigasi:", reply_markup=get_main_menu_keyboard())
@@ -1558,7 +1578,7 @@ async def start_create_new_flow(update: Update, context: ContextTypes.DEFAULT_TY
     
     regions_map = {}
     for a in eligible:
-        rid = a.get("region", {}).get("id")
+        rid = (a.get("region") or {}).get("id")
         if rid and rid not in regions_map:
             region = a.get("region") or {}
             l1 = region.get("level1") or {}
@@ -2083,7 +2103,7 @@ async def process_location(update: Update, context: ContextTypes.DEFAULT_TYPE, h
         f"┌──────────────────────────────────┐\n"
         f"│        INFORMASI PELANGGAN       │\n"
         f"└──────────────────────────────────┘\n"
-        f" Nama    : {args.get('nama', target.get('data2', ''))[:20]}\n"
+        f" Nama    : {(args.get('nama') or target.get('data2') or '')[:20]}\n"
         f" IDPel   : {args.get('idpel')}\n"
         f" NoMeter : {args.get('nometer')}\n"
         f" Tarif   : {args.get('tarif')}\n"
@@ -2492,7 +2512,7 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
             await sent_msg.edit_text("🔑 Sesi Anda kedaluwarsa atau belum login. Silakan `/login` kembali.")
             return ConversationHandler.END
 
-        token_data = refresh_token_if_needed(token_data, token_file=get_user_token_file(chat_id), exit_on_failure=False)
+        token_data = await async_refresh_token_if_needed(token_data, token_file=get_user_token_file(chat_id), exit_on_failure=False)
         headers = get_headers(token_data)
 
         # 1. Fetch surveys
@@ -2549,7 +2569,7 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
             nometer = m.get(nometer_slot) or "-"
             status = m.get("assignmentStatusAlias", "OPEN")
             alamat = m.get("data4", m.get("data5", "-")) or "-"
-            region_name = m.get("region", {}).get("name", "BONTANG")
+            region_name = (m.get("region") or {}).get("name", "BONTANG")
             
             # Fetch Tarif & Daya from PLN tool (checking cache first)
             from pln_lookup import PLNLookupTool
@@ -2594,7 +2614,7 @@ def find_template_assignment_for_region(open_assignments, pln_profile):
         return None
         
     # If only 1 region, use it
-    regions = {a.get("region", {}).get("id") for a in open_assignments if a.get("region", {}).get("id")}
+    regions = {(a.get("region") or {}).get("id") for a in open_assignments if (a.get("region") or {}).get("id")}
     if len(regions) == 1:
         return open_assignments[0]
 
@@ -2603,7 +2623,7 @@ def find_template_assignment_for_region(open_assignments, pln_profile):
         nama_kel = pln_profile.get("nama_kel", "").lower()
         nama_kec = pln_profile.get("nama_kec", "").lower()
         for a in open_assignments:
-            r_name = a.get("region", {}).get("name", "").lower()
+            r_name = (a.get("region") or {}).get("name", "").lower()
             if nama_kel and nama_kel in r_name:
                 return a
             if nama_kec and nama_kec in r_name:
@@ -2774,8 +2794,8 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         async def worker(val, idx):
             nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until
-            if is_aborted:
-                async with progress_lock:
+            async with progress_lock:
+                if is_aborted:
                     failures += 1
                     completed_count += 1
                     report_rows.append({
@@ -2783,7 +2803,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                         "message": "Dibatalkan karena sesi login kedaluwarsa."
                     })
                     await update_status_message_throttled()
-                return
+                    return
 
             # Stagger startup to avoid slamming BPS endpoints at the exact same millisecond
             stagger_delay = idx * 2.0
@@ -2803,6 +2823,18 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     cooldown_rem = waf_cooldown_until - now
                     logger.info(f"Worker for {val} waiting for global WAF cool-down after semaphore lock ({cooldown_rem:.1f}s remaining)...")
                     await asyncio.sleep(cooldown_rem)
+
+                # Re-check is_aborted after acquiring semaphore
+                async with progress_lock:
+                    if is_aborted:
+                        failures += 1
+                        completed_count += 1
+                        report_rows.append({
+                            "val": val, "nama": "PELANGGAN", "status": "FAILED",
+                            "message": "Dibatalkan karena sesi login kedaluwarsa."
+                        })
+                        await update_status_message_throttled()
+                        return
 
                 # Reload token data to get the latest refreshed token from disk
                 t_data = token_data
@@ -2986,11 +3018,13 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 is_waf = not ok and (
                     "405" in err_upper or "429" in err_upper or 
                     "METHOD NOT ALLOWED" in err_upper or "TOO MANY REQUESTS" in err_upper or
-                    "WAF" in err_upper or "RATE LIMIT" in err_upper or "BLOKIR" in err_upper
+                    "WAF" in err_upper or "RATE LIMIT" in err_upper or "BLOKIR" in err_upper or
+                    "EXPECTING VALUE" in err_upper or "JSON" in err_upper or "HTML" in err_upper
                 )
                 if is_waf:
                     cooldown_duration = 90.0
-                    waf_cooldown_until = time.time() + cooldown_duration
+                    async with progress_lock:
+                        waf_cooldown_until = max(waf_cooldown_until, time.time() + cooldown_duration)
                     logger.warning(
                         f"BPS WAF Block / Rate Limit detected for item {val} ({message}). "
                         f"Initiating {cooldown_duration}s global batch cool-down pause."
@@ -3008,7 +3042,8 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 # Check if auth session is dead
                 is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
                 if is_auth_failed:
-                    is_aborted = True
+                    async with progress_lock:
+                        is_aborted = True
                     logger.error(f"Authentication session expired/invalid ({message}). Aborting batch.")
                     await query.message.reply_text(
                         "❌ **SESI LOGIN KEDALUWARSA / LOGOUT**\n\n"
@@ -3118,293 +3153,286 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
     token_file = get_user_token_file(chat_id)
     
     status_msg = await update.message.reply_text("📥 Mengunduh berkas CSV...")
-    
-    temp_dir = tempfile.gettempdir()
-    csv_path = os.path.join(temp_dir, f"bulk_{chat_id}_{int(datetime.now().timestamp())}.csv")
-    
-    # Download the CSV file
-    file_obj = await document.get_file()
-    await file_obj.download_to_drive(csv_path)
-    
-    # Parse records
-    records = []
     try:
+        temp_dir = tempfile.gettempdir()
+        csv_path = os.path.join(temp_dir, f"bulk_{chat_id}_{int(datetime.now().timestamp())}.csv")
+        
+        # Download the CSV file
+        file_obj = await document.get_file()
+        await file_obj.download_to_drive(csv_path)
+        
+        # Parse records
+        records = []
         with open(csv_path, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             reader.fieldnames = [name.strip().lower() for name in reader.fieldnames] if reader.fieldnames else []
             for row in reader:
-                records.append({k.strip(): v.strip() for k, v in row.items() if k})
-    except Exception as e:
-        await status_msg.edit_text(f"❌ Gagal membaca CSV: {str(e)}")
-        if os.path.exists(csv_path):
-            os.remove(csv_path)
-        return
-        
-    if not records:
-        await status_msg.edit_text("❌ File CSV kosong atau tidak memiliki tajuk/header.")
-        os.remove(csv_path)
-        return
-        
-    total = len(records)
-    await status_msg.edit_text(f"📊 Menemukan {total} data pelanggan di CSV. Mempersiapkan data sinkronisasi awal...")
-    
-    # Pre-fetch cache data once to optimize performance and prevent rate limiting
-    survey = None
-    active_periode = None
-    template_mapping = {}
-    cached_assignments = None
-    cached_regions = None
-    
-    try:
-        token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
-        headers = get_headers(token_data)
-        
-        await status_msg.edit_text("📊 Mengambil info survei aktif dari BPS...")
-        surveys = await call_with_retry(async_fetch_surveys, headers)
-        if surveys:
-            survey = surveys[0]
-            active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
-            if active_periode:
-                template_lookup = survey.get("templateLookup", [])
-                if template_lookup:
-                    tl = template_lookup[0]
-                    template_mapping = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
+                records.append({k.strip(): (v.strip() if v else "") for k, v in row.items() if k})
                 
-                await status_msg.edit_text("📊 Mengunduh seluruh daftar penugasan & region BPS...")
-                cached_assignments = await call_with_retry(async_fetch_all_assignments, headers, active_periode["id"])
-                try:
-                    cached_regions = await call_with_retry(async_fetch_regions, headers, active_periode["id"])
-                except Exception as reg_err:
-                    logger.warning(f"Failed to fetch regions in initial CSV sync: {reg_err}")
-                    cached_regions = None
-                await status_msg.edit_text(f"✅ Sinkronisasi awal berhasil. Menemukan {len(cached_assignments)} tugas. Memulai bulk submit...")
-    except Exception as e:
-        await status_msg.edit_text(f"⚠️ Peringatan sinkronisasi awal gagal: {e}. Melanjutkan dengan mode dinamis (tanpa cache)...")
-        # Ensure they are None so submit_fasih_safe queries normally
+        if not records:
+            await status_msg.edit_text("❌ File CSV kosong atau tidak memiliki tajuk/header.")
+            return
+            
+        total = len(records)
+        await status_msg.edit_text(f"📊 Menemukan {total} data pelanggan di CSV. Mempersiapkan data sinkronisasi awal...")
+        
+        # Pre-fetch cache data once to optimize performance and prevent rate limiting
         survey = None
         active_periode = None
         template_mapping = {}
         cached_assignments = None
         cached_regions = None
-        await asyncio.sleep(2)
         
-    report_rows = []
-    successes = 0
-    failures = 0
-    
-    # Concurrency control
-    concurrency = 3
-    semaphore = asyncio.Semaphore(concurrency)
-    progress_lock = asyncio.Lock()
-    completed_count = 0
-    last_update_time = 0
-    is_aborted = False
-    waf_cooldown_until = 0.0
-
-    async def update_status_message_throttled(force=False):
-        nonlocal last_update_time
-        now = time.time()
-        if force or (now - last_update_time >= 1.5):
-            last_update_time = now
-            status_text = (
-                f"📊 **Memproses CSV (Concurrency: {concurrency})**\n"
-                f"• Progress: {completed_count}/{total}\n"
-                f"• Sukses: {successes} | Gagal: {failures}\n"
-                f"• Sisa: {total - completed_count}"
-            )
-            await safe_edit_text(status_msg, status_text, parse_mode="Markdown")
-
-    async def worker(r, idx):
-        nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until
+        try:
+            token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
+            headers = get_headers(token_data)
+            
+            await status_msg.edit_text("📊 Mengambil info survei aktif dari BPS...")
+            surveys = await call_with_retry(async_fetch_surveys, headers)
+            if surveys:
+                survey = surveys[0]
+                active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
+                if active_periode:
+                    template_lookup = survey.get("templateLookup", [])
+                    if template_lookup:
+                        tl = template_lookup[0]
+                        template_mapping = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
+                    
+                    await status_msg.edit_text("📊 Mengunduh seluruh daftar penugasan & region BPS...")
+                    cached_assignments = await call_with_retry(async_fetch_all_assignments, headers, active_periode["id"])
+                    try:
+                        cached_regions = await call_with_retry(async_fetch_regions, headers, active_periode["id"])
+                    except Exception as reg_err:
+                        logger.warning(f"Failed to fetch regions in initial CSV sync: {reg_err}")
+                        cached_regions = None
+                    await status_msg.edit_text(f"✅ Sinkronisasi awal berhasil. Menemukan {len(cached_assignments)} tugas. Memulai bulk submit...")
+        except Exception as e:
+            await status_msg.edit_text(f"⚠️ Peringatan sinkronisasi awal gagal: {e}. Melanjutkan dengan mode dinamis (tanpa cache)...")
+            survey = None
+            active_periode = None
+            template_mapping = {}
+            cached_assignments = None
+            cached_regions = None
+            await asyncio.sleep(2)
+            
+        report_rows = []
+        successes = 0
+        failures = 0
         
-        idpel = r.get("idpel")
-        nometer = r.get("nometer")
-        nama = r.get("nama", "PELANGGAN")
-
-        if not idpel or not nometer:
+        # Concurrency control
+        concurrency = 3
+        semaphore = asyncio.Semaphore(concurrency)
+        progress_lock = asyncio.Lock()
+        completed_count = 0
+        last_update_time = 0
+        is_aborted = False
+        waf_cooldown_until = 0.0
+        
+        async def update_status_message_throttled(force=False):
+            nonlocal last_update_time
+            now = time.time()
+            if force or (now - last_update_time >= 1.5):
+                last_update_time = now
+                status_text = (
+                    f"📊 **Memproses CSV (Concurrency: {concurrency})**\n"
+                    f"• Progress: {completed_count}/{total}\n"
+                    f"• Sukses: {successes} | Gagal: {failures}\n"
+                    f"• Sisa: {total - completed_count}"
+                )
+                await safe_edit_text(status_msg, status_text, parse_mode="Markdown")
+                
+        async def worker(r, idx):
+            nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until
+            
+            idpel = r.get("idpel")
+            nometer = r.get("nometer")
+            nama = r.get("nama", "PELANGGAN")
+            
+            if not idpel or not nometer:
+                async with progress_lock:
+                    report_rows.append({
+                        "idpel": idpel or "", "nometer": nometer or "", "nama": nama,
+                        "alamat": r.get("alamat", ""), "latitude": r.get("latitude", ""),
+                        "longitude": r.get("longitude", ""), "photo_path": "",
+                        "status": "SKIPPED", "message": "Kolom idpel atau nometer kosong"
+                    })
+                    failures += 1
+                    completed_count += 1
+                    await update_status_message_throttled()
+                return
+                
             async with progress_lock:
-                report_rows.append({
-                    "idpel": idpel or "", "nometer": nometer or "", "nama": nama,
-                    "alamat": r.get("alamat", ""), "latitude": r.get("latitude", ""),
-                    "longitude": r.get("longitude", ""), "photo_path": "",
-                    "status": "SKIPPED", "message": "Kolom idpel atau nometer kosong"
-                })
-                failures += 1
-                completed_count += 1
-                await update_status_message_throttled()
-            return
-
-        if is_aborted:
-            async with progress_lock:
-                report_rows.append({
-                    "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
-                    "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
-                    "photo_path": "", "status": "FAILED",
-                    "message": "Dibatalkan karena sesi login kedaluwarsa."
-                })
-                failures += 1
-                completed_count += 1
-                await update_status_message_throttled()
-            return
-
-        # Stagger startup to avoid slamming BPS endpoints at the exact same millisecond
-        stagger_delay = idx * 2.0
-        await asyncio.sleep(stagger_delay)
-
-        # Check and wait for global WAF cooldown pause if active
-        now = time.time()
-        if now < waf_cooldown_until:
-            cooldown_rem = waf_cooldown_until - now
-            logger.info(f"CSV Worker for {idpel or nometer} waiting for global WAF cool-down ({cooldown_rem:.1f}s remaining)...")
-            await asyncio.sleep(cooldown_rem)
-
-        async with semaphore:
-            # Re-check WAF cooldown after acquiring semaphore
+                if is_aborted:
+                    report_rows.append({
+                        "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
+                        "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
+                        "photo_path": "", "status": "FAILED",
+                        "message": "Dibatalkan karena sesi login kedaluwarsa."
+                    })
+                    failures += 1
+                    completed_count += 1
+                    await update_status_message_throttled()
+                    return
+                    
+            stagger_delay = idx * 2.0
+            await asyncio.sleep(stagger_delay)
+            
             now = time.time()
             if now < waf_cooldown_until:
                 cooldown_rem = waf_cooldown_until - now
-                logger.info(f"CSV Worker for {idpel or nometer} waiting for global WAF cool-down after semaphore lock ({cooldown_rem:.1f}s remaining)...")
+                logger.info(f"CSV Worker for {idpel or nometer} waiting for global WAF cool-down ({cooldown_rem:.1f}s remaining)...")
                 await asyncio.sleep(cooldown_rem)
-
-            # Reload token data to get the latest refreshed token from disk
-            t_data = token_data
-            if token_file and os.path.exists(token_file):
-                try:
-                    with open(token_file, "r") as f:
-                        t_data = json.load(f)
-                except Exception as e:
-                    logger.error(f"Failed to reload token in CSV worker: {e}")
-
-            # Select a sticky proxy for this customer run to ensure IP consistency
-            from fasih_api import proxy_manager, sticky_proxy_var
-            current_proxy = proxy_manager.get_proxy()
-            sticky_proxy_var.set(current_proxy)
-            if current_proxy:
-                logger.info(f"Worker assigned sticky proxy for CSV item {idpel or nometer}: {current_proxy}")
                 
-            # Build direct_args
-            direct_args = {
-                "idpel": idpel,
-                "nometer": nometer,
-                "nama": nama,
-                "alamat": r.get("alamat", ""),
-                "tarif": r.get("tarif", "R-1"),
-                "daya": r.get("daya", "900"),
-                "hasil": r.get("hasil", "1"),
-                "kelurahan": r.get("kelurahan", "001"),
-                "kdpm": "01",
-                "kddk": "1",
-                "status_dil": "1",
-                "nik": r.get("nik") or ""
-            }
-            
-            lat = None
-            lon = None
-            try:
-                if r.get("latitude"):
-                    lat = float(r["latitude"])
-                if r.get("longitude"):
-                    lon = float(r["longitude"])
-            except ValueError:
-                pass
-                
-            photo_path = r.get("photo_path")
-            if not photo_path or not os.path.exists(photo_path):
-                photo_path = get_random_house_photo()
-            
-            # Call safe submission (Live Submit) with pre-fetched cached data
-            import time as time_mod
-            start_time = time_mod.time()
-            ok, message = await submit_fasih_safe(
-                t_data, token_file,
-                idpel=idpel,
-                nometer=nometer,
-                dry_run=False,
-                direct_args=direct_args,
-                photo_path=photo_path,
-                lat=lat,
-                lon=lon,
-                cached_assignments=cached_assignments,
-                cached_survey=survey,
-                cached_active_periode=active_periode,
-                cached_template_mapping=template_mapping,
-                cached_regions=cached_regions
-            )
-            elapsed = time_mod.time() - start_time
-            
-            # Check for WAF block / rate limit
-            err_upper = str(message).upper()
-            is_waf = not ok and (
-                "405" in err_upper or "429" in err_upper or 
-                "METHOD NOT ALLOWED" in err_upper or "TOO MANY REQUESTS" in err_upper or
-                "WAF" in err_upper or "RATE LIMIT" in err_upper or "BLOKIR" in err_upper
-            )
-            if is_waf:
-                cooldown_duration = 90.0
-                waf_cooldown_until = time.time() + cooldown_duration
-                logger.warning(
-                    f"BPS WAF Block / Rate Limit detected for CSV item {idpel or nometer} ({message}). "
-                    f"Initiating {cooldown_duration}s global batch cool-down pause."
-                )
-                try:
-                    await update.effective_message.reply_text(
-                        f"⚠️ **TERDETEKSI BLOKIR BPS WAF (CSV)**\n\n"
-                        f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429) pada item `{idpel or nometer}`.\n"
-                        f"CSV Batch akan **ditangguhkan (paused) selama {cooldown_duration:.0f} detik** "
-                        f"untuk memulihkan IP dan menghindari pemblokiran permanen..."
-                    )
-                except Exception:
-                    pass
-
-            # Check if auth session is dead
-            is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
-            if is_auth_failed:
-                is_aborted = True
-                logger.error(f"Authentication session expired/invalid in CSV ({message}). Aborting CSV batch.")
-                await update.effective_message.reply_text(
-                    "❌ **SESI LOGIN KEDALUWARSA / LOGOUT (CSV)**\n\n"
-                    "Sesi login BPS Anda telah berakhir atau tidak valid lagi.\n"
-                    "Silakan lakukan login ulang menggunakan command `/login` terlebih dahulu."
-                )
-
-            async with progress_lock:
-                status_label = "SUCCESS" if ok else "FAILED"
-                if ok:
-                    successes += 1
-                else:
-                    failures += 1
+            async with semaphore:
+                now = time.time()
+                if now < waf_cooldown_until:
+                    cooldown_rem = waf_cooldown_until - now
+                    logger.info(f"CSV Worker for {idpel or nometer} waiting for global WAF cool-down after semaphore lock ({cooldown_rem:.1f}s remaining)...")
+                    await asyncio.sleep(cooldown_rem)
                     
-                completed_count += 1
-                report_rows.append({
-                    "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
-                    "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
-                    "photo_path": photo_path or "", "status": status_label, "message": message
-                })
-                await update_status_message_throttled()
-
-            # Dynamic Throttling base delay inside worker based on server response time
-            sleep_delay = 1.0
-            if elapsed > 20.0:
-                sleep_delay = 8.0
-                logger.info(f"BPS server is extremely slow ({elapsed:.1f}s). Applying 8.0s dynamic adaptive delay for CSV worker.")
-            elif elapsed > 10.0:
-                sleep_delay = 4.0
-                logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay for CSV worker.")
+                async with progress_lock:
+                    if is_aborted:
+                        report_rows.append({
+                            "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
+                            "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
+                            "photo_path": "", "status": "FAILED",
+                            "message": "Dibatalkan karena sesi login kedaluwarsa."
+                        })
+                        failures += 1
+                        completed_count += 1
+                        await update_status_message_throttled()
+                        return
+                        
+                t_data = token_data
+                if token_file and os.path.exists(token_file):
+                    try:
+                        with open(token_file, "r") as f:
+                            t_data = json.load(f)
+                    except Exception as e:
+                        logger.error(f"Failed to reload token in CSV worker: {e}")
+                        
+                from fasih_api import proxy_manager, sticky_proxy_var
+                current_proxy = proxy_manager.get_proxy()
+                sticky_proxy_var.set(current_proxy)
+                if current_proxy:
+                    logger.info(f"Worker assigned sticky proxy for CSV item {idpel or nometer}: {current_proxy}")
+                    
+                direct_args = {
+                    "idpel": idpel,
+                    "nometer": nometer,
+                    "nama": nama,
+                    "alamat": r.get("alamat", ""),
+                    "tarif": r.get("tarif", "R-1"),
+                    "daya": r.get("daya", "900"),
+                    "hasil": r.get("hasil", "1"),
+                    "kelurahan": r.get("kelurahan", "001"),
+                    "kdpm": "01",
+                    "kddk": "1",
+                    "status_dil": "1",
+                    "nik": r.get("nik") or ""
+                }
                 
-            # Add dynamic delay with randomized jitter to avoid rate limiting or WAF block patterns
-            jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
-            await asyncio.sleep(jitter_delay)
-
-    # Run all workers concurrently
-    await update_status_message_throttled(force=True)
-    worker_tasks = [worker(r, idx) for idx, r in enumerate(records)]
-    await asyncio.gather(*worker_tasks)
-
-    # Save and send report file
-    report_filename = f"bulk_submit_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    report_path = os.path.join(temp_dir, report_filename)
-    
-    try:
+                lat = None
+                pass_lon = None
+                try:
+                    if r.get("latitude"):
+                        lat = float(r["latitude"])
+                    if r.get("longitude"):
+                        pass_lon = float(r["longitude"])
+                except ValueError:
+                    pass
+                    
+                photo_path = r.get("photo_path")
+                if not photo_path or not os.path.exists(photo_path):
+                    photo_path = get_random_house_photo()
+                    
+                import time as time_mod
+                start_time = time_mod.time()
+                ok, message = await submit_fasih_safe(
+                    t_data, token_file,
+                    idpel=idpel,
+                    nometer=nometer,
+                    dry_run=False,
+                    direct_args=direct_args,
+                    photo_path=photo_path,
+                    lat=lat,
+                    lon=pass_lon,
+                    cached_assignments=cached_assignments,
+                    cached_survey=survey,
+                    cached_active_periode=active_periode,
+                    cached_template_mapping=template_mapping,
+                    cached_regions=cached_regions
+                )
+                elapsed = time_mod.time() - start_time
+                
+                err_upper = str(message).upper()
+                is_waf = not ok and (
+                    "405" in err_upper or "429" in err_upper or 
+                    "METHOD NOT ALLOWED" in err_upper or "TOO MANY REQUESTS" in err_upper or
+                    "WAF" in err_upper or "RATE LIMIT" in err_upper or "BLOKIR" in err_upper or
+                    "EXPECTING VALUE" in err_upper or "JSON" in err_upper or "HTML" in err_upper
+                )
+                if is_waf:
+                    cooldown_duration = 90.0
+                    async with progress_lock:
+                        waf_cooldown_until = max(waf_cooldown_until, time.time() + cooldown_duration)
+                    logger.warning(
+                        f"BPS WAF Block / Rate Limit detected for CSV item {idpel or nometer} ({message}). "
+                        f"Initiating {cooldown_duration}s global batch cool-down pause."
+                    )
+                    try:
+                        await update.effective_message.reply_text(
+                            f"⚠️ **TERDETEKSI BLOKIR BPS WAF (CSV)**\n\n"
+                            f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429) pada item `{idpel or nometer}`.\n"
+                            f"CSV Batch akan **ditangguhkan (paused) selama {cooldown_duration:.0f} detik** "
+                            f"untuk memulihkan IP dan menghindari pemblokiran permanen..."
+                        )
+                    except Exception:
+                        pass
+                        
+                is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
+                if is_auth_failed:
+                    async with progress_lock:
+                        is_aborted = True
+                    logger.error(f"Authentication session expired/invalid in CSV ({message}). Aborting CSV batch.")
+                    await update.effective_message.reply_text(
+                        "❌ **SESI LOGIN KEDALUWARSA / LOGOUT (CSV)**\n\n"
+                        "Sesi login BPS Anda telah berakhir or tidak valid lagi.\n"
+                        "Silakan lakukan login ulang menggunakan command `/login` terlebih dahulu."
+                    )
+                    
+                async with progress_lock:
+                    status_label = "SUCCESS" if ok else "FAILED"
+                    if ok:
+                        successes += 1
+                    else:
+                        failures += 1
+                    completed_count += 1
+                    report_rows.append({
+                        "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
+                        "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
+                        "photo_path": photo_path or "", "status": status_label, "message": message
+                    })
+                    await update_status_message_throttled()
+                    
+                sleep_delay = 1.0
+                if elapsed > 20.0:
+                    sleep_delay = 8.0
+                    logger.info(f"BPS server is extremely slow ({elapsed:.1f}s). Applying 8.0s dynamic adaptive delay for CSV worker.")
+                elif elapsed > 10.0:
+                    sleep_delay = 4.0
+                    logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay for CSV worker.")
+                    
+                jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
+                await asyncio.sleep(jitter_delay)
+                
+        await update_status_message_throttled(force=True)
+        worker_tasks = [worker(r, idx) for idx, r in enumerate(records)]
+        await asyncio.gather(*worker_tasks)
+        
+        report_filename = f"bulk_submit_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        report_path = os.path.join(temp_dir, report_filename)
+        
         with open(report_path, "w", encoding="utf-8", newline="") as f:
             fieldnames = ["idpel", "nometer", "nama", "alamat", "latitude", "longitude", "photo_path", "status", "message"]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -3420,10 +3448,9 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"• Sukses: {successes}\n"
             f"• Gagal/Skipped: {failures}\n"
             f"===================================\n\n"
-            f"Laporan detail eksekusi terlampir di bawah."
+            f"Laporan detail eksekusi bulk terlampir di bawah."
         )
         
-        # Send document back
         with open(report_path, "rb") as report_file:
             await update.message.reply_document(
                 document=report_file,
@@ -3433,14 +3460,26 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             
     except Exception as e:
-        await update.message.reply_text(f"❌ Gagal mengirimkan laporan hasil bulk: {str(e)}")
+        logger.error("Error in handle_csv_document", exc_info=True)
+        if status_msg:
+            try:
+                await safe_edit_text(status_msg, f"❌ Terjadi kesalahan saat memproses bulk: {str(e)}")
+            except Exception:
+                await update.message.reply_text(f"❌ Terjadi kesalahan saat memproses bulk: {str(e)}")
+        else:
+            await update.message.reply_text(f"❌ Terjadi kesalahan saat memproses bulk: {str(e)}")
     finally:
         ActiveRunsTracker.decrement()
-        # Cleanup
         if csv_path and os.path.exists(csv_path):
-            os.remove(csv_path)
+            try:
+                os.remove(csv_path)
+            except Exception:
+                pass
         if report_path and os.path.exists(report_path):
-            os.remove(report_path)
+            try:
+                os.remove(report_path)
+            except Exception:
+                pass
 
 # --- ADMIN LOG VIEWER ---
 
