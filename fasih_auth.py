@@ -100,38 +100,17 @@ def get_headers(token_data: dict) -> dict:
     }
 
 def get_sso_session() -> requests.Session:
+    """Create a clean session for SSO/Keycloak operations.
+    
+    IMPORTANT: SSO token refresh/login must NEVER route through BPS proxies.
+    The BPS proxy pool is exclusively for fasih-survey.bps.go.id API calls.
+    Routing Keycloak through a residential proxy causes HTTP 400 because:
+    1. Keycloak binds refresh tokens to the originating IP (session-IP mismatch)
+    2. Webshare proxies may not be whitelisted on sso.bps.go.id
+    """
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0 (Linux; Android 13)"})
-    cf_proxy = os.getenv("CLOUDFLARE_PROXY_URL")
-    if cf_proxy:
-        original_send = session.send
-        def wrapped_send(request, **kwargs):
-            original_url = request.url
-            request.url = cf_proxy
-            request.headers['x-target-url'] = original_url
-            return original_send(request, **kwargs)
-        session.send = wrapped_send
-    else:
-        bps_proxy = get_bps_proxy()
-        if bps_proxy:
-            session.proxies.update(bps_proxy)
-            # Bypassing Webshare "client_connect_forbidden_host" block by using direct IP resolution
-            original_send = session.send
-            def wrapped_send(request, **kwargs):
-                original_url = request.url
-                parsed = urlparse(original_url)
-                hostname = parsed.hostname
-                if hostname and not hostname.replace('.', '').isdigit():
-                    try:
-                        import socket
-                        ip = socket.gethostbyname(hostname)
-                        request.url = original_url.replace(hostname, ip, 1)
-                        request.headers['Host'] = hostname
-                        kwargs['verify'] = False # Disable SSL verification for IP-based requests to bypass SSL mismatch
-                    except Exception:
-                        pass
-                return original_send(request, **kwargs)
-            session.send = wrapped_send
+    # Direct connection - no proxy, no IP rewriting
     return session
 
 def try_direct_grant(email, password, realm, client_id):
@@ -243,39 +222,72 @@ def is_token_valid(token_data: dict) -> bool:
         return False
 
 def refresh_token_if_needed(token_data: dict, token_file: Optional[str] = None, exit_on_failure: bool = True) -> dict:
-    """Check token expiry and refresh if needed."""
+    """Check token expiry and refresh if needed. Retries up to 3 times with backoff."""
     if is_token_valid(token_data):
         return token_data
-    print("[*] Token kedaluwarsa atau tidak valid, memperbarui token...")
-    refresh_token = token_data.get("refresh_token")
-    if not refresh_token:
-        if exit_on_failure:
-            print("[-] Tidak ada refresh token tersedia.")
-            sys.exit(1)
-        else:
-            raise Exception("Tidak ada refresh token tersedia.")
+    
+    import logging, time
+    logger = logging.getLogger(__name__)
+    logger.info("Token kedaluwarsa atau tidak valid, memperbarui token...")
+    
+    target_file = token_file or TOKEN_FILE
     token_url = f"{SSO_BASE}/auth/realms/{REALM_EKSTERNAL}/protocol/openid-connect/token"
-    try:
-        session = get_sso_session()
-        resp = session.post(token_url, data={
-            "client_id": CLIENT_ID_EKSTERNAL,
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-        }, timeout=15)
-        if resp.status_code == 200:
-            new_token = resp.json()
-            target_file = token_file or TOKEN_FILE
-            with open(target_file, "w") as f:
-                json.dump(new_token, f, indent=2)
-            return new_token
-        status_code = resp.status_code
-    except Exception as e:
-        if not exit_on_failure:
-            raise Exception(f"Gagal memperbarui token (error jaringan): {e}")
-        status_code = "Connection Error"
+    
+    max_retries = 3
+    last_error = None
+    
+    for attempt in range(max_retries):
+        # Reload the latest token from disk each attempt (handles single-use refresh token rotation)
+        if attempt > 0 and os.path.exists(target_file):
+            try:
+                with open(target_file, "r") as f:
+                    token_data = json.load(f)
+                # Check if someone else already refreshed it
+                if is_token_valid(token_data):
+                    logger.info("Token was refreshed by another process, reusing valid token from disk.")
+                    return token_data
+            except Exception:
+                pass
+        
+        refresh_token = token_data.get("refresh_token")
+        if not refresh_token:
+            msg = "Tidak ada refresh token tersedia."
+            if exit_on_failure:
+                print(f"[-] {msg}")
+                sys.exit(1)
+            raise Exception(msg)
+        
+        try:
+            session = get_sso_session()
+            resp = session.post(token_url, data={
+                "client_id": CLIENT_ID_EKSTERNAL,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            }, timeout=30)
+            if resp.status_code == 200:
+                new_token = resp.json()
+                with open(target_file, "w") as f:
+                    json.dump(new_token, f, indent=2)
+                logger.info(f"Token refreshed successfully on attempt {attempt+1}.")
+                return new_token
+            last_error = f"status {resp.status_code}"
+            # Log response body for debugging
+            try:
+                error_body = resp.text[:200]
+                logger.warning(f"Token refresh attempt {attempt+1}/{max_retries} failed: HTTP {resp.status_code} - {error_body}")
+            except Exception:
+                logger.warning(f"Token refresh attempt {attempt+1}/{max_retries} failed: HTTP {resp.status_code}")
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"Token refresh attempt {attempt+1}/{max_retries} network error: {e}")
+        
+        if attempt < max_retries - 1:
+            backoff = 3 * (attempt + 1)
+            logger.info(f"Retrying token refresh in {backoff}s...")
+            time.sleep(backoff)
     
     if exit_on_failure:
-        print(f"[-] Gagal memperbarui token: {status_code}")
+        print(f"[-] Gagal memperbarui token setelah {max_retries} percobaan: {last_error}")
         sys.exit(1)
     else:
-        raise Exception(f"Gagal memperbarui token: status {status_code}")
+        raise Exception(f"Gagal memperbarui token setelah {max_retries} percobaan: {last_error}")
