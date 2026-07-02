@@ -23,30 +23,18 @@ session.mount("http://", adapter)
 
 def fetch_surveys(headers: dict) -> list:
     """Fetch surveys assigned to the current user."""
-    resp = session.get(f"{BASE_URL}/mobile/assignment-sync/api/mobile/survey/get-survey-for-capi", headers=headers, timeout=60)
+    resp = session.get(f"{BASE_URL}/mobile/assignment-sync/api/mobile/survey/get-survey-for-capi", headers=headers, timeout=15)
     resp.raise_for_status()
-    res_json = resp.json()
-    if not res_json.get("success"):
-        raise requests.exceptions.HTTPError(
-            f"BPS Server Error: {res_json.get('message') or 'Gagal fetch surveys'}",
-            response=resp
-        )
-    return res_json.get("data", [])
+    return resp.json().get("data", [])
 
 def fetch_assignments(headers: dict, survey_period_id: str, page: int = 0) -> dict:
     """Fetch assignment datatable for a given survey period."""
     resp = session.get(
         f"{BASE_URL}/mobile/assignment-sync/api/mobile/s3/assignment/datatable",
-        headers=headers, params={"surveyPeriodId": survey_period_id, "page": page}, timeout=60
+        headers=headers, params={"surveyPeriodId": survey_period_id, "page": page}, timeout=15
     )
     resp.raise_for_status()
-    res_json = resp.json()
-    if not res_json.get("success"):
-        raise requests.exceptions.HTTPError(
-            f"BPS Server Error: {res_json.get('message') or 'Gagal fetch assignments'}",
-            response=resp
-        )
-    return res_json
+    return resp.json()
 
 def fetch_all_assignments(headers: dict, survey_period_id: str) -> list:
     """Fetch all assignments from BPS server in parallel using ThreadPoolExecutor."""
@@ -93,34 +81,10 @@ def fetch_regions(headers: dict, survey_period_id: str) -> list:
     """Fetch assignment regions (contains wrappedDataKey)."""
     resp = session.get(
         f"{BASE_URL}/mobile/assignment-sync/api/mobile/assignment-region/get-by-survey-periode-id",
-        headers=headers, params={"surveyPeriodeId": survey_period_id}, timeout=60
+        headers=headers, params={"surveyPeriodeId": survey_period_id}, timeout=15
     )
     resp.raise_for_status()
-    res_json = resp.json()
-    if not res_json.get("success"):
-        raise requests.exceptions.HTTPError(
-            f"BPS Server Error: {res_json.get('message') or 'Gagal fetch regions'}",
-            response=resp
-        )
-    return res_json.get("data", [])
-
-def assign_by_selection(headers: dict, survey_period_id: str, role_user_id: str, template_assignment_id: str) -> dict:
-    """Assign a template assignment to the Pencacah using assign-by-selection."""
-    url = f"{BASE_URL}/mobile/assignment-general/api/mobile/assign-by-selection/{survey_period_id}"
-    body = {
-        "surveyPeriodRoleUserIds": [role_user_id],
-        "assignmentIds": [template_assignment_id],
-        "replaceUser": True
-    }
-    resp = session.post(url, headers=headers, json=body, timeout=60)
-    resp.raise_for_status()
-    res_json = resp.json()
-    if not res_json.get("success"):
-        raise requests.exceptions.HTTPError(
-            f"BPS Server Error: {res_json.get('message') or 'Gagal melakukan assign-by-selection'}",
-            response=resp
-        )
-    return res_json
+    return resp.json().get("data", [])
 
 def request_presign_url(headers: dict, assignment_id: str, survey_period_id: str, file_names: list, is_edit: bool = False, copy_from_id: str = None) -> dict:
     """Step 1: Request presigned upload URL from server."""
@@ -134,7 +98,7 @@ def request_presign_url(headers: dict, assignment_id: str, survey_period_id: str
     resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/assignment/s3/{url_path}",
         headers=headers, json=body,
-        params={"surveyPeriodId": survey_period_id}, timeout=60
+        params={"surveyPeriodId": survey_period_id}, timeout=15
     )
     resp.raise_for_status()
     res_json = resp.json()
@@ -164,7 +128,7 @@ def request_photo_presign_put(headers: dict, assignment_id: str, copy_from_id: s
     }]
     resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/image/v2/presigned-url-put",
-        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=60
+        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=15
     )
     resp.raise_for_status()
     res_json = resp.json()
@@ -192,7 +156,7 @@ def request_photo_presign_get(headers: dict, assignment_id: str, copy_from_id: s
     body = [{"assignmentId": assignment_id, "copyFromId": copy_from_id or "", "fileNames": [filename]}]
     resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/image/presigned-url-get",
-        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=60
+        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=15
     )
     resp.raise_for_status()
     res_json = resp.json()
@@ -208,7 +172,7 @@ def confirm_submit(headers: dict, params: dict, is_edit: bool = False) -> dict:
     url_path = "edit" if is_edit else "submit"
     resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/assignment/s3/{url_path}",
-        headers=headers, json=params, timeout=60
+        headers=headers, json=params, timeout=15
     )
     if resp.status_code != 200:
         # Raise HTTPError with body text to allow propagation to the user
@@ -228,15 +192,10 @@ def fetch_template_mapping(headers: dict, template_id: str, version: str) -> dic
     """Fetch template custom data mapping (data1-data10 → field keys)."""
     resp = session.get(
         f"{BASE_URL}/mobile/assignment-sync/api/mobile/template/custom-data/{template_id}",
-        headers=headers, params={"version": version}, timeout=60
+        headers=headers, params={"version": version}, timeout=15
     )
     resp.raise_for_status()
     result = resp.json()
-    if not result.get("success"):
-        raise requests.exceptions.HTTPError(
-            f"BPS Server Error: {result.get('message') or 'Gagal fetch template mapping'}",
-            response=resp
-        )
     mapping = {}
     if result.get("data"):
         for slot_name, slot_data in result["data"].items():

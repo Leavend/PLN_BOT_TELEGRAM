@@ -4,17 +4,15 @@ import time
 import subprocess
 
 BOT_SCRIPT = "telegram_bot.py"
-INTERVAL = 5
+INTERVAL = 60
 BRANCH = "main"
 
 def get_git_revision():
     try:
-        # Get remote hash fast without locking git index
-        ls_remote_out = subprocess.check_output(["git", "ls-remote", "origin", f"refs/heads/{BRANCH}"]).decode().strip()
-        if not ls_remote_out:
-            return None, None
-        remote_hash = ls_remote_out.split()[0]
+        # Fetch remote updates
+        subprocess.run(["git", "fetch", "origin", BRANCH], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         local_hash = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+        remote_hash = subprocess.check_output(["git", "rev-parse", f"origin/{BRANCH}"]).decode().strip()
         return local_hash, remote_hash
     except Exception as e:
         print(f"[-] Gagal memeriksa status Git: {e}")

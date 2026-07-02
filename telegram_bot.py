@@ -32,7 +32,7 @@ from fasih_archive import create_7z_archive
 from fasih_api import (
     fetch_surveys, fetch_assignments, fetch_all_assignments, fetch_regions, request_presign_url, upload_to_s3,
     request_photo_presign_put, upload_photo_to_s3, request_photo_presign_get, confirm_submit,
-    fetch_template_mapping, map_answers_to_data_slots, assign_by_selection
+    fetch_template_mapping, map_answers_to_data_slots
 )
 
 # Async wrappers for blocking functions using asyncio.to_thread
@@ -54,9 +54,6 @@ async def async_fetch_all_assignments(*args, **kwargs):
 async def async_fetch_regions(*args, **kwargs):
     return await asyncio.to_thread(fetch_regions, *args, **kwargs)
 
-async def async_assign_by_selection(*args, **kwargs):
-    return await asyncio.to_thread(assign_by_selection, *args, **kwargs)
-
 async def async_request_presign_url(*args, **kwargs):
     return await asyncio.to_thread(request_presign_url, *args, **kwargs)
 
@@ -77,15 +74,6 @@ async def async_confirm_submit(*args, **kwargs):
 
 async def async_fetch_template_mapping(*args, **kwargs):
     return await asyncio.to_thread(fetch_template_mapping, *args, **kwargs)
-
-def select_prabayar_survey(surveys: list) -> dict:
-    if not surveys:
-        return None
-    for s in surveys:
-        name = s.get("name") or s.get("description") or ""
-        if "prabayar" in str(name).lower():
-            return s
-    return surveys[0]
 
 async def async_geocode_address_nominatim(*args, **kwargs):
     return await asyncio.to_thread(geocode_address_nominatim, *args, **kwargs)
@@ -411,7 +399,7 @@ async def submit_fasih_safe(
         if not surveys:
             return False, "Tidak ada survei yang aktif di akun Anda."
         
-        survey = select_prabayar_survey(surveys)
+        survey = surveys[0]
         active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
         if not active_periode:
             return False, "Tidak ada periode aktif untuk survei ini."
@@ -430,95 +418,12 @@ async def submit_fasih_safe(
             template_target = next((a for a in content if a.get("id") == template_assignment_id), None)
             if not template_target:
                 return False, "Template assignment acuan tidak ditemukan di server BPS."
-            
-            idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
-            nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
-            
-            # Check if there is already an assignment on the server with matching template copyFromId and idpel/nometer
-            existing_target = None
-            if idpel or nometer:
-                existing_target = next((
-                    a for a in content
-                    if a.get("copyFromId") == template_assignment_id
-                    and (not idpel or a.get(idpel_slot) == idpel)
-                    and (not nometer or a.get(nometer_slot) == nometer)
-                ), None)
-            
-            if existing_target:
-                target = existing_target
-                target["isNew"] = True
-                if direct_args:
-                    target["data2"] = direct_args.get("nama") or target.get("data2") or ""
-                    target["data4"] = direct_args.get("alamat") or target.get("data4") or ""
-                    target["data5"] = direct_args.get("alamat") or target.get("data5") or ""
-            else:
-                role_user_id = active_periode.get("surveyPeriodeRoleUserId")
-                if not role_user_id:
-                    return False, "User role ID tidak ditemukan untuk periode aktif ini."
-                
-                # Try assign-by-selection (supervisor-only). If the user is a Pencacah
-                # (enumerator), this will fail with "bukan menjadi pengawas".
-                assign_succeeded = False
-                try:
-                    if status_callback:
-                        await status_callback("➕ Mendaftarkan penugasan baru di BPS server...")
-                    await async_assign_by_selection(headers, pid, role_user_id, template_assignment_id)
-                    assign_succeeded = True
-                except Exception as assign_err:
-                    err_msg = str(assign_err)
-                    if "pengawas" in err_msg.lower() or "bukan" in err_msg.lower():
-                        logger.warning("User is Pencacah (not Pengawas), skipping assign-by-selection. "
-                                       "Will try to find an available empty assignment instead.")
-                    else:
-                        raise  # Re-raise unexpected errors
-                
-                if assign_succeeded:
-                    if status_callback:
-                        await status_callback("🔄 Mengambil ulang daftar tugas setelah registrasi...")
-                    content = await async_fetch_all_assignments(headers, pid)
-                
-                # Find an available empty OPEN assignment to reuse.
-                # For supervisor: it was just registered, copyFromId matches template_assignment_id.
-                # For pencacah: find any OPEN assignment with empty data slots.
-                new_target = next((
-                    a for a in content
-                    if a.get("copyFromId") == template_assignment_id
-                    and not a.get(idpel_slot)
-                    and not a.get(nometer_slot)
-                    and a.get("assignmentStatusAlias") == "OPEN"
-                ), None)
-                
-                # Fallback: any OPEN task with copyFromId
-                if not new_target:
-                    new_target = next((
-                        a for a in content
-                        if a.get("copyFromId") == template_assignment_id
-                        and a.get("assignmentStatusAlias") == "OPEN"
-                    ), None)
-                
-                # Fallback for pencacah: any OPEN task with empty data slots (no copyFromId check)
-                if not new_target:
-                    new_target = next((
-                        a for a in content
-                        if not a.get(idpel_slot)
-                        and not a.get(nometer_slot)
-                        and a.get("assignmentStatusAlias") == "OPEN"
-                    ), None)
-                
-                if not new_target:
-                    return False, ("Tidak ada slot penugasan kosong yang tersedia. "
-                                   "Hubungi pengawas untuk menambah penugasan baru.")
-                
-                target = new_target
-                target["isNew"] = True
-                if idpel:
-                    target[idpel_slot] = idpel
-                if nometer:
-                    target[nometer_slot] = nometer
-                if direct_args:
-                    target["data2"] = direct_args.get("nama") or ""
-                    target["data4"] = direct_args.get("alamat") or ""
-                    target["data5"] = direct_args.get("alamat") or ""
+            from submit_fasih import build_new_assignment_target
+            target = build_new_assignment_target(template_target, idpel or "", nometer or "", template_mapping)
+            if direct_args:
+                target["data2"] = direct_args.get("nama") or ""
+                target["data4"] = direct_args.get("alamat") or ""
+                target["data5"] = direct_args.get("alamat") or ""
         else:
             # Fetch page 0 first (quick check to save time)
             first_page = await async_fetch_assignments(headers, pid, page=0)
@@ -554,10 +459,6 @@ async def submit_fasih_safe(
 
         if not target:
             return False, "Tugas tidak ditemukan atau tidak berstatus OPEN/SUBMITTED."
-
-        status_alias = str(target.get("assignmentStatusAlias") or "").upper()
-        if "SUBMITTED" in status_alias:
-            return True, "Tugas sudah dikirimkan sebelumnya (Status: SUBMITTED)."
 
         if status_callback:
             await status_callback("📝 Menyusun data jawaban kuesioner...")
@@ -722,11 +623,10 @@ async def submit_fasih_safe(
         region_id = target.get("region", {}).get("id", "")
         regions = await async_fetch_regions(headers, pid)
         wrapped_key = None
-        if regions:
-            for r in regions:
-                if r.get("region_id") == region_id or r.get("region", {}).get("id") == region_id:
-                    wrapped_key = r.get("wrappedDatakey")
-                    break
+        for r in regions:
+            if r.get("region_id") == region_id or r.get("region", {}).get("id") == region_id:
+                wrapped_key = r.get("wrappedDatakey")
+                break
         if not wrapped_key:
             wrapped_key = STATIC_LEGACY_KEY
         try:
@@ -1027,7 +927,7 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sent_msg.edit_text("📋 Tidak ada survei yang ditemukan.")
             return
 
-        survey = select_prabayar_survey(surveys)
+        survey = surveys[0]
         active_period = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
         if not active_period:
             await sent_msg.edit_text("📋 Tidak ada periode aktif.")
@@ -1141,7 +1041,7 @@ async def start_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sent_msg.edit_text("📋 Tidak ada survei aktif.")
             return ConversationHandler.END
             
-        survey = select_prabayar_survey(surveys)
+        survey = surveys[0]
         active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
         if not active_periode:
             await sent_msg.edit_text("📋 Tidak ada periode aktif.")
@@ -2384,16 +2284,16 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
             await sent_msg.edit_text("🔑 Sesi Anda kedaluwarsa atau belum login. Silakan `/login` kembali.")
             return ConversationHandler.END
 
-        token_data = await async_refresh_token_if_needed(token_data, token_file=get_user_token_file(chat_id), exit_on_failure=False)
+        token_data = refresh_token_if_needed(token_data, token_file=get_user_token_file(chat_id), exit_on_failure=False)
         headers = get_headers(token_data)
 
         # 1. Fetch surveys
-        surveys = await async_fetch_surveys(headers)
+        surveys = fetch_surveys(headers)
         if not surveys:
             await sent_msg.edit_text("📋 Tidak ada survei yang aktif di akun Anda.")
             return ConversationHandler.END
 
-        survey = select_prabayar_survey(surveys)
+        survey = surveys[0]
         active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
         if not active_periode:
             await sent_msg.edit_text("📋 Tidak ada periode aktif.")
@@ -2406,13 +2306,13 @@ async def process_assignment_search_input(update: Update, context: ContextTypes.
         template_mapping = {}
         if template_lookup:
             tl = template_lookup[0]
-            template_mapping = await async_fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
         
         idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
         nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
 
         # 2. Fetch assignments
-        all_content = await async_fetch_all_assignments(headers, pid)
+        all_content = fetch_all_assignments(headers, pid)
         if not all_content:
             await sent_msg.edit_text("📋 Tidak ada tugas di akun BPS Anda.")
             return ConversationHandler.END
@@ -2600,7 +2500,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
             await status_msg.edit_text("📋 Tidak ada survei yang aktif di akun Anda.")
             return ConversationHandler.END
             
-        survey = select_prabayar_survey(surveys)
+        survey = surveys[0]
         active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
         if not active_periode:
             await status_msg.edit_text("📋 Tidak ada periode aktif.")
@@ -2630,25 +2530,16 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         failures = 0
         report_rows = []
         
-        import time
-        last_update_time = 0.0
-        
         for idx, val in enumerate(search_queries):
             is_idpel = len(val) == 12
             idpel_val = val if is_idpel else ""
             nometer_val = "" if is_idpel else val
             
-            current_time = time.time()
-            if idx == 0 or idx == total - 1 or (current_time - last_update_time) >= 4.0:
-                try:
-                    await status_msg.edit_text(
-                        f"⏳ **Memproses {idx+1}/{total}**\n"
-                        f"• IDPel/NoMeter: `{val}`\n"
-                        f"• Sukses: {successes} | Gagal: {failures}"
-                    )
-                    last_update_time = current_time
-                except Exception as tg_err:
-                    logger.warning(f"Failed to update batch progress status: {tg_err}")
+            await status_msg.edit_text(
+                f"⏳ **Memproses {idx+1}/{total}**\n"
+                f"• IDPel/NoMeter: `{val}`\n"
+                f"• Sukses: {successes} | Gagal: {failures}"
+            )
             
             # 1. Check if assignment exists
             target = None
@@ -2908,9 +2799,6 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
     successes = 0
     failures = 0
     
-    import time
-    last_update_time = 0.0
-    
     for idx, r in enumerate(records):
         idpel = r.get("idpel")
         nometer = r.get("nometer")
@@ -2924,21 +2812,11 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             failures += 1
             continue
             
-        current_time = time.time()
-        # Edit progress message at most once every 4 seconds or on the first/last items to avoid Telegram 429 rate limit
-        if idx == 0 or idx == total - 1 or (current_time - last_update_time) >= 4.0:
-            try:
-                await status_msg.edit_text(
-                    f"⏳ **Memproses {idx+1}/{total}**\n"
-                    f"• Nama: {nama}\n"
-                    f"• IDPel: `{idpel}` | NoMeter: `{nometer}`"
-                )
-                last_update_time = current_time
-            except Exception as tg_err:
-                logger.warning(f"Failed to update progress status: {tg_err}")
-                
-        # Polite delay to prevent IP ban or server throttling on AP2T/BPS
-        await asyncio.sleep(0.5)
+        await status_msg.edit_text(
+            f"⏳ **Memproses {idx+1}/{total}**\n"
+            f"• Nama: {nama}\n"
+            f"• IDPel: `{idpel}` | NoMeter: `{nometer}`"
+        )
         
         # Build direct_args
         direct_args = {
