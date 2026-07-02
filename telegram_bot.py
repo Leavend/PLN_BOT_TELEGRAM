@@ -124,7 +124,7 @@ if allowed_str:
 def get_random_house_photo() -> Optional[str]:
     dirs_to_check = ["house_photos", "FOTORUMAH_PAK_ANWAR"]
     import random
-    valid_extensions = (".jpg", ".jpeg", ".png")
+    valid_extensions = (".jpg", ".jpeg", ".png", ".webp")
     all_photos = []
     
     for photos_dir in dirs_to_check:
