@@ -2701,7 +2701,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
             
             photo_path = get_random_house_photo()
 
-            # Submit to BPS
+            # Submit to BPS with pre-fetched cached objects
             ok, message = await submit_fasih_safe(
                 token_data, token_file,
                 idpel=idpel_val,
@@ -2711,7 +2711,11 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 direct_args=direct_args,
                 photo_path=photo_path,
                 lat=lat,
-                lon=lon
+                lon=lon,
+                cached_assignments=open_assignments,
+                cached_survey=survey,
+                cached_active_periode=active_periode,
+                cached_template_mapping=template_mapping
             )
             
             if ok:
@@ -2724,6 +2728,9 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 "status": "SUCCESS" if ok else "FAILED",
                 "message": message
             })
+            
+            # Add 1.0 second delay to avoid rate limiting or WAF block
+            await asyncio.sleep(1.0)
             
         # Compile report
         temp_dir = tempfile.gettempdir()
