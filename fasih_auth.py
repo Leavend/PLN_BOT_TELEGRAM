@@ -30,15 +30,16 @@ def format_proxy_url(proxy_str: str) -> str:
     proxy_str = proxy_str.strip()
     if not proxy_str:
         return ""
+    # If it already starts with a scheme, it is already a formatted URL
+    if proxy_str.startswith("http://") or proxy_str.startswith("https://") or proxy_str.startswith("socks5://"):
+        return proxy_str
     # Handle HOST:PORT:USER:PASS format
     parts = proxy_str.split(":")
     if len(parts) == 4:
         host, port, user, pw = parts
         return f"http://{user}:{pw}@{host}:{port}"
     # Ensure scheme is present
-    if not (proxy_str.startswith("http://") or proxy_str.startswith("https://") or proxy_str.startswith("socks5://")):
-        return f"http://{proxy_str}"
-    return proxy_str
+    return f"http://{proxy_str}"
 
 def get_bps_proxy() -> Optional[dict]:
     # 1. First check if a context sticky proxy is set
