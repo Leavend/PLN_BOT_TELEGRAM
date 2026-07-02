@@ -151,13 +151,21 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
             return res
         except Exception as e:
             last_exception = e
+
+            err_str = str(e).upper()
+            non_retryable_phrases = (
+                "SUDAH PERNAH TERKIRIM", "ALREADY SUBMITTED",
+                "ASSIGNMENT NOT FOUND", "TIDAK DITEMUKAN",
+            )
+            if any(phrase in err_str for phrase in non_retryable_phrases):
+                logger.warning(f"BPS call {func.__name__} hit non-retryable error: {e}")
+                raise e
+
             is_waf = False
             if hasattr(e, "response") and e.response is not None:
                 status_code = getattr(e.response, "status_code", None)
                 if status_code in (405, 429):
                     is_waf = True
-            
-            err_str = str(e).upper()
             if isinstance(e, (json.JSONDecodeError, ValueError)) or "EXPECTING VALUE" in err_str or "JSON" in err_str or "HTML" in err_str or "BLOKIR" in err_str:
                 is_waf = True
 
