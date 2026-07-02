@@ -2493,7 +2493,10 @@ async def process_batch_submit_input(update: Update, context: ContextTypes.DEFAU
 
 async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning(f"Failed to answer callback query (possibly expired): {e}")
     
     if query.data == "cancel":
         await query.message.edit_text("❌ Aksi dibatalkan.")
