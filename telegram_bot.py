@@ -1903,6 +1903,10 @@ async def process_tarif(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
 async def tarif_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    if query.data == "cancel":
+        await query.message.edit_text("❌ Pengisian dibatalkan.")
+        return ConversationHandler.END
+        
     if query.data == "tarif_ap2t_autofill":
         p = context.user_data["pln_profile"]
         context.user_data["submit_args"]["tarif"] = p["tarif"]
@@ -1942,6 +1946,10 @@ async def process_daya(update: Update, context: ContextTypes.DEFAULT_TYPE, value
 async def daya_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    if query.data == "cancel":
+        await query.message.edit_text("❌ Pengisian dibatalkan.")
+        return ConversationHandler.END
+        
     val = query.data.split("_")[1]
     val = "900" if val == "default" else val
     return await process_daya(update, context, val)
@@ -1975,6 +1983,10 @@ async def process_hasil(update: Update, context: ContextTypes.DEFAULT_TYPE, valu
 async def hasil_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    if query.data == "cancel":
+        await query.message.edit_text("❌ Pengisian dibatalkan.")
+        return ConversationHandler.END
+        
     val = query.data.split("_")[1]
     val = "1. Berhasil didata" if val == "default" else val
     return await process_hasil(update, context, val)
@@ -3535,32 +3547,32 @@ def main():
         ],
         states={
             WAITING_SUBMIT_SEARCH_INPUT: [
-                CallbackQueryHandler(submit_search_callback),
+                CallbackQueryHandler(submit_search_callback, pattern="^(view_all_assignments|cancel|create_new_confirm)$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_submit_search_input)
             ],
             WAITING_DUPLICATE_CHOICE: [
-                CallbackQueryHandler(duplicate_choice_callback)
+                CallbackQueryHandler(duplicate_choice_callback, pattern="^(dup_continue|cancel)$")
             ],
             WAITING_WILAYAH_SELECTION: [
-                CallbackQueryHandler(wilayah_selection_callback)
+                CallbackQueryHandler(wilayah_selection_callback, pattern="^(selreg_.*|cancel)$")
             ],
             WAITING_SELECT_ASSIGNMENT: [
-                CallbackQueryHandler(select_assignment_callback),
+                CallbackQueryHandler(select_assignment_callback, pattern="^(cancel|noop|apage_.*|search_idpel|assign_.*)$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, search_assignment_text)
             ],
             WAITING_TARIF: [
                 CallbackQueryHandler(prev_tarif_callback, pattern="^prev_tarif$"),
-                CallbackQueryHandler(tarif_callback),
+                CallbackQueryHandler(tarif_callback, pattern="^(tarif_ap2t_autofill|tarif_.*|cancel)$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, tarif_text)
             ],
             WAITING_DAYA: [
                 CallbackQueryHandler(prev_daya_callback, pattern="^prev_daya$"),
-                CallbackQueryHandler(daya_callback),
+                CallbackQueryHandler(daya_callback, pattern="^(daya_.*|cancel)$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, daya_text)
             ],
             WAITING_HASIL: [
                 CallbackQueryHandler(prev_hasil_callback, pattern="^prev_hasil$"),
-                CallbackQueryHandler(hasil_callback),
+                CallbackQueryHandler(hasil_callback, pattern="^(hasil_.*|cancel)$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, hasil_text)
             ],
             WAITING_PHOTO: [
@@ -3643,7 +3655,7 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_batch_submit_input)
             ],
             WAITING_BATCH_CONFIRM: [
-                CallbackQueryHandler(batch_confirm_callback)
+                CallbackQueryHandler(batch_confirm_callback, pattern="^(batch_start_confirm|cancel)$")
             ]
         },
         fallbacks=[
