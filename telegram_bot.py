@@ -496,6 +496,13 @@ async def submit_fasih_safe(
         if not target:
             return False, "Tugas tidak ditemukan atau tidak berstatus OPEN/SUBMITTED."
 
+        # Check if already submitted or locked on BPS
+        status_alias = target.get("assignmentStatusAlias") or ""
+        if "SUBMITTED" in status_alias or "DONE" in status_alias or "APPROVED" in status_alias:
+            if status_callback:
+                await status_callback("✅ Tugas ini sudah terkirim sebelumnya di BPS.")
+            return True, f"Sudah terkirim sebelumnya di BPS (Status: {status_alias})."
+
         if status_callback:
             await status_callback("📝 Menyusun data jawaban kuesioner...")
 
