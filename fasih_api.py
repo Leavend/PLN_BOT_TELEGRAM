@@ -4,11 +4,65 @@ from typing import List, Dict, Any
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
+import random
+import logging
+
+logger = logging.getLogger(__name__)
+
 BASE_URL = "https://fasih-survey.bps.go.id"
 USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 8.1.0; Android SDK built for x86 Build/OSM1.180201.021)"
 
-# Create a shared session for BPS requests to reuse TCP connections
-session = requests.Session()
+def load_proxy_pool() -> list:
+    pool = []
+    # 1. Single proxy from environment
+    single_proxy = os.getenv("BPS_PROXY")
+    if single_proxy:
+        pool.append(single_proxy.strip())
+        
+    # 2. Proxy pool from environment (comma-separated list)
+    env_pool = os.getenv("BPS_PROXY_POOL") or os.getenv("BPS_PROXIES")
+    if env_pool:
+        for p in env_pool.split(","):
+            if p.strip():
+                pool.append(p.strip())
+                
+    # 3. Proxy file
+    proxy_file = os.getenv("BPS_PROXY_FILE")
+    if proxy_file and os.path.exists(proxy_file):
+        try:
+            with open(proxy_file, "r") as f:
+                for line in f:
+                    line_str = line.strip()
+                    if line_str and not line_str.startswith("#"):
+                        pool.append(line_str)
+        except Exception as e:
+            logger.error(f"Error reading BPS_PROXY_FILE: {e}")
+            
+    # Deduplicate while preserving order
+    seen = set()
+    deduped_pool = [x for x in pool if not (x in seen or seen.add(x))]
+    return deduped_pool
+
+class RotatingProxySession(requests.Session):
+    def __init__(self, proxy_pool: list):
+        super().__init__()
+        self.proxy_pool = proxy_pool
+        if self.proxy_pool:
+            logger.info(f"Initialized BPS RotatingProxySession with pool size: {len(self.proxy_pool)}")
+
+    def send(self, request, **kwargs):
+        if self.proxy_pool:
+            proxy = random.choice(self.proxy_pool)
+            kwargs['proxies'] = {
+                'http': proxy,
+                'https': proxy
+            }
+            logger.debug(f"Routing BPS request through proxy: {proxy}")
+        return super().send(request, **kwargs)
+
+# Load proxy list and initialize rotating session
+proxy_list = load_proxy_pool()
+session = RotatingProxySession(proxy_list)
 
 # Configure resilient connection pooling and retries with backoff
 retries = Retry(

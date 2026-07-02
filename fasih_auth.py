@@ -19,6 +19,39 @@ CLIENT_ID_INTERNAL = "03310-fasih-c0m"
 REDIRECT_URI_INTERNAL = "id.go.bps://fasih-sso-internal"
 USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 8.1.0; Android SDK built for x86 Build/OSM1.180201.021)"
 
+
+def get_bps_proxy() -> Optional[dict]:
+    pool = []
+    # 1. Single proxy from environment
+    single_proxy = os.getenv("BPS_PROXY")
+    if single_proxy:
+        pool.append(single_proxy.strip())
+        
+    # 2. Proxy pool from environment (comma-separated list)
+    env_pool = os.getenv("BPS_PROXY_POOL") or os.getenv("BPS_PROXIES")
+    if env_pool:
+        for p in env_pool.split(","):
+            if p.strip():
+                pool.append(p.strip())
+                
+    # 3. Proxy file
+    proxy_file = os.getenv("BPS_PROXY_FILE")
+    if proxy_file and os.path.exists(proxy_file):
+        try:
+            with open(proxy_file, "r") as f:
+                for line in f:
+                    line_str = line.strip()
+                    if line_str and not line_str.startswith("#"):
+                        pool.append(line_str)
+        except Exception:
+            pass
+            
+    if pool:
+        import random
+        p = random.choice(pool)
+        return {"http": p, "https": p}
+    return None
+
 def get_headers(token_data: dict) -> dict:
     """Returns headers with bearer authorization token."""
     return {
@@ -40,7 +73,7 @@ def try_direct_grant(email, password, realm, client_id):
         "password": password,
     }
     try:
-        resp = requests.post(token_url, data=data, timeout=15)
+        resp = requests.post(token_url, data=data, timeout=15, proxies=get_bps_proxy())
         if resp.status_code == 200:
             return resp.json()
     except Exception:
@@ -68,7 +101,7 @@ def exchange_code_for_token(token_url, client_id, redirect_uri, code):
         "redirect_uri": redirect_uri,
         "code": code,
     }
-    resp = requests.post(token_url, data=exchange_data, timeout=15)
+    resp = requests.post(token_url, data=exchange_data, timeout=15, proxies=get_bps_proxy())
     return resp.json() if resp.status_code == 200 else None
 
 def try_browser_auth_code_flow(email, password, realm, client_id, redirect_uri):
@@ -78,6 +111,9 @@ def try_browser_auth_code_flow(email, password, realm, client_id, redirect_uri):
     params = {"client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code"}
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0 (Linux; Android 13)"})
+    bps_proxy = get_bps_proxy()
+    if bps_proxy:
+        session.proxies.update(bps_proxy)
     try:
         resp = session.get(auth_url, params=params, timeout=15)
         action = get_login_action(resp.text) if resp.status_code == 200 else None
@@ -152,7 +188,7 @@ def refresh_token_if_needed(token_data: dict, token_file: Optional[str] = None, 
             "client_id": CLIENT_ID_EKSTERNAL,
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
-        }, timeout=15)
+        }, timeout=15, proxies=get_bps_proxy())
         if resp.status_code == 200:
             new_token = resp.json()
             target_file = token_file or TOKEN_FILE
