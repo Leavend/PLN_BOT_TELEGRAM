@@ -2728,6 +2728,8 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
             photo_path = get_random_house_photo()
 
             # Submit to BPS with pre-fetched cached objects
+            import time
+            start_time = time.time()
             ok, message = await submit_fasih_safe(
                 token_data, token_file,
                 idpel=idpel_val,
@@ -2743,6 +2745,13 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 cached_active_periode=active_periode,
                 cached_template_mapping=template_mapping
             )
+            elapsed = time.time() - start_time
+            
+            # Dynamic Throttling base delay
+            sleep_delay = 1.0
+            if elapsed > 10.0:
+                sleep_delay = 4.0
+                logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay.")
             
             if ok:
                 successes += 1
@@ -2759,7 +2768,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
             msg_upper = str(message).upper()
             if not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper):
                 logger.warning(f"BPS WAF Block / Rate Limit detected ({message}). Aborting remaining queue to prevent further blocks.")
-                await update.message.reply_text(
+                await query.message.reply_text(
                     "⚠️ **PENGIRIMAN DIHENTIKAN OTOMATIS**\n\n"
                     "Terdeteksi pemblokiran IP oleh server BPS (HTTP 405/429).\n"
                     "Untuk menghindari pemblokiran akun/IP lebih lama, sisa antrean telah dibatalkan.\n"
@@ -2775,8 +2784,8 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     failures += 1
                 break
             
-            # Add 1.0 second delay to avoid rate limiting or WAF block
-            await asyncio.sleep(1.0)
+            # Add dynamic delay to avoid rate limiting or WAF block
+            await asyncio.sleep(sleep_delay)
             
         # Compile report
         temp_dir = tempfile.gettempdir()
@@ -2961,6 +2970,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             photo_path = get_random_house_photo()
         
         # Call safe submission (Live Submit) with pre-fetched cached data
+        import time
+        start_time = time.time()
         ok, message = await submit_fasih_safe(
             token_data, token_file,
             idpel=idpel,
@@ -2975,6 +2986,13 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             cached_active_periode=active_periode,
             cached_template_mapping=template_mapping
         )
+        elapsed = time.time() - start_time
+        
+        # Dynamic Throttling base delay
+        sleep_delay = 1.0
+        if elapsed > 10.0:
+            sleep_delay = 4.0
+            logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay for CSV.")
         
         status_label = "SUCCESS" if ok else "FAILED"
         if ok:
@@ -2992,7 +3010,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         msg_upper = str(message).upper()
         if not ok and ("405" in msg_upper or "429" in msg_upper or "METHOD NOT ALLOWED" in msg_upper or "TOO MANY REQUESTS" in msg_upper):
             logger.warning(f"BPS WAF Block / Rate Limit detected ({message}). Aborting remaining CSV queue to prevent further blocks.")
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "⚠️ **PENGIRIMAN DIHENTIKAN OTOMATIS**\n\n"
                 "Terdeteksi pemblokiran IP oleh server BPS (HTTP 405/429).\n"
                 "Untuk menghindari pemblokiran akun/IP lebih lama, sisa antrean berkas CSV telah dibatalkan.\n"
@@ -3013,8 +3031,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 failures += 1
             break
             
-        # Add 1.0 second delay to avoid trigger ASM WAF blocks
-        await asyncio.sleep(1.0)
+        # Add dynamic delay to avoid rate limiting or WAF block
+        await asyncio.sleep(sleep_delay)
 
     # Save and send report file
     report_filename = f"bulk_submit_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
