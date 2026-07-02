@@ -2743,12 +2743,13 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         report_rows = []
         
         # Concurrency control
-        concurrency = 5
+        concurrency = 3
         semaphore = asyncio.Semaphore(concurrency)
         progress_lock = asyncio.Lock()
         completed_count = 0
         last_update_time = 0
         is_aborted = False
+        waf_cooldown_until = 0.0
 
         async def update_status_message_throttled(force=False):
             nonlocal last_update_time
@@ -2763,8 +2764,8 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 )
                 await safe_edit_text(status_msg, status_text, parse_mode="Markdown")
 
-        async def worker(val):
-            nonlocal successes, failures, completed_count, token_data, is_aborted
+        async def worker(val, idx):
+            nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until
             if is_aborted:
                 async with progress_lock:
                     failures += 1
@@ -2776,7 +2777,25 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     await update_status_message_throttled()
                 return
 
+            # Stagger startup to avoid slamming BPS endpoints at the exact same millisecond
+            stagger_delay = idx * 2.0
+            await asyncio.sleep(stagger_delay)
+
+            # Check and wait for global WAF cooldown pause if active
+            now = time.time()
+            if now < waf_cooldown_until:
+                cooldown_rem = waf_cooldown_until - now
+                logger.info(f"Worker for {val} waiting for global WAF cool-down ({cooldown_rem:.1f}s remaining)...")
+                await asyncio.sleep(cooldown_rem)
+
             async with semaphore:
+                # Re-check WAF cooldown after acquiring semaphore
+                now = time.time()
+                if now < waf_cooldown_until:
+                    cooldown_rem = waf_cooldown_until - now
+                    logger.info(f"Worker for {val} waiting for global WAF cool-down after semaphore lock ({cooldown_rem:.1f}s remaining)...")
+                    await asyncio.sleep(cooldown_rem)
+
                 # Reload token data to get the latest refreshed token from disk
                 t_data = token_data
                 if token_file and os.path.exists(token_file):
@@ -2954,6 +2973,30 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 )
                 elapsed = time_mod.time() - start_time
                 
+                # Check for WAF block / rate limit
+                err_upper = str(message).upper()
+                is_waf = not ok and (
+                    "405" in err_upper or "429" in err_upper or 
+                    "METHOD NOT ALLOWED" in err_upper or "TOO MANY REQUESTS" in err_upper or
+                    "WAF" in err_upper or "RATE LIMIT" in err_upper or "BLOKIR" in err_upper
+                )
+                if is_waf:
+                    cooldown_duration = 90.0
+                    waf_cooldown_until = time.time() + cooldown_duration
+                    logger.warning(
+                        f"BPS WAF Block / Rate Limit detected for item {val} ({message}). "
+                        f"Initiating {cooldown_duration}s global batch cool-down pause."
+                    )
+                    try:
+                        await query.message.reply_text(
+                            f"⚠️ **TERDETEKSI BLOKIR BPS WAF**\n\n"
+                            f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429) pada item `{val}`.\n"
+                            f"Batch akan **ditangguhkan (paused) selama {cooldown_duration:.0f} detik** "
+                            f"untuk memulihkan IP dan menghindari pemblokiran permanen..."
+                        )
+                    except Exception:
+                        pass
+
                 # Check if auth session is dead
                 is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
                 if is_auth_failed:
@@ -2978,10 +3021,14 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     })
                     await update_status_message_throttled()
                 
-                # Dynamic Throttling base delay inside worker
+                # Dynamic Throttling base delay inside worker based on server response time
                 sleep_delay = 1.0
-                if elapsed > 10.0:
+                if elapsed > 20.0:
+                    sleep_delay = 8.0
+                    logger.info(f"BPS server is extremely slow ({elapsed:.1f}s). Applying 8.0s dynamic adaptive delay for worker.")
+                elif elapsed > 10.0:
                     sleep_delay = 4.0
+                    logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay for worker.")
                 
                 # Add dynamic delay with randomized jitter to avoid rate limiting or WAF block patterns
                 jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
@@ -2989,7 +3036,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         # Run all workers concurrently
         await update_status_message_throttled(force=True)
-        worker_tasks = [worker(val) for val in search_queries]
+        worker_tasks = [worker(val, idx) for idx, val in enumerate(search_queries)]
         await asyncio.gather(*worker_tasks)
             
         # Compile report
@@ -3138,12 +3185,13 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
     failures = 0
     
     # Concurrency control
-    concurrency = 5
+    concurrency = 3
     semaphore = asyncio.Semaphore(concurrency)
     progress_lock = asyncio.Lock()
     completed_count = 0
     last_update_time = 0
     is_aborted = False
+    waf_cooldown_until = 0.0
 
     async def update_status_message_throttled(force=False):
         nonlocal last_update_time
@@ -3158,8 +3206,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             await safe_edit_text(status_msg, status_text, parse_mode="Markdown")
 
-    async def worker(r):
-        nonlocal successes, failures, completed_count, token_data, is_aborted
+    async def worker(r, idx):
+        nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until
         
         idpel = r.get("idpel")
         nometer = r.get("nometer")
@@ -3191,7 +3239,25 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update_status_message_throttled()
             return
 
+        # Stagger startup to avoid slamming BPS endpoints at the exact same millisecond
+        stagger_delay = idx * 2.0
+        await asyncio.sleep(stagger_delay)
+
+        # Check and wait for global WAF cooldown pause if active
+        now = time.time()
+        if now < waf_cooldown_until:
+            cooldown_rem = waf_cooldown_until - now
+            logger.info(f"CSV Worker for {idpel or nometer} waiting for global WAF cool-down ({cooldown_rem:.1f}s remaining)...")
+            await asyncio.sleep(cooldown_rem)
+
         async with semaphore:
+            # Re-check WAF cooldown after acquiring semaphore
+            now = time.time()
+            if now < waf_cooldown_until:
+                cooldown_rem = waf_cooldown_until - now
+                logger.info(f"CSV Worker for {idpel or nometer} waiting for global WAF cool-down after semaphore lock ({cooldown_rem:.1f}s remaining)...")
+                await asyncio.sleep(cooldown_rem)
+
             # Reload token data to get the latest refreshed token from disk
             t_data = token_data
             if token_file and os.path.exists(token_file):
@@ -3258,6 +3324,30 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             elapsed = time_mod.time() - start_time
             
+            # Check for WAF block / rate limit
+            err_upper = str(message).upper()
+            is_waf = not ok and (
+                "405" in err_upper or "429" in err_upper or 
+                "METHOD NOT ALLOWED" in err_upper or "TOO MANY REQUESTS" in err_upper or
+                "WAF" in err_upper or "RATE LIMIT" in err_upper or "BLOKIR" in err_upper
+            )
+            if is_waf:
+                cooldown_duration = 90.0
+                waf_cooldown_until = time.time() + cooldown_duration
+                logger.warning(
+                    f"BPS WAF Block / Rate Limit detected for CSV item {idpel or nometer} ({message}). "
+                    f"Initiating {cooldown_duration}s global batch cool-down pause."
+                )
+                try:
+                    await update.effective_message.reply_text(
+                        f"⚠️ **TERDETEKSI BLOKIR BPS WAF (CSV)**\n\n"
+                        f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429) pada item `{idpel or nometer}`.\n"
+                        f"CSV Batch akan **ditangguhkan (paused) selama {cooldown_duration:.0f} detik** "
+                        f"untuk memulihkan IP dan menghindari pemblokiran permanen..."
+                    )
+                except Exception:
+                    pass
+
             # Check if auth session is dead
             is_auth_failed = not ok and ("Gagal memperbarui token" in message or "400" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower())
             if is_auth_failed:
@@ -3284,10 +3374,14 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 })
                 await update_status_message_throttled()
 
-            # Dynamic Throttling base delay inside worker
+            # Dynamic Throttling base delay inside worker based on server response time
             sleep_delay = 1.0
-            if elapsed > 10.0:
+            if elapsed > 20.0:
+                sleep_delay = 8.0
+                logger.info(f"BPS server is extremely slow ({elapsed:.1f}s). Applying 8.0s dynamic adaptive delay for CSV worker.")
+            elif elapsed > 10.0:
                 sleep_delay = 4.0
+                logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay for CSV worker.")
                 
             # Add dynamic delay with randomized jitter to avoid rate limiting or WAF block patterns
             jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
@@ -3295,7 +3389,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # Run all workers concurrently
     await update_status_message_throttled(force=True)
-    worker_tasks = [worker(r) for r in records]
+    worker_tasks = [worker(r, idx) for idx, r in enumerate(records)]
     await asyncio.gather(*worker_tasks)
 
     # Save and send report file
