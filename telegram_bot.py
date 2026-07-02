@@ -176,6 +176,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Silence noisy httpx/httpcore INFO logs (every getUpdates poll floods bot.log)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 STATIC_LEGACY_KEY = "Z!,vDKUPv;.Jy0Q4Eq1wVCY-a_!GnT"
 
 # Access control usernames list
@@ -3407,81 +3411,71 @@ async def logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("📄 File `bot.log` tidak ditemukan.")
         return
     
-    if action == "logs_download":
-        # Send full log file as document
-        try:
+    import io
+    
+    def _read_tail(n_lines: int) -> str:
+        """Read last N lines from log file (runs in thread)."""
+        with open(LOG_FILE_PATH, "r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+        tail = all_lines[-n_lines:] if len(all_lines) >= n_lines else all_lines
+        return "".join(tail).rstrip()
+    
+    def _read_errors() -> str:
+        """Read last 30 ERROR/WARNING lines (runs in thread)."""
+        with open(LOG_FILE_PATH, "r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+        error_lines = [
+            line.rstrip() for line in all_lines 
+            if " - ERROR - " in line or " - WARNING - " in line
+        ]
+        last_errors = error_lines[-30:] if error_lines else []
+        return "\n".join(last_errors) if last_errors else ""
+    
+    try:
+        if action == "logs_download":
             with open(LOG_FILE_PATH, "rb") as f:
                 await query.message.reply_document(
                     document=f,
                     filename=f"bot_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
                     caption="📥 Full server log file."
                 )
-        except Exception as e:
-            await query.message.reply_text(f"❌ Gagal mengirim file log: {e}")
-        return
-    
-    if action == "logs_errors":
-        # Find last 20 ERROR/WARNING lines
-        try:
-            with open(LOG_FILE_PATH, "r", encoding="utf-8", errors="replace") as f:
-                all_lines = f.readlines()
-            error_lines = [
-                line.rstrip() for line in all_lines 
-                if " - ERROR - " in line or " - WARNING - " in line
-            ]
-            last_errors = error_lines[-20:] if error_lines else []
-            if not last_errors:
-                text = "✅ Tidak ada ERROR atau WARNING ditemukan di log."
-            else:
-                text = f"🔍 **20 Error/Warning Terakhir:**\n\n```\n{'\n'.join(last_errors)}\n```"
-                if len(text) > 4000:
-                    # Too long for message, send as file
-                    content = "\n".join(last_errors)
-                    import io
-                    buf = io.BytesIO(content.encode("utf-8"))
-                    buf.name = "errors.log"
-                    await query.message.reply_document(document=buf, caption="🔍 Error/Warning terakhir.")
-                    return
-            await query.message.reply_text(text, parse_mode="Markdown")
-        except Exception as e:
-            await query.message.reply_text(f"❌ Gagal membaca log: {e}")
-        return
-    
-    # Handle tail_N actions
-    if action.startswith("logs_tail_"):
-        try:
-            n_lines = int(action.replace("logs_tail_", ""))
-        except ValueError:
-            n_lines = 50
+            return
         
-        try:
-            with open(LOG_FILE_PATH, "r", encoding="utf-8", errors="replace") as f:
-                all_lines = f.readlines()
-            tail = all_lines[-n_lines:] if len(all_lines) >= n_lines else all_lines
-            tail_text = "".join(tail).rstrip()
+        if action == "logs_errors":
+            content = await asyncio.to_thread(_read_errors)
+            if not content:
+                await query.message.reply_text("✅ Tidak ada ERROR atau WARNING ditemukan di log.")
+                return
+            buf = io.BytesIO(content.encode("utf-8"))
+            buf.name = f"errors_{datetime.now().strftime('%H%M%S')}.log"
+            await query.message.reply_document(document=buf, caption="🔍 Error/Warning terakhir (30 baris).")
+            return
+        
+        if action.startswith("logs_tail_"):
+            try:
+                n_lines = int(action.replace("logs_tail_", ""))
+            except ValueError:
+                n_lines = 50
             
-            if not tail_text:
+            content = await asyncio.to_thread(_read_tail, n_lines)
+            if not content:
                 await query.message.reply_text("📄 Log file kosong.")
                 return
             
-            # Telegram message limit is ~4096 chars
-            if len(tail_text) > 4000:
-                # Send as file instead
-                import io
-                buf = io.BytesIO(tail_text.encode("utf-8"))
-                buf.name = f"tail_{n_lines}.log"
-                await query.message.reply_document(
-                    document=buf,
-                    caption=f"📋 Tail {n_lines} baris terakhir (terlalu panjang untuk pesan)."
-                )
-            else:
-                await query.message.reply_text(
-                    f"📋 **Tail {n_lines} baris:**\n\n```\n{tail_text}\n```",
-                    parse_mode="Markdown"
-                )
-        except Exception as e:
-            await query.message.reply_text(f"❌ Gagal membaca log: {e}")
-        return
+            # Always send as file — more reliable than long messages with code blocks
+            buf = io.BytesIO(content.encode("utf-8"))
+            buf.name = f"tail_{n_lines}_{datetime.now().strftime('%H%M%S')}.log"
+            await query.message.reply_document(
+                document=buf,
+                caption=f"📋 Tail {n_lines} baris terakhir dari bot.log."
+            )
+            return
+    except Exception as e:
+        logger.error(f"Error in logs_callback ({action}): {e}", exc_info=True)
+        try:
+            await query.message.reply_text(f"❌ Gagal: {e}")
+        except Exception:
+            pass
 
 async def post_init(application: Application) -> None:
     from telegram import BotCommand
@@ -3499,6 +3493,10 @@ async def post_init(application: Application) -> None:
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands menu set successfully.")
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Global error handler — logs errors instead of crashing the bot."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+
 def main():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token or token == "your_telegram_bot_token_here":
@@ -3513,12 +3511,19 @@ def main():
         except Exception as e:
             logger.warning(f"Failed to clean up stale lock file: {e}")
 
+    # Expand the default asyncio thread pool so BPS blocking calls don't starve
+    # the event loop. Default is min(32, cpu+4) which is too small for concurrent batch ops.
+    from concurrent.futures import ThreadPoolExecutor
+    import asyncio
+    asyncio.get_event_loop().set_default_executor(ThreadPoolExecutor(max_workers=64))
+    logger.info("Set asyncio default ThreadPoolExecutor to 64 workers.")
+
     request_config = HTTPXRequest(
         connect_timeout=30.0,
-        read_timeout=30.0,
-        write_timeout=30.0,
-        pool_timeout=15.0,
-        connection_pool_size=100
+        read_timeout=60.0,
+        write_timeout=60.0,
+        pool_timeout=30.0,
+        connection_pool_size=256
     )
     app = Application.builder().token(token).concurrent_updates(True).request(request_config).post_init(post_init).build()
 
@@ -3678,6 +3683,9 @@ def main():
     
     # Message handler to process uploaded CSV files
     app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), handle_csv_document))
+
+    # Register global error handler to prevent unhandled exception spam
+    app.add_error_handler(error_handler)
 
     print("[*] Bot Telegram Fasih sedang berjalan...")
     app.run_polling(drop_pending_updates=True)
