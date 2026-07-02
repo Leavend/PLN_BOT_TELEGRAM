@@ -456,17 +456,30 @@ async def submit_fasih_safe(
                 if not role_user_id:
                     return False, "User role ID tidak ditemukan untuk periode aktif ini."
                 
-                if status_callback:
-                    await status_callback("➕ Mendaftarkan penugasan baru di BPS server...")
+                # Try assign-by-selection (supervisor-only). If the user is a Pencacah
+                # (enumerator), this will fail with "bukan menjadi pengawas".
+                assign_succeeded = False
+                try:
+                    if status_callback:
+                        await status_callback("➕ Mendaftarkan penugasan baru di BPS server...")
+                    await async_assign_by_selection(headers, pid, role_user_id, template_assignment_id)
+                    assign_succeeded = True
+                except Exception as assign_err:
+                    err_msg = str(assign_err)
+                    if "pengawas" in err_msg.lower() or "bukan" in err_msg.lower():
+                        logger.warning("User is Pencacah (not Pengawas), skipping assign-by-selection. "
+                                       "Will try to find an available empty assignment instead.")
+                    else:
+                        raise  # Re-raise unexpected errors
                 
-                await async_assign_by_selection(headers, pid, role_user_id, template_assignment_id)
+                if assign_succeeded:
+                    if status_callback:
+                        await status_callback("🔄 Mengambil ulang daftar tugas setelah registrasi...")
+                    content = await async_fetch_all_assignments(headers, pid)
                 
-                if status_callback:
-                    await status_callback("🔄 Mengambil ulang daftar tugas setelah registrasi...")
-                content = await async_fetch_all_assignments(headers, pid)
-                
-                # Now resolve the newly created task. Since it was just registered,
-                # its data slots (data3/data1) are empty, and copyFromId matches template_assignment_id.
+                # Find an available empty OPEN assignment to reuse.
+                # For supervisor: it was just registered, copyFromId matches template_assignment_id.
+                # For pencacah: find any OPEN assignment with empty data slots.
                 new_target = next((
                     a for a in content
                     if a.get("copyFromId") == template_assignment_id
@@ -475,7 +488,7 @@ async def submit_fasih_safe(
                     and a.get("assignmentStatusAlias") == "OPEN"
                 ), None)
                 
-                # Fallback: if no empty ones are found, just look for any OPEN task with copyFromId
+                # Fallback: any OPEN task with copyFromId
                 if not new_target:
                     new_target = next((
                         a for a in content
@@ -483,8 +496,18 @@ async def submit_fasih_safe(
                         and a.get("assignmentStatusAlias") == "OPEN"
                     ), None)
                 
+                # Fallback for pencacah: any OPEN task with empty data slots (no copyFromId check)
                 if not new_target:
-                    return False, "Gagal menemukan target penugasan baru setelah registrasi."
+                    new_target = next((
+                        a for a in content
+                        if not a.get(idpel_slot)
+                        and not a.get(nometer_slot)
+                        and a.get("assignmentStatusAlias") == "OPEN"
+                    ), None)
+                
+                if not new_target:
+                    return False, ("Tidak ada slot penugasan kosong yang tersedia. "
+                                   "Hubungi pengawas untuk menambah penugasan baru.")
                 
                 target = new_target
                 target["isNew"] = True
