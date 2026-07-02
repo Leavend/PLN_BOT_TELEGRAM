@@ -9,6 +9,7 @@ import logging
 import tempfile
 import requests
 import asyncio
+import random
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -24,6 +25,7 @@ from telegram.ext import (
     filters,
 )
 from dotenv import load_dotenv
+load_dotenv()
 
 # Import helper modules
 from fasih_auth import perform_login, refresh_token_if_needed, get_headers
@@ -104,9 +106,6 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
                 raise e
             logger.warning(f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}): {e}. Retrying in {delay} seconds...")
             await asyncio.sleep(delay)
-
-# Load configuration
-load_dotenv()
 
 # Setup logging
 logging.basicConfig(
@@ -2834,8 +2833,9 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 sleep_delay = 4.0
                 logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay.")
             
-            # Add dynamic delay to avoid rate limiting or WAF block
-            await asyncio.sleep(sleep_delay)
+            # Add dynamic delay with randomized jitter to avoid rate limiting or WAF block patterns
+            jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
+            await asyncio.sleep(jitter_delay)
             idx += 1
             
         # Compile report
@@ -3113,8 +3113,9 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             sleep_delay = 4.0
             logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay for CSV.")
             
-        # Add dynamic delay to avoid rate limiting or WAF block
-        await asyncio.sleep(sleep_delay)
+        # Add dynamic delay with randomized jitter to avoid rate limiting or WAF block patterns
+        jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
+        await asyncio.sleep(jitter_delay)
         idx += 1
 
     # Save and send report file

@@ -5,8 +5,9 @@ import base64
 import re
 import requests
 from urllib.parse import urlparse, parse_qs
-from datetime import datetime
-from typing import Optional
+from dotenv import load_dotenv
+load_dotenv()
+
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TOKEN_FILE = os.path.join(SCRIPT_DIR, "fasih_token.json")

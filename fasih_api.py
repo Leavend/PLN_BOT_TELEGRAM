@@ -7,6 +7,9 @@ from urllib3.util import Retry
 import random
 import logging
 
+from dotenv import load_dotenv
+load_dotenv()
+
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://fasih-survey.bps.go.id"
