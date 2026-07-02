@@ -116,10 +116,13 @@ class ActiveRunsTracker:
 
 async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
     from fasih_api import proxy_list, sticky_proxy_var
+    blocked_proxies = set()  # Track proxies that failed within this call
+    last_exception = None
     for attempt in range(max_retries):
         try:
             return await func(*args, **kwargs)
         except Exception as e:
+            last_exception = e
             is_waf = False
             if hasattr(e, "response") and e.response is not None:
                 status_code = getattr(e.response, "status_code", None)
@@ -130,23 +133,36 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
             if "405" in err_str or "429" in err_str or "METHOD NOT ALLOWED" in err_str or "TOO MANY REQUESTS" in err_str:
                 is_waf = True
                 
-            is_timeout = isinstance(e, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)) or "TIMEOUT" in err_str or "TIME OUT" in err_str
+            is_timeout = isinstance(e, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)) or "TIMEOUT" in err_str or "TIME OUT" in err_str or "READ TIMED OUT" in err_str
             
             if (is_waf or is_timeout) and proxy_list:
                 old_proxy = sticky_proxy_var.get()
-                available_proxies = [p for p in proxy_list if p != old_proxy]
-                new_proxy = random.choice(available_proxies if available_proxies else proxy_list)
+                if old_proxy:
+                    blocked_proxies.add(old_proxy)
+                # Prefer proxies not blocked during this call
+                available_proxies = [p for p in proxy_list if p not in blocked_proxies]
+                if not available_proxies:
+                    available_proxies = [p for p in proxy_list if p != old_proxy]
+                if not available_proxies:
+                    available_proxies = proxy_list
+                new_proxy = random.choice(available_proxies)
                 sticky_proxy_var.set(new_proxy)
+                # Exponential backoff: 3s, 6s, 12s ...
+                backoff_delay = delay * (2 ** attempt)
                 logger.warning(
-                    f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}) using proxy {old_proxy}. "
-                    f"Error: {e}. Rotating to new proxy {new_proxy} and retrying..."
+                    f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}) via proxy ...{(old_proxy or 'direct')[-25:]}. "
+                    f"Error: {type(e).__name__}. Rotating to new proxy and retrying in {backoff_delay:.0f}s..."
                 )
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(delay)
+                    await asyncio.sleep(backoff_delay)
                     continue
+                else:
+                    # All retries exhausted with proxy rotation
+                    logger.warning(f"BPS call {func.__name__} exhausted all {max_retries} proxy-rotation retries. Raising last error.")
+                    raise e
                     
-            if is_waf:
-                logger.warning(f"BPS call {func.__name__} encountered WAF block without proxy pool. Raising immediately.")
+            if is_waf and not proxy_list:
+                logger.warning(f"BPS call {func.__name__} encountered WAF block with no proxy pool configured. Raising immediately.")
                 raise e
                 
             if attempt == max_retries - 1:
@@ -205,6 +221,19 @@ async def safe_delete_message(message) -> bool:
             return True
         except Exception as e:
             logger.warning(f"Failed to delete message: {e}")
+    return False
+
+async def safe_edit_text(message, text, **kwargs) -> bool:
+    """Edit message text, silently ignoring 'Message is not modified' errors."""
+    if message:
+        try:
+            await message.edit_text(text, **kwargs)
+            return True
+        except Exception as e:
+            err_str = str(e).lower()
+            if "message is not modified" in err_str:
+                return True  # Not an error, content is just identical
+            logger.warning(f"Failed to edit message: {e}")
     return False
 
 # Helper function to get token file path per chat
@@ -664,7 +693,8 @@ async def submit_fasih_safe(
                 resp = await call_with_retry(
                     async_request_photo_presign_put,
                     headers, tid, target.get("copyFromId") or "", target.get("surveyPeriodId"),
-                    filename, os.path.getsize(photo_path), md5_b64
+                    filename, os.path.getsize(photo_path), md5_b64,
+                    max_retries=5
                 )
                 if not resp.get("success"):
                     if dry_run:
@@ -781,7 +811,7 @@ async def submit_fasih_safe(
             copy_from_id = target.get("copyFromId")
             error_detail = None
             try:
-                presign_resp = await call_with_retry(async_request_presign_url, headers, target["id"], pid, [f"{target['id']}.7z"], is_edit, copy_from_id)
+                presign_resp = await call_with_retry(async_request_presign_url, headers, target["id"], pid, [f"{target['id']}.7z"], is_edit, copy_from_id, max_retries=5)
                 data_obj = presign_resp.get("data", {})
                 if isinstance(data_obj, list):
                     urls = data_obj
@@ -2683,10 +2713,12 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
             idpel_val = val if is_idpel else ""
             nometer_val = "" if is_idpel else val
             
-            await status_msg.edit_text(
+            await safe_edit_text(
+                status_msg,
                 f"⏳ **Memproses {idx+1}/{total}**\n"
                 f"• IDPel/NoMeter: `{val}`\n"
-                f"• Sukses: {successes} | Gagal: {failures}"
+                f"• Sukses: {successes} | Gagal: {failures}",
+                parse_mode="Markdown"
             )
             
             # 1. Check if assignment exists
@@ -2960,7 +2992,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         
     except Exception as e:
         logger.error("Error in batch_confirm_callback", exc_info=True)
-        await status_msg.edit_text(f"❌ Terjadi kesalahan sistem: {str(e)}")
+        await safe_edit_text(status_msg, f"❌ Terjadi kesalahan sistem: {str(e)}")
     finally:
         ActiveRunsTracker.decrement()
         
@@ -3104,10 +3136,12 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             idx += 1
             continue
             
-        await status_msg.edit_text(
+        await safe_edit_text(
+            status_msg,
             f"⏳ **Memproses {idx+1}/{total}**\n"
             f"• Nama: {nama}\n"
-            f"• IDPel: `{idpel}` | NoMeter: `{nometer}`"
+            f"• IDPel: `{idpel}` | NoMeter: `{nometer}`",
+            parse_mode="Markdown"
         )
         
         # Build direct_args
