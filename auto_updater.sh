@@ -3,8 +3,9 @@
 # Menjalankan pengecekan Git repository secara berkala untuk melakukan auto-update bot.
 
 BOT_SCRIPT="telegram_bot.py"
-INTERVAL=10 # Cek update berkala setiap 10 detik (mengurangi congesti network git)
-BRANCH="main" # Ganti dengan nama branch Anda jika berbeda
+# Cek update berkala setiap 5 detik (menggunakan ls-remote non-blocking)
+INTERVAL=5
+BRANCH="main"
 
 echo "[*] Auto-Updater Bot Telegram dimulai..."
 
@@ -114,15 +115,14 @@ else
 fi
 
 while true; do
-    # Ambil status terbaru dari remote
-    git fetch origin $BRANCH &>/dev/null
+    # Ambil hash commit remote secara cepat menggunakan ls-remote (tanpa mengunci git index)
+    REMOTE_HASH=$(git ls-remote origin refs/heads/$BRANCH 2>/dev/null | awk '{print $1}')
     
-    if [ $? -eq 0 ]; then
-        LOCAL=$(git rev-parse HEAD)
-        REMOTE=$(git rev-parse @{u})
+    if [ -n "$REMOTE_HASH" ]; then
+        LOCAL_HASH=$(git rev-parse HEAD)
         
-        if [ "$LOCAL" != "$REMOTE" ]; then
-            echo "[+] Terdeteksi kode baru di remote! Melakukan pull..."
+        if [ "$LOCAL_HASH" != "$REMOTE_HASH" ]; then
+            echo "[+] Terdeteksi kode baru di remote ($REMOTE_HASH)! Melakukan pull..."
             git pull origin $BRANCH
             
             echo "[*] Menghentikan bot lama..."
