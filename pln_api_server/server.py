@@ -36,9 +36,7 @@ logger = logging.getLogger("pln_api")
 
 # --- Config ---
 
-API_KEYS = set(
-    os.getenv("PLN_API_KEYS", "").split(",")
-) - {""}
+API_KEYS = {k.strip() for k in os.getenv("PLN_API_KEYS", "").split(",") if k.strip()}
 
 PHOTO_DIRS = [
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "house_photos"),
@@ -148,6 +146,8 @@ def extract_profile_data(raw_data: dict) -> dict:
         "nama_kab": str(p.get("nama_kab") or "").strip(),
         "nama_kec": str(p.get("nama_kec") or "").strip(),
         "nama_kel": str(p.get("nama_kel") or "").strip(),
+        "latitude": str(p.get("koordinat_y") or p.get("latitude") or "").strip(),
+        "longitude": str(p.get("koordinat_x") or p.get("longitude") or "").strip(),
         "raw": p,
     }
 
@@ -208,10 +208,13 @@ def lookup():
             second = tool.lookup_by_idpel(profile["idpel"])
             if second:
                 second_profile = extract_profile_data(second)
-                if second_profile.get("nama") and second_profile["nama"] != "NoName":
-                    profile["nama"] = second_profile["nama"]
-                if second_profile.get("nik") and not profile.get("nik"):
-                    profile["nik"] = second_profile["nik"]
+                for fk in ("nama", "nik", "alamat", "tarif", "daya", "nometer",
+                           "latitude", "longitude", "keperluan",
+                           "kd_prov", "kd_kab", "kd_kec", "kd_kel",
+                           "nama_prov", "nama_kab", "nama_kec", "nama_kel"):
+                    sv = second_profile.get(fk) or ""
+                    if sv and (sv != "NoName") and not profile.get(fk):
+                        profile[fk] = sv
         except Exception:
             pass
 

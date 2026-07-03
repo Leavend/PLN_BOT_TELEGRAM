@@ -12,8 +12,13 @@ pkg install -y python git p7zip
 # Install Python packages
 pip install requests python-dotenv pycryptodome py7zr pandas openpyxl
 
-# Clone repo (atau pull kalau sudah ada)
-if [ -d "PLN_BOT_TELEGRAM" ]; then
+# Navigate to repo root (detect if already inside, or clone fresh)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/../submit_fasih.py" ]; then
+    cd "$SCRIPT_DIR/.."
+    echo "📥 Updating repo..."
+    git pull
+elif [ -d "PLN_BOT_TELEGRAM" ]; then
     echo "📥 Updating repo..."
     cd PLN_BOT_TELEGRAM && git pull
 else

@@ -17,7 +17,6 @@ import sys
 import json
 import time
 import random
-import asyncio
 import logging
 import argparse
 import tempfile
@@ -132,11 +131,14 @@ def download_photo(photo_url: str, dest_dir: str) -> Optional[str]:
 def ensure_login() -> dict:
     """Load or create BPS SSO token."""
     if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE) as f:
-            token_data = json.load(f)
-        token_data = refresh_token_if_needed(token_data, token_file=TOKEN_FILE, exit_on_failure=False)
-        if token_data:
-            return token_data
+        try:
+            with open(TOKEN_FILE) as f:
+                token_data = json.load(f)
+            token_data = refresh_token_if_needed(token_data, token_file=TOKEN_FILE, exit_on_failure=False)
+            if token_data:
+                return token_data
+        except Exception:
+            logger.warning("Token expired/invalid, prompting fresh login")
 
     print("\n🔑 Login BPS SSO")
     email = input("  Email BPS: ").strip()
@@ -232,12 +234,14 @@ def submit_single(
             direct_args["nometer"] = nometer_val
 
         # Step 5: PLN lookup via server API
+        lat, lon = None, None
         pln_data = pln_lookup(idpel=idpel_val, nometer=nometer_val)
         photo_path = None
         if pln_data:
-            if pln_data.get("nama"):
-                direct_args["pln_nama"] = pln_data["nama"]
-                direct_args["nama"] = pln_data["nama"]
+            pln_nama = pln_data.get("nama") or ""
+            if pln_nama and pln_nama.upper() != "NONAME":
+                direct_args["pln_nama"] = pln_nama
+                direct_args["nama"] = pln_nama
             if pln_data.get("alamat"):
                 direct_args["pln_alamat"] = pln_data["alamat"]
                 direct_args["alamat"] = pln_data["alamat"]
@@ -254,10 +258,21 @@ def submit_single(
             if pln_data.get("nometer"):
                 nometer_val = pln_data["nometer"]
                 direct_args["nometer"] = nometer_val
+            if pln_data.get("keperluan"):
+                direct_args["keperluan"] = pln_data["keperluan"]
             for k in ("kd_prov", "kd_kab", "kd_kec", "kd_kel",
                        "nama_prov", "nama_kab", "nama_kec", "nama_kel", "keperluan"):
                 if pln_data.get(k):
                     direct_args[f"pln_{k}"] = pln_data[k]
+            try:
+                pln_lat = pln_data.get("latitude")
+                pln_lon = pln_data.get("longitude")
+                if pln_lat and float(pln_lat) != 0.0:
+                    lat = float(pln_lat)
+                if pln_lon and float(pln_lon) != 0.0:
+                    lon = float(pln_lon)
+            except (ValueError, TypeError):
+                pass
 
             # Download photo
             if pln_data.get("photo_url"):
@@ -312,17 +327,17 @@ def submit_single(
             except Exception as e:
                 logger.warning(f"Photo upload failed: {e}")
 
-        # Coordinates
-        lat, lon = None, None
-        t_lat, t_lon = target.get("latitude"), target.get("longitude")
-        try:
-            if t_lat and t_lon and float(t_lat) != 0.0:
-                lat, lon = float(t_lat), float(t_lon)
-            else:
-                raise ValueError
-        except (ValueError, TypeError):
-            addr = target.get("data5", "") or target.get("data6", "") or ""
-            region_name = (target.get("region") or {}).get("name", "")
+        # Coordinates — PLN coords (set above) take priority over target coords
+        if lat is None or lon is None:
+            t_lat, t_lon = target.get("latitude"), target.get("longitude")
+            try:
+                if t_lat and t_lon and float(t_lat) != 0.0:
+                    lat, lon = float(t_lat), float(t_lon)
+                else:
+                    raise ValueError
+            except (ValueError, TypeError):
+                addr = target.get("data5", "") or target.get("data6", "") or ""
+                region_name = (target.get("region") or {}).get("name", "")
             lat, lon = get_fallback_coordinate(region_name, "", "", addr)
 
         answers["r105"] = {
@@ -399,8 +414,8 @@ def submit_single(
             "draftStatus": "false",
             "regionId": str(region_id),
             **data_slots,
-            "latitude": str(lat) if lat else "0.0",
-            "longitude": str(lon) if lon else "0.0",
+            "latitude": str(lat) if lat is not None else "0.0",
+            "longitude": str(lon) if lon is not None else "0.0",
             "copyFromId": str(target.get("copyFromId") or ""),
             "statusApproval": "false",
             "sourceFrom": "CAPI",
@@ -448,6 +463,16 @@ def main():
     if not items:
         print("❌ Tidak ada item untuk diproses.")
         sys.exit(1)
+
+    seen = set()
+    unique = []
+    for x in items:
+        if x not in seen:
+            seen.add(x)
+            unique.append(x)
+    if len(unique) < len(items):
+        print(f"⚠️  {len(items) - len(unique)} duplikat dihapus")
+    items = unique
 
     if not PLN_API_URL:
         print("⚠️  PLN_API_URL belum diset di .env — PLN enrichment dilewati")
@@ -522,6 +547,13 @@ def main():
             report_rows.append({
                 "val": val, "status": "SUCCESS" if ok else "FAILED", "message": message
             })
+
+            # Cleanup temp files from this iteration
+            for f in os.listdir(temp_dir):
+                try:
+                    os.remove(os.path.join(temp_dir, f))
+                except OSError:
+                    pass
 
             # Progress bar
             pct = int((idx + 1) / len(items) * 100)
