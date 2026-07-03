@@ -180,6 +180,7 @@ activity_bus = ActivityBus()
 # Active /live and /logs stream sessions
 _live_sessions: dict[int, asyncio.Task] = {}
 _logstream_sessions: dict[int, asyncio.Task] = {}
+_batch_cancel_flags: dict[int, asyncio.Event] = {}
 
 
 async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
@@ -2859,7 +2860,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         successes = 0
         failures = 0
         report_rows = []
-        
+
         # Concurrency control
         concurrency = 1
         semaphore = asyncio.Semaphore(concurrency)
@@ -2867,6 +2868,8 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         completed_count = 0
         last_update_time = 0
         is_aborted = False
+        cancel_event = asyncio.Event()
+        _batch_cancel_flags[chat_id] = cancel_event
         waf_cooldown_until = 0.0
         consecutive_waf_count = 0
         waf_block_count = 0
@@ -2891,15 +2894,23 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     f"• Sukses: {successes} | Gagal: {failures}{waf_line}{pause_line}\n"
                     f"• Sisa: {total - completed_count}"
                 )
-                await safe_edit_text(status_msg, status_text, parse_mode="Markdown")
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Batalkan Batch", callback_data=f"batch_cancel_{chat_id}")]])
+                await safe_edit_text(status_msg, status_text, parse_mode="Markdown", reply_markup=keyboard)
 
         async def worker(val, idx):
             nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until, consecutive_waf_count, waf_block_count, waf_notified
+            if cancel_event.is_set():
+                is_aborted = True
             async with progress_lock:
                 if is_aborted:
                     failures += 1
                     completed_count += 1
-                    abort_reason = "Dibatalkan: WAF blokir persisten." if waf_block_count >= WAF_ABORT_THRESHOLD else "Dibatalkan karena sesi login kedaluwarsa."
+                    if cancel_event.is_set():
+                        abort_reason = "Dibatalkan oleh user."
+                    elif waf_block_count >= WAF_ABORT_THRESHOLD:
+                        abort_reason = "Dibatalkan: WAF blokir persisten."
+                    else:
+                        abort_reason = "Dibatalkan karena sesi login kedaluwarsa."
                     report_rows.append({
                         "val": val, "nama": "PELANGGAN", "status": "SKIPPED",
                         "message": abort_reason
@@ -2932,6 +2943,8 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     await asyncio.sleep(cooldown_rem + jitter)
 
                 # Re-check is_aborted after acquiring semaphore
+                if cancel_event.is_set():
+                    is_aborted = True
                 async with progress_lock:
                     if is_aborted:
                         failures += 1
@@ -3266,6 +3279,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         logger.error("Error in batch_confirm_callback", exc_info=True)
         await safe_edit_text(status_msg, f"❌ Terjadi kesalahan sistem: {str(e)}")
     finally:
+        _batch_cancel_flags.pop(chat_id, None)
         ActiveRunsTracker.decrement()
         await activity_bus.update_stats(batch_active=False)
         await activity_bus.push("🏁", f"Batch selesai — ✅{successes} ❌{failures}")
@@ -3378,6 +3392,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         completed_count = 0
         last_update_time = 0
         is_aborted = False
+        cancel_event = asyncio.Event()
+        _batch_cancel_flags[chat_id] = cancel_event
         waf_cooldown_until = 0.0
         consecutive_waf_count = 0
         waf_block_count = 0
@@ -3402,7 +3418,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"• Sukses: {successes} | Gagal: {failures}{waf_line}{pause_line}\n"
                     f"• Sisa: {total - completed_count}"
                 )
-                await safe_edit_text(status_msg, status_text, parse_mode="Markdown")
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Batalkan Batch", callback_data=f"batch_cancel_{chat_id}")]])
+                await safe_edit_text(status_msg, status_text, parse_mode="Markdown", reply_markup=keyboard)
 
         async def worker(r, idx):
             nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until, consecutive_waf_count, waf_block_count, waf_notified
@@ -3424,9 +3441,16 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     await update_status_message_throttled()
                 return
                 
+            if cancel_event.is_set():
+                is_aborted = True
             async with progress_lock:
                 if is_aborted:
-                    abort_reason = "Dibatalkan: WAF blokir persisten." if waf_block_count >= WAF_ABORT_THRESHOLD else "Dibatalkan karena sesi login kedaluwarsa."
+                    if cancel_event.is_set():
+                        abort_reason = "Dibatalkan oleh user."
+                    elif waf_block_count >= WAF_ABORT_THRESHOLD:
+                        abort_reason = "Dibatalkan: WAF blokir persisten."
+                    else:
+                        abort_reason = "Dibatalkan karena sesi login kedaluwarsa."
                     report_rows.append({
                         "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
                         "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
@@ -3437,7 +3461,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     completed_count += 1
                     await update_status_message_throttled()
                     return
-                    
+
             stagger_delay = idx * 2.0
             await asyncio.sleep(stagger_delay)
             
@@ -3454,6 +3478,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     logger.info(f"CSV Worker for {idpel or nometer} waiting for global WAF cool-down after semaphore lock ({cooldown_rem:.1f}s remaining)...")
                     await asyncio.sleep(cooldown_rem)
                     
+                if cancel_event.is_set():
+                    is_aborted = True
                 async with progress_lock:
                     if is_aborted:
                         report_rows.append({
@@ -3672,6 +3698,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             await update.message.reply_text(f"❌ Terjadi kesalahan saat memproses bulk: {str(e)}")
     finally:
+        _batch_cancel_flags.pop(chat_id, None)
         ActiveRunsTracker.decrement()
         await activity_bus.update_stats(batch_active=False)
         await activity_bus.push("🏁", f"CSV batch selesai — ✅{successes} ❌{failures}")
@@ -3685,6 +3712,41 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 os.remove(report_path)
             except Exception:
                 pass
+
+# --- BATCH CANCEL CALLBACK ---
+
+async def batch_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    data = query.data
+    try:
+        target_chat_id = int(data.replace("batch_cancel_", ""))
+    except ValueError:
+        return
+
+    cancel_event = _batch_cancel_flags.get(target_chat_id)
+    if cancel_event and not cancel_event.is_set():
+        cancel_event.set()
+        await activity_bus.push("🛑", "Batch dibatalkan oleh user")
+        try:
+            await query.message.edit_text(
+                "🛑 **BATCH DIBATALKAN**\n\n"
+                "Menunggu task yang sedang berjalan selesai...\n"
+                "Report akan dikirim setelah semua task berhenti.",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            await query.answer("Tidak ada batch aktif.", show_alert=True)
+        except Exception:
+            pass
+
 
 # --- LIVE ACTIVITY MONITOR ---
 
@@ -4290,6 +4352,9 @@ def main():
     app.add_handler(batch_conv)
     app.add_handler(CallbackQueryHandler(list_callback, pattern="^(lpage_|lnoop|lclose)"))
     
+    # Batch cancel button
+    app.add_handler(CallbackQueryHandler(batch_cancel_callback, pattern="^batch_cancel_"))
+
     # Live activity monitor (all users)
     app.add_handler(CommandHandler("live", live_command))
     app.add_handler(CallbackQueryHandler(live_callback, pattern="^live_"))
