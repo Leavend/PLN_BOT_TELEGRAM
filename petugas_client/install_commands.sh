@@ -122,7 +122,6 @@ cat > "$BIN/fasih-update" << EOF
 #!/bin/bash
 cd "$REPO"
 git pull
-pip install -q requests python-dotenv pycryptodome py7zr pandas openpyxl 2>/dev/null
 echo "✅ Updated!"
 EOF
 
