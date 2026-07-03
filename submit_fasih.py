@@ -231,8 +231,8 @@ def clean_pln_name(name: str) -> str:
     cleaned = re.sub(r'\s*\d+\s*$', '', name) # removes trailing digits with optional space
     # Remove any other remaining digits anywhere
     cleaned = re.sub(r'\d+', '', cleaned)
-    # Remove any character not in [a-zA-Z\s\'.]
-    cleaned = re.sub(r"[^a-zA-Z\s'\.]", '', cleaned)
+    # BPS only allows: A-Z, a-z, space
+    cleaned = re.sub(r"[^a-zA-Z\s]", '', cleaned)
     # Normalize spaces
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned.upper()

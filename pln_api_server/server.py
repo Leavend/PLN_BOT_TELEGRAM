@@ -129,7 +129,11 @@ def extract_profile_data(raw_data: dict) -> dict:
 
     return {
         "idpel": str(p.get("id_pelanggan") or p.get("idpel") or "").strip(),
-        "nometer": str(p.get("nometer") or p.get("no_meter") or "").strip(),
+        "nometer": str(
+            p.get("nometer_kwh") or p.get("nomor_meter_kwh") or p.get("no_meter_kwh") or
+            p.get("no_meter") or p.get("nomor_meter") or p.get("nometer") or
+            p.get("meter_number") or ""
+        ).strip(),
         "nama": nama,
         "alamat": alamat,
         "nik": str(p.get("noidentitas") or p.get("no_identitas") or "").strip(),
