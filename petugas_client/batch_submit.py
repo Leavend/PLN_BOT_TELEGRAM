@@ -425,7 +425,7 @@ def main():
     parser.add_argument("input", nargs="?", help="File .txt berisi daftar IDPel/NoMeter (satu per baris)")
     parser.add_argument("--list", "-l", help="Daftar IDPel/NoMeter dipisah koma")
     parser.add_argument("--dry-run", action="store_true", help="Test tanpa submit ke BPS")
-    parser.add_argument("--delay", type=float, default=8.0, help="Rata-rata delay antar item (detik)")
+    parser.add_argument("--delay", type=float, default=2.0, help="Rata-rata delay antar item (detik)")
     args = parser.parse_args()
 
     # Parse item list
@@ -533,7 +533,7 @@ def main():
 
             # Human-like delay
             if idx < len(items) - 1:
-                delay = max(4.0, min(18.0, random.gauss(args.delay, 3.0)))
+                delay = max(1.0, min(5.0, random.gauss(args.delay, 1.0)))
                 time.sleep(delay)
 
     # Report
