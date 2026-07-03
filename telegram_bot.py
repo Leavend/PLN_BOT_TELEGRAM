@@ -4153,7 +4153,9 @@ async def _logstream_loop(msg, chat_id: int, errors_only: bool = False):
             lines = await asyncio.to_thread(_read_stream_lines)
             mode = "ERROR STREAM" if errors_only else "LOG STREAM"
             ts = datetime.now().strftime("%H:%M:%S")
-            text = f"🔴 **{mode}** — `{ts}`\n{'━' * 28}\n"
+            active = ActiveRunsTracker._count
+            batch_label = f"🟢 {active} batch aktif" if active > 0 else "⚪ Idle"
+            text = f"🔴 **{mode}** — `{ts}`\n{batch_label}\n{'━' * 28}\n"
             if lines:
                 content = "\n".join(lines)
                 if len(content) > 3500:
