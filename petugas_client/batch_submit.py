@@ -281,11 +281,14 @@ def submit_single(
         if not target:
             # No existing assignment — create new penugasan (same as bot)
             create_new = True
+            # Prefer OPEN assignments as template, but any status works
+            # (build_new_assignment_target resets status to OPEN + isNew=True)
             open_assignments = [a for a in cached_assignments
                                 if "OPEN" in (a.get("assignmentStatusAlias") or "")]
-            if not open_assignments:
-                return False, "Tidak ada template assignment OPEN di BPS."
-            template_assignment = _find_template_for_region(open_assignments, pln_data)
+            template_pool = open_assignments or cached_assignments
+            if not template_pool:
+                return False, "Tidak ada assignment sama sekali di BPS."
+            template_assignment = _find_template_for_region(template_pool, pln_data)
             template_assignment_id = template_assignment["id"]
             target = build_new_assignment_target(
                 template_assignment, idpel_val, nometer_val, cached_template_mapping)
