@@ -155,6 +155,25 @@ def ensure_login() -> dict:
 
 # --- Submit Pipeline ---
 
+def _find_template_for_region(open_assignments, pln_data):
+    """Find template assignment matching PLN region — mirrors bot logic."""
+    if not open_assignments:
+        return None
+    regions = {(a.get("region") or {}).get("id") for a in open_assignments if (a.get("region") or {}).get("id")}
+    if len(regions) == 1:
+        return open_assignments[0]
+    if pln_data:
+        nama_kel = (pln_data.get("nama_kel") or "").lower()
+        nama_kec = (pln_data.get("nama_kec") or "").lower()
+        for a in open_assignments:
+            r_name = (a.get("region") or {}).get("name", "").lower()
+            if nama_kel and nama_kel in r_name:
+                return a
+            if nama_kec and nama_kec in r_name:
+                return a
+    return open_assignments[0]
+
+
 def submit_single(
     token_data: dict,
     val: str,
@@ -183,6 +202,9 @@ def submit_single(
         nometer_slot = next((s for s, v in cached_template_mapping.items() if v == "r101b"), "data1")
 
         target = None
+        create_new = False
+        template_assignment_id = None
+
         for a in cached_assignments:
             v_idpel = (a.get(idpel_slot) or "").strip()
             v_nometer = (a.get(nometer_slot) or "").strip()
@@ -190,22 +212,24 @@ def submit_single(
                 target = a
                 break
 
-        if not target:
-            return False, "Tugas tidak ditemukan di BPS."
-
-        status_alias = target.get("assignmentStatusAlias") or ""
-        if "SUBMITTED" in status_alias or "DONE" in status_alias or "APPROVED" in status_alias:
-            return True, f"Sudah terkirim (Status: {status_alias})."
-
-        # Build direct_args
         direct_args = {
             "idpel": idpel_val, "nometer": nometer_val,
-            "nama": target.get("data2", "") or "PELANGGAN",
-            "alamat": target.get("data4", target.get("data5", "")) or "",
+            "nama": "PELANGGAN BARU", "alamat": "",
             "tarif": "R-1", "daya": "900",
             "hasil": "1. Berhasil didata",
             "kelurahan": "001", "kdpm": "01", "kddk": "1", "status_dil": "1",
         }
+
+        if target:
+            status_alias = target.get("assignmentStatusAlias") or ""
+            if "SUBMITTED" in status_alias or "DONE" in status_alias or "APPROVED" in status_alias:
+                return True, f"Sudah terkirim (Status: {status_alias})."
+            direct_args["nama"] = target.get("data2", "") or "PELANGGAN"
+            direct_args["alamat"] = target.get("data4", target.get("data5", "")) or ""
+            idpel_val = target.get(idpel_slot) or idpel_val
+            nometer_val = target.get(nometer_slot) or nometer_val
+            direct_args["idpel"] = idpel_val
+            direct_args["nometer"] = nometer_val
 
         # Step 5: PLN lookup via server API
         pln_data = pln_lookup(idpel=idpel_val, nometer=nometer_val)
@@ -213,8 +237,10 @@ def submit_single(
         if pln_data:
             if pln_data.get("nama"):
                 direct_args["pln_nama"] = pln_data["nama"]
+                direct_args["nama"] = pln_data["nama"]
             if pln_data.get("alamat"):
                 direct_args["pln_alamat"] = pln_data["alamat"]
+                direct_args["alamat"] = pln_data["alamat"]
             if pln_data.get("nik"):
                 direct_args["pln_nik"] = pln_data["nik"]
                 direct_args["nik"] = pln_data["nik"]
@@ -222,6 +248,12 @@ def submit_single(
                 direct_args["tarif"] = pln_data["tarif"]
             if pln_data.get("daya"):
                 direct_args["daya"] = str(pln_data["daya"])
+            if pln_data.get("idpel"):
+                idpel_val = pln_data["idpel"]
+                direct_args["idpel"] = idpel_val
+            if pln_data.get("nometer"):
+                nometer_val = pln_data["nometer"]
+                direct_args["nometer"] = nometer_val
             for k in ("kd_prov", "kd_kab", "kd_kec", "kd_kel",
                        "nama_prov", "nama_kab", "nama_kec", "nama_kel", "keperluan"):
                 if pln_data.get(k):
@@ -230,6 +262,21 @@ def submit_single(
             # Download photo
             if pln_data.get("photo_url"):
                 photo_path = download_photo(pln_data["photo_url"], temp_dir)
+
+        if not target:
+            # No existing assignment — create new penugasan (same as bot)
+            create_new = True
+            open_assignments = [a for a in cached_assignments
+                                if "OPEN" in (a.get("assignmentStatusAlias") or "")]
+            if not open_assignments:
+                return False, "Tidak ada template assignment OPEN di BPS."
+            template_assignment = _find_template_for_region(open_assignments, pln_data)
+            template_assignment_id = template_assignment["id"]
+            target = build_new_assignment_target(
+                template_assignment, idpel_val, nometer_val, cached_template_mapping)
+            target["data2"] = direct_args.get("nama") or ""
+            target["data4"] = direct_args.get("alamat") or ""
+            target["data5"] = direct_args.get("alamat") or ""
 
         # Step 6: Build answers
         answers = build_dynamic_answers(target, direct_args, cached_template_mapping)

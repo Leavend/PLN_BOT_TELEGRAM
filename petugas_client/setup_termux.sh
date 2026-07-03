@@ -10,7 +10,7 @@ pkg update -y
 pkg install -y python git
 
 # Install Python packages
-pip install requests python-dotenv pycryptodome py7zr
+pip install requests python-dotenv pycryptodome py7zr pandas openpyxl
 
 # Clone repo (atau pull kalau sudah ada)
 if [ -d "PLN_BOT_TELEGRAM" ]; then
@@ -39,14 +39,18 @@ fi
 # Prevent Termux dari mati saat layar mati
 termux-wake-lock 2>/dev/null
 
+# Install shortcut commands
+bash petugas_client/install_commands.sh
+
 echo ""
-echo "✅ Setup selesai!"
+echo "✅ Setup selesai! Restart terminal, lalu:"
 echo ""
-echo "Cara pakai:"
-echo "  cd PLN_BOT_TELEGRAM"
-echo "  python3 petugas_client/batch_submit.py data.txt"
+echo "  fasih-status              Cek koneksi"
+echo "  fasih-login               Login BPS"
+echo "  fasih-submit data.txt     Batch submit"
+echo "  fasih-lookup 234000...    Cek PLN"
+echo "  fasih-update              Update script"
 echo ""
 echo "Contoh data.txt:"
 echo "  234000279419"
 echo "  234000093158"
-echo "  234000176527"
