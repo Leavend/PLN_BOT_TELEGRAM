@@ -7,7 +7,7 @@ echo "==========================================="
 
 # Update dan install dependencies
 pkg update -y
-pkg install -y python git
+pkg install -y python git p7zip
 
 # Install Python packages
 pip install requests python-dotenv pycryptodome py7zr pandas openpyxl
