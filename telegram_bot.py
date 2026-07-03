@@ -181,11 +181,11 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
             if proxy_manager.proxy_pool:
                 new_proxy = proxy_manager.get_proxy(exclude_proxy=old_proxy)
                 sticky_proxy_var.set(new_proxy)
-                # Exponential backoff: 3s, 6s, 12s ...
-                backoff_delay = delay * (2 ** attempt)
+                base_delay = delay * 5 if is_waf else delay
+                backoff_delay = base_delay * (2 ** attempt)
                 logger.warning(
                     f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}) via proxy ...{(old_proxy or 'direct')[-25:]}. "
-                    f"Error: {type(e).__name__} ({e}). Rotating to new proxy and retrying in {backoff_delay:.0f}s..."
+                    f"Error: {type(e).__name__} ({e}).{' [WAF]' if is_waf else ''} Rotating to new proxy and retrying in {backoff_delay:.0f}s..."
                 )
                 if attempt < max_retries - 1:
                     await asyncio.sleep(backoff_delay)
@@ -2790,29 +2790,41 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         last_update_time = 0
         is_aborted = False
         waf_cooldown_until = 0.0
+        consecutive_waf_count = 0
+        waf_block_count = 0
+        waf_notified = False
+        WAF_ABORT_THRESHOLD = 5
 
         async def update_status_message_throttled(force=False):
             nonlocal last_update_time
             now = time.time()
             if force or (now - last_update_time >= 1.5):
                 last_update_time = now
+                waf_line = ""
+                if waf_block_count > 0:
+                    waf_line = f"\n• WAF Blocked: {waf_block_count}"
+                pause_line = ""
+                if now < waf_cooldown_until:
+                    rem = int(waf_cooldown_until - now)
+                    pause_line = f"\n• ⏸️ WAF Cooldown: {rem}s"
                 status_text = (
                     f"⏳ **Memproses Massal (Concurrency: {concurrency})**\n"
                     f"• Progress: {completed_count}/{total}\n"
-                    f"• Sukses: {successes} | Gagal: {failures}\n"
+                    f"• Sukses: {successes} | Gagal: {failures}{waf_line}{pause_line}\n"
                     f"• Sisa: {total - completed_count}"
                 )
                 await safe_edit_text(status_msg, status_text, parse_mode="Markdown")
 
         async def worker(val, idx):
-            nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until
+            nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until, consecutive_waf_count, waf_block_count, waf_notified
             async with progress_lock:
                 if is_aborted:
                     failures += 1
                     completed_count += 1
+                    abort_reason = "Dibatalkan: WAF blokir persisten." if waf_block_count >= WAF_ABORT_THRESHOLD else "Dibatalkan karena sesi login kedaluwarsa."
                     report_rows.append({
-                        "val": val, "nama": "PELANGGAN", "status": "FAILED",
-                        "message": "Dibatalkan karena sesi login kedaluwarsa."
+                        "val": val, "nama": "PELANGGAN", "status": "SKIPPED",
+                        "message": abort_reason
                     })
                     await update_status_message_throttled()
                     return
@@ -3039,19 +3051,39 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     cooldown_duration = 90.0
                     async with progress_lock:
                         waf_cooldown_until = max(waf_cooldown_until, time.time() + cooldown_duration)
+                        consecutive_waf_count += 1
+                        waf_block_count += 1
                     logger.warning(
-                        f"BPS WAF Block / Rate Limit detected for item {val} ({message}). "
-                        f"Initiating {cooldown_duration}s global batch cool-down pause."
+                        f"BPS WAF Block detected for item {val} ({message}). "
+                        f"Consecutive: {consecutive_waf_count}/{WAF_ABORT_THRESHOLD}. Cooldown {cooldown_duration:.0f}s."
                     )
-                    try:
-                        await query.message.reply_text(
-                            f"⚠️ **TERDETEKSI BLOKIR BPS WAF**\n\n"
-                            f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429/SSL) pada item `{val}`.\n"
-                            f"Batch akan **ditangguhkan (paused) selama {cooldown_duration:.0f} detik** "
-                            f"untuk memulihkan IP dan menghindari pemblokiran permanen..."
-                        )
-                    except Exception:
-                        pass
+                    if not waf_notified:
+                        waf_notified = True
+                        try:
+                            await query.message.reply_text(
+                                f"⚠️ **TERDETEKSI BLOKIR BPS WAF**\n\n"
+                                f"Koneksi diblokir oleh firewall BPS pada item `{val}`.\n"
+                                f"Batch akan cooldown {cooldown_duration:.0f}s per-blokir.\n"
+                                f"Jika {WAF_ABORT_THRESHOLD}x berturut-turut gagal, batch dibatalkan otomatis."
+                            )
+                        except Exception:
+                            pass
+                    if consecutive_waf_count >= WAF_ABORT_THRESHOLD:
+                        async with progress_lock:
+                            is_aborted = True
+                        logger.error(f"Circuit breaker: {consecutive_waf_count} consecutive WAF blocks. Aborting batch.")
+                        try:
+                            await query.message.reply_text(
+                                f"🛑 **BATCH DIBATALKAN — WAF BLOCK PERSISTEN**\n\n"
+                                f"BPS WAF memblokir {consecutive_waf_count}x berturut-turut.\n"
+                                f"Sisa {total - completed_count} task di-skip.\n"
+                                f"Sukses sebelum blokir: {successes}/{total}"
+                            )
+                        except Exception:
+                            pass
+                elif ok:
+                    async with progress_lock:
+                        consecutive_waf_count = 0
 
                 # Check if auth session is dead
                 is_auth_failed = not ok and ("Gagal memperbarui token" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower() or "HTTP 401" in message)
@@ -3112,12 +3144,14 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
             
         await safe_delete_message(status_msg)
         
+        waf_info = f"\n• WAF Blocked: {waf_block_count}" if waf_block_count > 0 else ""
+        abort_info = f"\n• ⚠️ Dibatalkan: WAF block persisten ({consecutive_waf_count}x berturut)" if waf_block_count >= WAF_ABORT_THRESHOLD else ""
         summary_text = (
             f"✅ **BATCH SUBMIT SELESAI**\n"
             f"===================================\n"
             f"• Total Nomor: {total}\n"
             f"• Sukses: {successes}\n"
-            f"• Gagal: {failures}\n"
+            f"• Gagal: {failures}{waf_info}{abort_info}\n"
             f"===================================\n\n"
             f"Laporan detail eksekusi batch terlampir."
         )
@@ -3244,22 +3278,33 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         last_update_time = 0
         is_aborted = False
         waf_cooldown_until = 0.0
-        
+        consecutive_waf_count = 0
+        waf_block_count = 0
+        waf_notified = False
+        WAF_ABORT_THRESHOLD = 5
+
         async def update_status_message_throttled(force=False):
             nonlocal last_update_time
             now = time.time()
             if force or (now - last_update_time >= 1.5):
                 last_update_time = now
+                waf_line = ""
+                if waf_block_count > 0:
+                    waf_line = f"\n• WAF Blocked: {waf_block_count}"
+                pause_line = ""
+                if now < waf_cooldown_until:
+                    rem = int(waf_cooldown_until - now)
+                    pause_line = f"\n• ⏸️ WAF Cooldown: {rem}s"
                 status_text = (
                     f"📊 **Memproses CSV (Concurrency: {concurrency})**\n"
                     f"• Progress: {completed_count}/{total}\n"
-                    f"• Sukses: {successes} | Gagal: {failures}\n"
+                    f"• Sukses: {successes} | Gagal: {failures}{waf_line}{pause_line}\n"
                     f"• Sisa: {total - completed_count}"
                 )
                 await safe_edit_text(status_msg, status_text, parse_mode="Markdown")
-                
+
         async def worker(r, idx):
-            nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until
+            nonlocal successes, failures, completed_count, token_data, is_aborted, waf_cooldown_until, consecutive_waf_count, waf_block_count, waf_notified
             
             idpel = r.get("idpel")
             nometer = r.get("nometer")
@@ -3280,11 +3325,12 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 
             async with progress_lock:
                 if is_aborted:
+                    abort_reason = "Dibatalkan: WAF blokir persisten." if waf_block_count >= WAF_ABORT_THRESHOLD else "Dibatalkan karena sesi login kedaluwarsa."
                     report_rows.append({
                         "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
                         "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
-                        "photo_path": "", "status": "FAILED",
-                        "message": "Dibatalkan karena sesi login kedaluwarsa."
+                        "photo_path": "", "status": "SKIPPED",
+                        "message": abort_reason
                     })
                     failures += 1
                     completed_count += 1
@@ -3395,20 +3441,40 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     cooldown_duration = 90.0
                     async with progress_lock:
                         waf_cooldown_until = max(waf_cooldown_until, time.time() + cooldown_duration)
+                        consecutive_waf_count += 1
+                        waf_block_count += 1
                     logger.warning(
-                        f"BPS WAF Block / Rate Limit detected for CSV item {idpel or nometer} ({message}). "
-                        f"Initiating {cooldown_duration}s global batch cool-down pause."
+                        f"BPS WAF Block detected for CSV item {idpel or nometer} ({message}). "
+                        f"Consecutive: {consecutive_waf_count}/{WAF_ABORT_THRESHOLD}. Cooldown {cooldown_duration:.0f}s."
                     )
-                    try:
-                        await update.effective_message.reply_text(
-                            f"⚠️ **TERDETEKSI BLOKIR BPS WAF (CSV)**\n\n"
-                            f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429/SSL) pada item `{idpel or nometer}`.\n"
-                            f"CSV Batch akan **ditangguhkan (paused) selama {cooldown_duration:.0f} detik** "
-                            f"untuk memulihkan IP dan menghindari pemblokiran permanen..."
-                        )
-                    except Exception:
-                        pass
-                        
+                    if not waf_notified:
+                        waf_notified = True
+                        try:
+                            await update.effective_message.reply_text(
+                                f"⚠️ **TERDETEKSI BLOKIR BPS WAF (CSV)**\n\n"
+                                f"Koneksi diblokir oleh firewall BPS pada item `{idpel or nometer}`.\n"
+                                f"Batch akan cooldown {cooldown_duration:.0f}s per-blokir.\n"
+                                f"Jika {WAF_ABORT_THRESHOLD}x berturut-turut gagal, batch dibatalkan otomatis."
+                            )
+                        except Exception:
+                            pass
+                    if consecutive_waf_count >= WAF_ABORT_THRESHOLD:
+                        async with progress_lock:
+                            is_aborted = True
+                        logger.error(f"Circuit breaker: {consecutive_waf_count} consecutive WAF blocks in CSV batch. Aborting.")
+                        try:
+                            await update.effective_message.reply_text(
+                                f"🛑 **CSV BATCH DIBATALKAN — WAF BLOCK PERSISTEN**\n\n"
+                                f"BPS WAF memblokir {consecutive_waf_count}x berturut-turut.\n"
+                                f"Sisa {total - completed_count} task di-skip.\n"
+                                f"Sukses sebelum blokir: {successes}/{total}"
+                            )
+                        except Exception:
+                            pass
+                elif ok:
+                    async with progress_lock:
+                        consecutive_waf_count = 0
+
                 is_auth_failed = not ok and ("Gagal memperbarui token" in message or "autentikasi" in message.lower() or "unauthorized" in message.lower() or "HTTP 401" in message)
                 if is_auth_failed:
                     async with progress_lock:
@@ -3463,12 +3529,14 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             
         await safe_delete_message(status_msg)
         
+        waf_info = f"\n• WAF Blocked: {waf_block_count}" if waf_block_count > 0 else ""
+        abort_info = f"\n• ⚠️ Dibatalkan: WAF block persisten ({consecutive_waf_count}x berturut)" if waf_block_count >= WAF_ABORT_THRESHOLD else ""
         summary_text = (
             f"✅ **PROSES BATCH SUBMIT SELESAI**\n"
             f"===================================\n"
             f"• Total Data: {total}\n"
             f"• Sukses: {successes}\n"
-            f"• Gagal/Skipped: {failures}\n"
+            f"• Gagal/Skipped: {failures}{waf_info}{abort_info}\n"
             f"===================================\n\n"
             f"Laporan detail eksekusi bulk terlampir di bawah."
         )
