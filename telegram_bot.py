@@ -137,17 +137,21 @@ class ActiveRunsTracker:
                 logger.error(f"Failed to update/remove lock file: {e}")
 
 async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
-    from fasih_api import proxy_manager, sticky_proxy_var
-    if not sticky_proxy_var.get() and proxy_manager.proxy_pool:
+    from fasih_api import proxy_manager, sticky_proxy_var, DIRECT_CONNECTION
+    current = sticky_proxy_var.get()
+    if current is None and proxy_manager.proxy_pool:
         sticky_proxy_var.set(proxy_manager.get_proxy())
     last_exception = None
+    waf_exhausted = False
+    original_proxy = sticky_proxy_var.get()
     for attempt in range(max_retries):
         try:
             res = await func(*args, **kwargs)
-            # Report success to global proxy manager
             current_proxy = sticky_proxy_var.get()
-            if current_proxy:
+            if current_proxy is not DIRECT_CONNECTION:
                 proxy_manager.report_success(current_proxy)
+            else:
+                proxy_manager.report_success(None)
             return res
         except Exception as e:
             last_exception = e
@@ -173,26 +177,32 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
                 is_waf = True
             if "CERTIFICATE_VERIFY_FAILED" in err_str or "SELF SIGNED CERTIFICATE" in err_str or "SSLCERTVERIFICATIONERROR" in err_str:
                 is_waf = True
-                
+
             old_proxy = sticky_proxy_var.get()
-            if old_proxy:
+            if old_proxy is DIRECT_CONNECTION:
+                proxy_manager.report_failure(None, is_waf=is_waf)
+            elif old_proxy is not None:
                 proxy_manager.report_failure(old_proxy, is_waf=is_waf)
-                
+
             if proxy_manager.proxy_pool:
-                new_proxy = proxy_manager.get_proxy(exclude_proxy=old_proxy)
+                new_proxy, is_direct = proxy_manager.get_proxy_or_direct(exclude_proxy=old_proxy if old_proxy is not DIRECT_CONNECTION else None)
                 sticky_proxy_var.set(new_proxy)
+                via_label = "direct" if is_direct else f"...{(new_proxy or 'unknown')[-25:]}"
+                old_label = "direct" if old_proxy is DIRECT_CONNECTION else f"proxy ...{(old_proxy or 'none')[-25:]}"
                 base_delay = delay * 5 if is_waf else delay
                 backoff_delay = base_delay * (2 ** attempt)
                 logger.warning(
-                    f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}) via proxy ...{(old_proxy or 'direct')[-25:]}. "
-                    f"Error: {type(e).__name__} ({e}).{' [WAF]' if is_waf else ''} Rotating to new proxy and retrying in {backoff_delay:.0f}s..."
+                    f"BPS call {func.__name__} failed (attempt {attempt+1}/{max_retries}) via {old_label}. "
+                    f"Error: {type(e).__name__} ({e}).{' [WAF]' if is_waf else ''} Switching to {via_label} and retrying in {backoff_delay:.0f}s..."
                 )
                 if attempt < max_retries - 1:
                     await asyncio.sleep(backoff_delay)
                     continue
                 else:
+                    if is_waf:
+                        waf_exhausted = True
                     logger.warning(f"BPS call {func.__name__} exhausted all {max_retries} proxy-rotation retries. Raising last error.")
-                    raise e
+                    break
             else:
                 backoff_delay = delay * (2 ** attempt)
                 if attempt < max_retries - 1:
@@ -205,6 +215,26 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
                 else:
                     logger.warning(f"BPS call {func.__name__} exhausted all {max_retries} retries (no proxy). Raising last error.")
                     raise e
+
+    # Direct-connection fallback: one final attempt after WAF exhausted all proxies
+    if waf_exhausted and proxy_manager.proxy_pool:
+        last_sticky = sticky_proxy_var.get()
+        if last_sticky is not DIRECT_CONNECTION:
+            logger.info(f"BPS call {func.__name__}: WAF exhausted proxies. Final attempt via direct connection (no proxy)...")
+            sticky_proxy_var.set(DIRECT_CONNECTION)
+            try:
+                await asyncio.sleep(random.uniform(3, 8))
+                res = await func(*args, **kwargs)
+                proxy_manager.report_success(None)
+                logger.info(f"BPS call {func.__name__}: Direct connection fallback SUCCEEDED.")
+                return res
+            except Exception as direct_err:
+                proxy_manager.report_failure(None, is_waf=True)
+                logger.warning(f"BPS call {func.__name__}: Direct connection fallback also failed: {direct_err}")
+                last_exception = direct_err
+                sticky_proxy_var.set(original_proxy if original_proxy is not DIRECT_CONNECTION else None)
+
+    raise last_exception
 
 # Setup logging
 logging.basicConfig(
@@ -2829,24 +2859,29 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     await update_status_message_throttled()
                     return
 
-            # Stagger startup to avoid slamming BPS endpoints at the exact same millisecond
-            stagger_delay = idx * 2.0
+            # Human-like staggered startup — capped so large batches don't wait forever
+            # Only stagger within the concurrency window; beyond that the semaphore serializes
+            stagger_idx = idx % (concurrency * 3)
+            stagger_delay = random.uniform(2.0, 5.0) * stagger_idx + random.uniform(0.5, 3.0)
             await asyncio.sleep(stagger_delay)
 
             # Check and wait for global WAF cooldown pause if active
             now = time.time()
             if now < waf_cooldown_until:
                 cooldown_rem = waf_cooldown_until - now
-                logger.info(f"Worker for {val} waiting for global WAF cool-down ({cooldown_rem:.1f}s remaining)...")
-                await asyncio.sleep(cooldown_rem)
+                # Add per-worker jitter so workers don't all resume at once
+                jitter = random.uniform(2.0, 15.0)
+                logger.info(f"Worker for {val} waiting for global WAF cool-down ({cooldown_rem:.1f}s + {jitter:.1f}s jitter)...")
+                await asyncio.sleep(cooldown_rem + jitter)
 
             async with semaphore:
                 # Re-check WAF cooldown after acquiring semaphore
                 now = time.time()
                 if now < waf_cooldown_until:
                     cooldown_rem = waf_cooldown_until - now
-                    logger.info(f"Worker for {val} waiting for global WAF cool-down after semaphore lock ({cooldown_rem:.1f}s remaining)...")
-                    await asyncio.sleep(cooldown_rem)
+                    jitter = random.uniform(2.0, 10.0)
+                    logger.info(f"Worker for {val} waiting for global WAF cool-down after semaphore lock ({cooldown_rem:.1f}s + {jitter:.1f}s jitter)...")
+                    await asyncio.sleep(cooldown_rem + jitter)
 
                 # Re-check is_aborted after acquiring semaphore
                 async with progress_lock:
@@ -2869,11 +2904,13 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     except Exception as e:
                         logger.error(f"Failed to reload token in worker: {e}")
 
-                # Select a sticky proxy for this customer run to ensure IP consistency
-                from fasih_api import proxy_manager, sticky_proxy_var
-                current_proxy = proxy_manager.get_proxy()
+                # Select a sticky proxy for this customer run — gateway-aware with direct fallback
+                from fasih_api import proxy_manager, sticky_proxy_var, DIRECT_CONNECTION
+                current_proxy, is_direct = proxy_manager.get_proxy_or_direct()
                 sticky_proxy_var.set(current_proxy)
-                if current_proxy:
+                if is_direct:
+                    logger.info(f"Worker assigned DIRECT connection for item {val} (all proxy gateways blocked)")
+                elif current_proxy:
                     logger.info(f"Worker assigned sticky proxy for item {val}: {current_proxy}")
                 
                 is_idpel = len(val) == 12
@@ -3048,14 +3085,18 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     "SSLCERTVERIFICATIONERROR" in err_upper
                 )
                 if is_waf:
-                    cooldown_duration = 90.0
+                    from fasih_api import proxy_manager as _pm
+                    all_gw_blocked = _pm.all_proxies_waf_blocked()
+                    # Longer cooldown when all gateways blocked (need time for WAF to clear)
+                    cooldown_duration = 180.0 if all_gw_blocked else 120.0
                     async with progress_lock:
                         waf_cooldown_until = max(waf_cooldown_until, time.time() + cooldown_duration)
                         consecutive_waf_count += 1
                         waf_block_count += 1
                     logger.warning(
                         f"BPS WAF Block detected for item {val} ({message}). "
-                        f"Consecutive: {consecutive_waf_count}/{WAF_ABORT_THRESHOLD}. Cooldown {cooldown_duration:.0f}s."
+                        f"Consecutive: {consecutive_waf_count}/{WAF_ABORT_THRESHOLD}. Cooldown {cooldown_duration:.0f}s. "
+                        f"All gateways blocked: {all_gw_blocked}."
                     )
                     if not waf_notified:
                         waf_notified = True
@@ -3081,7 +3122,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                             )
                         except Exception:
                             pass
-                elif ok:
+                else:
                     async with progress_lock:
                         consecutive_waf_count = 0
 
@@ -3110,18 +3151,17 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     })
                     await update_status_message_throttled()
                 
-                # Dynamic Throttling base delay inside worker based on server response time
-                sleep_delay = 1.0
+                # Human-like inter-task delay with gaussian distribution
+                # Base: random 5-12s (simulates human reviewing next item)
+                # Server-adaptive: add extra delay when server is slow
+                human_base = max(4.0, min(18.0, random.gauss(8.0, 3.0)))
                 if elapsed > 20.0:
-                    sleep_delay = 8.0
-                    logger.info(f"BPS server is extremely slow ({elapsed:.1f}s). Applying 8.0s dynamic adaptive delay for worker.")
+                    human_base += random.uniform(4.0, 8.0)
+                    logger.info(f"BPS server is extremely slow ({elapsed:.1f}s). Human delay + server adaptive: {human_base:.1f}s")
                 elif elapsed > 10.0:
-                    sleep_delay = 4.0
-                    logger.info(f"BPS server is slow ({elapsed:.1f}s). Applying 4.0s dynamic adaptive delay for worker.")
-                
-                # Add dynamic delay with randomized jitter to avoid rate limiting or WAF block patterns
-                jitter_delay = sleep_delay + random.uniform(0.5, 2.0)
-                await asyncio.sleep(jitter_delay)
+                    human_base += random.uniform(2.0, 5.0)
+                    logger.info(f"BPS server is slow ({elapsed:.1f}s). Human delay + server adaptive: {human_base:.1f}s")
+                await asyncio.sleep(human_base)
 
         # Run all workers concurrently
         await update_status_message_throttled(force=True)
@@ -3374,10 +3414,12 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     except Exception as e:
                         logger.error(f"Failed to reload token in CSV worker: {e}")
                         
-                from fasih_api import proxy_manager, sticky_proxy_var
-                current_proxy = proxy_manager.get_proxy()
+                from fasih_api import proxy_manager, sticky_proxy_var, DIRECT_CONNECTION
+                current_proxy, is_direct = proxy_manager.get_proxy_or_direct()
                 sticky_proxy_var.set(current_proxy)
-                if current_proxy:
+                if is_direct:
+                    logger.info(f"Worker assigned DIRECT connection for CSV item {idpel or nometer} (all proxy gateways blocked)")
+                elif current_proxy:
                     logger.info(f"Worker assigned sticky proxy for CSV item {idpel or nometer}: {current_proxy}")
                     
                 direct_args = {
@@ -3438,14 +3480,17 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     "SSLCERTVERIFICATIONERROR" in err_upper
                 )
                 if is_waf:
-                    cooldown_duration = 90.0
+                    from fasih_api import proxy_manager as _pm
+                    all_gw_blocked = _pm.all_proxies_waf_blocked()
+                    cooldown_duration = 180.0 if all_gw_blocked else 120.0
                     async with progress_lock:
                         waf_cooldown_until = max(waf_cooldown_until, time.time() + cooldown_duration)
                         consecutive_waf_count += 1
                         waf_block_count += 1
                     logger.warning(
                         f"BPS WAF Block detected for CSV item {idpel or nometer} ({message}). "
-                        f"Consecutive: {consecutive_waf_count}/{WAF_ABORT_THRESHOLD}. Cooldown {cooldown_duration:.0f}s."
+                        f"Consecutive: {consecutive_waf_count}/{WAF_ABORT_THRESHOLD}. Cooldown {cooldown_duration:.0f}s. "
+                        f"All gateways blocked: {all_gw_blocked}."
                     )
                     if not waf_notified:
                         waf_notified = True
@@ -3471,7 +3516,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                             )
                         except Exception:
                             pass
-                elif ok:
+                else:
                     async with progress_lock:
                         consecutive_waf_count = 0
 

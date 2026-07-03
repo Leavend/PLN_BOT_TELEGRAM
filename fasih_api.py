@@ -125,66 +125,135 @@ import contextvars
 import threading
 import time
 
+# Sentinel: sticky_proxy_var set to this means "use direct connection, no proxy"
+# Distinguishes from None which means "not yet assigned"
+DIRECT_CONNECTION = object()
+
+def _extract_gateway_ip(proxy_url: str) -> str:
+    try:
+        parsed = urllib.parse.urlparse(proxy_url)
+        return parsed.hostname or proxy_url
+    except Exception:
+        return proxy_url
+
 class ProxyManager:
     def __init__(self, proxy_pool: list):
         self.proxy_pool = proxy_pool
         self.lock = threading.Lock()
-        # Maps proxy_url -> expiry timestamp (float)
         self.blocked_proxies = {}
-        # Maps proxy_url -> consecutive failure count (int)
         self.failure_counts = {}
+        self.gateway_groups = {}
+        self.proxy_to_gateway = {}
+        for p in self.proxy_pool:
+            gw = _extract_gateway_ip(p)
+            self.gateway_groups.setdefault(gw, []).append(p)
+            self.proxy_to_gateway[p] = gw
+        self.blocked_gateways = {}
+        self._direct_cooldown_until = 0.0
         if self.proxy_pool:
-            logger.info(f"ProxyManager initialized with pool size: {len(self.proxy_pool)}")
-        
-    def report_failure(self, proxy: str, is_waf: bool = False):
-        if not proxy:
+            gw_count = len(self.gateway_groups)
+            logger.info(f"ProxyManager initialized with pool size: {len(self.proxy_pool)}, gateway groups: {gw_count}")
+
+    def report_failure(self, proxy, is_waf: bool = False):
+        if proxy is None or proxy is DIRECT_CONNECTION:
+            with self.lock:
+                cooldown = 180 if is_waf else 60
+                self._direct_cooldown_until = time.time() + cooldown
+                logger.warning(f"Direct connection reported failure (is_waf={is_waf}). Cool-down {cooldown}s.")
             return
         with self.lock:
-            # WAF block: cool down for 5 minutes (300 seconds)
-            # Timeout/Other network error: cool down for 2 minutes (120 seconds)
             cooldown = 300 if is_waf else 120
             self.blocked_proxies[proxy] = time.time() + cooldown
             self.failure_counts[proxy] = self.failure_counts.get(proxy, 0) + 1
-            logger.warning(
-                f"Proxy reported failure: ...{proxy[-25:]} (is_waf={is_waf}). "
-                f"Cool-down active for {cooldown}s. Fail count: {self.failure_counts[proxy]}"
-            )
-            
-    def report_success(self, proxy: str):
-        if not proxy:
+            if is_waf:
+                gw = self.proxy_to_gateway.get(proxy, _extract_gateway_ip(proxy))
+                self.blocked_gateways[gw] = time.time() + cooldown
+                blocked_in_gw = sum(1 for p in self.gateway_groups.get(gw, []) if p in self.blocked_proxies)
+                logger.warning(
+                    f"Proxy WAF block: ...{proxy[-25:]} (gateway {gw}). "
+                    f"Gateway blocked for {cooldown}s. {blocked_in_gw}/{len(self.gateway_groups.get(gw, []))} proxies blocked in group."
+                )
+            else:
+                logger.warning(
+                    f"Proxy reported failure: ...{proxy[-25:]} (is_waf={is_waf}). "
+                    f"Cool-down active for {cooldown}s. Fail count: {self.failure_counts[proxy]}"
+                )
+
+    def report_success(self, proxy):
+        if proxy is None or proxy is DIRECT_CONNECTION:
+            with self.lock:
+                self._direct_cooldown_until = 0.0
             return
         with self.lock:
             if proxy in self.blocked_proxies:
                 del self.blocked_proxies[proxy]
             self.failure_counts[proxy] = 0
+            gw = self.proxy_to_gateway.get(proxy, _extract_gateway_ip(proxy))
+            if gw in self.blocked_gateways:
+                del self.blocked_gateways[gw]
+
+    def _clean_expired(self, now: float):
+        expired = [p for p, exp in self.blocked_proxies.items() if now >= exp]
+        for p in expired:
+            del self.blocked_proxies[p]
+        expired_gw = [g for g, exp in self.blocked_gateways.items() if now >= exp]
+        for g in expired_gw:
+            del self.blocked_gateways[g]
 
     def get_proxy(self, exclude_proxy: str = None) -> str:
         if not self.proxy_pool:
             return None
-            
+
         with self.lock:
             now = time.time()
-            # Clean up expired blocks
-            expired = [p for p, expiry in self.blocked_proxies.items() if now >= expiry]
-            for p in expired:
-                del self.blocked_proxies[p]
-                
-            # Filter active (not in cool-down) proxies
-            available = [p for p in self.proxy_pool if p not in self.blocked_proxies and p != exclude_proxy]
-            
+            self._clean_expired(now)
+
+            available = [
+                p for p in self.proxy_pool
+                if p not in self.blocked_proxies
+                and p != exclude_proxy
+                and self.proxy_to_gateway[p] not in self.blocked_gateways
+            ]
+
             if available:
-                # Sort available proxies to prefer those with fewer failures
                 available.sort(key=lambda p: self.failure_counts.get(p, 0))
-                # Choose randomly from the top 10% or at least top 3 least-failed to add load-balancing randomness
                 pool_to_select = available[:max(3, len(available) // 10)]
                 return random.choice(pool_to_select)
-                
-            # If all proxies are blocked, fallback to the one that expires earliest
+
+            fallback = [p for p in self.proxy_pool if p not in self.blocked_proxies and p != exclude_proxy]
+            if fallback:
+                fallback.sort(key=lambda p: self.failure_counts.get(p, 0))
+                return fallback[0]
+
             if self.blocked_proxies:
                 sorted_blocked = sorted(self.blocked_proxies.items(), key=lambda x: x[1])
                 return sorted_blocked[0][0]
-                
+
             return random.choice(self.proxy_pool)
+
+    def get_proxy_or_direct(self, exclude_proxy: str = None):
+        """Returns (proxy_url_or_DIRECT_CONNECTION, is_direct)."""
+        if not self.proxy_pool:
+            return DIRECT_CONNECTION, True
+
+        with self.lock:
+            now = time.time()
+            self._clean_expired(now)
+            all_gateways_blocked = all(gw in self.blocked_gateways for gw in self.gateway_groups)
+            if all_gateways_blocked and now >= self._direct_cooldown_until:
+                logger.info("All proxy gateways WAF-blocked. Falling back to direct connection.")
+                return DIRECT_CONNECTION, True
+
+        if all_gateways_blocked:
+            return self.get_proxy(exclude_proxy), False
+
+        return self.get_proxy(exclude_proxy), False
+
+    def all_proxies_waf_blocked(self) -> bool:
+        with self.lock:
+            now = time.time()
+            self._clean_expired(now)
+            return bool(self.gateway_groups) and all(gw in self.blocked_gateways for gw in self.gateway_groups)
 
 # Context local variable to hold a sticky proxy for a single customer submit context
 sticky_proxy_var = contextvars.ContextVar("sticky_proxy", default=None)
@@ -213,9 +282,12 @@ class RotatingProxySession(requests.Session):
 
         # 2. Otherwise fall back to Standard Proxy Rotation (Context/Sticky)
         proxy = sticky_proxy_var.get()
+        if proxy is DIRECT_CONNECTION:
+            logger.debug("Routing BPS request via DIRECT connection (no proxy)")
+            return super().send(request, **kwargs)
         if not proxy and self.proxy_pool:
             proxy = proxy_manager.get_proxy()
-            
+
         if proxy:
             kwargs['proxies'] = {
                 'http': proxy,
