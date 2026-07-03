@@ -2813,7 +2813,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         report_rows = []
         
         # Concurrency control
-        concurrency = 3
+        concurrency = 1
         semaphore = asyncio.Semaphore(concurrency)
         progress_lock = asyncio.Lock()
         completed_count = 0
@@ -3311,7 +3311,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         failures = 0
         
         # Concurrency control
-        concurrency = 3
+        concurrency = 1
         semaphore = asyncio.Semaphore(concurrency)
         progress_lock = asyncio.Lock()
         completed_count = 0
