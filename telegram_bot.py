@@ -171,6 +171,8 @@ async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
 
             if "405" in err_str or "429" in err_str or "METHOD NOT ALLOWED" in err_str or "TOO MANY REQUESTS" in err_str:
                 is_waf = True
+            if "CERTIFICATE_VERIFY_FAILED" in err_str or "SELF SIGNED CERTIFICATE" in err_str or "SSLCERTVERIFICATIONERROR" in err_str:
+                is_waf = True
                 
             old_proxy = sticky_proxy_var.get()
             if old_proxy:
@@ -3026,10 +3028,12 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 # Check for WAF block / rate limit
                 err_upper = str(message).upper()
                 is_waf = not ok and (
-                    "405" in err_upper or "429" in err_upper or 
+                    "405" in err_upper or "429" in err_upper or
                     "METHOD NOT ALLOWED" in err_upper or "TOO MANY REQUESTS" in err_upper or
                     "WAF" in err_upper or "RATE LIMIT" in err_upper or "BLOKIR" in err_upper or
-                    "EXPECTING VALUE" in err_upper or "JSON" in err_upper or "HTML" in err_upper
+                    "EXPECTING VALUE" in err_upper or "JSON" in err_upper or "HTML" in err_upper or
+                    "CERTIFICATE_VERIFY_FAILED" in err_upper or "SELF SIGNED CERTIFICATE" in err_upper or
+                    "SSLCERTVERIFICATIONERROR" in err_upper
                 )
                 if is_waf:
                     cooldown_duration = 90.0
@@ -3042,7 +3046,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     try:
                         await query.message.reply_text(
                             f"⚠️ **TERDETEKSI BLOKIR BPS WAF**\n\n"
-                            f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429) pada item `{val}`.\n"
+                            f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429/SSL) pada item `{val}`.\n"
                             f"Batch akan **ditangguhkan (paused) selama {cooldown_duration:.0f} detik** "
                             f"untuk memulihkan IP dan menghindari pemblokiran permanen..."
                         )
@@ -3380,10 +3384,12 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 
                 err_upper = str(message).upper()
                 is_waf = not ok and (
-                    "405" in err_upper or "429" in err_upper or 
+                    "405" in err_upper or "429" in err_upper or
                     "METHOD NOT ALLOWED" in err_upper or "TOO MANY REQUESTS" in err_upper or
                     "WAF" in err_upper or "RATE LIMIT" in err_upper or "BLOKIR" in err_upper or
-                    "EXPECTING VALUE" in err_upper or "JSON" in err_upper or "HTML" in err_upper
+                    "EXPECTING VALUE" in err_upper or "JSON" in err_upper or "HTML" in err_upper or
+                    "CERTIFICATE_VERIFY_FAILED" in err_upper or "SELF SIGNED CERTIFICATE" in err_upper or
+                    "SSLCERTVERIFICATIONERROR" in err_upper
                 )
                 if is_waf:
                     cooldown_duration = 90.0
@@ -3396,7 +3402,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     try:
                         await update.effective_message.reply_text(
                             f"⚠️ **TERDETEKSI BLOKIR BPS WAF (CSV)**\n\n"
-                            f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429) pada item `{idpel or nometer}`.\n"
+                            f"Koneksi diblokir sementara oleh firewall BPS (HTTP 405/429/SSL) pada item `{idpel or nometer}`.\n"
                             f"CSV Batch akan **ditangguhkan (paused) selama {cooldown_duration:.0f} detik** "
                             f"untuk memulihkan IP dan menghindari pemblokiran permanen..."
                         )
