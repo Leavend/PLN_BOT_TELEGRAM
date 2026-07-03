@@ -157,6 +157,11 @@ def ensure_login() -> dict:
 
 # --- Submit Pipeline ---
 
+def _is_prabayar(tarif: str) -> bool:
+    """PLN tarif ending in M = Prabayar (prepaid token), else Pascabayar."""
+    return tarif.strip().upper().endswith("M")
+
+
 def _find_template_for_region(open_assignments, pln_data):
     """Find template assignment matching PLN region — mirrors bot logic."""
     if not open_assignments:
@@ -179,39 +184,38 @@ def _find_template_for_region(open_assignments, pln_data):
 def submit_single(
     token_data: dict,
     val: str,
-    cached_survey: dict,
-    cached_periode: dict,
-    cached_template_mapping: dict,
-    cached_assignments: list,
-    cached_regions: list,
+    survey_caches: dict,
     dry_run: bool = False,
     temp_dir: str = "",
 ) -> tuple[bool, str]:
-    """Submit single item — synchronous version of submit_fasih_safe step 2-10."""
+    """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
     try:
         token_data = refresh_token_if_needed(token_data, token_file=TOKEN_FILE, exit_on_failure=False)
         headers = get_headers(token_data)
-
-        pid = cached_periode["id"]
 
         # Determine idpel vs nometer
         is_idpel = len(val) == 12
         idpel_val = val if is_idpel else ""
         nometer_val = "" if is_idpel else val
 
-        # Find assignment in cached list
-        idpel_slot = next((s for s, v in cached_template_mapping.items() if v == "r101a"), "data3")
-        nometer_slot = next((s for s, v in cached_template_mapping.items() if v == "r101b"), "data1")
-
+        # Search ALL surveys' assignments for existing match
         target = None
+        matched_key = None
         create_new = False
         template_assignment_id = None
 
-        for a in cached_assignments:
-            v_idpel = (a.get(idpel_slot) or "").strip()
-            v_nometer = (a.get(nometer_slot) or "").strip()
-            if (is_idpel and v_idpel == val) or (not is_idpel and v_nometer == val):
-                target = a
+        for skey, sc in survey_caches.items():
+            tm = sc["template_mapping"]
+            idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
+            nometer_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
+            for a in sc["assignments"]:
+                v_idpel = (a.get(idpel_slot) or "").strip()
+                v_nometer = (a.get(nometer_slot) or "").strip()
+                if (is_idpel and v_idpel == val) or (not is_idpel and v_nometer == val):
+                    target = a
+                    matched_key = skey
+                    break
+            if target:
                 break
 
         direct_args = {
@@ -223,13 +227,17 @@ def submit_single(
         }
 
         if target:
+            sc = survey_caches[matched_key]
+            tm = sc["template_mapping"]
+            i_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
+            n_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
             status_alias = target.get("assignmentStatusAlias") or ""
             if "SUBMITTED" in status_alias or "DONE" in status_alias or "APPROVED" in status_alias:
                 return True, f"Sudah terkirim (Status: {status_alias})."
             direct_args["nama"] = target.get("data2", "") or "PELANGGAN"
             direct_args["alamat"] = target.get("data4", target.get("data5", "")) or ""
-            idpel_val = target.get(idpel_slot) or idpel_val
-            nometer_val = target.get(nometer_slot) or nometer_val
+            idpel_val = target.get(i_slot) or idpel_val
+            nometer_val = target.get(n_slot) or nometer_val
             direct_args["idpel"] = idpel_val
             direct_args["nometer"] = nometer_val
 
@@ -279,22 +287,36 @@ def submit_single(
                 photo_path = download_photo(pln_data["photo_url"], temp_dir)
 
         if not target:
-            # No existing assignment — create new penugasan (same as bot)
+            # No existing assignment — determine survey from PLN tarif
+            tarif = direct_args.get("tarif", "")
+            if _is_prabayar(tarif) and "PRABAYAR" in survey_caches:
+                matched_key = "PRABAYAR"
+            elif not _is_prabayar(tarif) and "PASCABAYAR" in survey_caches:
+                matched_key = "PASCABAYAR"
+            else:
+                matched_key = next(iter(survey_caches))
+
             create_new = True
-            # Prefer OPEN assignments as template, but any status works
-            # (build_new_assignment_target resets status to OPEN + isNew=True)
-            open_assignments = [a for a in cached_assignments
-                                if "OPEN" in (a.get("assignmentStatusAlias") or "")]
-            template_pool = open_assignments or cached_assignments
+            sc = survey_caches[matched_key]
+            all_assigns = sc["assignments"]
+            open_assigns = [a for a in all_assigns
+                            if "OPEN" in (a.get("assignmentStatusAlias") or "")]
+            template_pool = open_assigns or all_assigns
             if not template_pool:
-                return False, "Tidak ada assignment sama sekali di BPS."
+                return False, f"Tidak ada assignment di survey {matched_key}."
             template_assignment = _find_template_for_region(template_pool, pln_data)
             template_assignment_id = template_assignment["id"]
             target = build_new_assignment_target(
-                template_assignment, idpel_val, nometer_val, cached_template_mapping)
+                template_assignment, idpel_val, nometer_val, sc["template_mapping"])
             target["data2"] = direct_args.get("nama") or ""
             target["data4"] = direct_args.get("alamat") or ""
             target["data5"] = direct_args.get("alamat") or ""
+
+        # Resolve active survey cache
+        sc = survey_caches[matched_key]
+        cached_template_mapping = sc["template_mapping"]
+        cached_regions = sc["regions"]
+        pid = sc["periode"]["id"]
 
         # Step 6: Build answers
         answers = build_dynamic_answers(target, direct_args, cached_template_mapping)
@@ -488,32 +510,51 @@ def main():
     token_data = ensure_login()
     headers = get_headers(token_data)
 
-    # Step 2-3: Fetch surveys + assignments (cached once)
+    # Step 2-3: Fetch surveys + assignments (cached once, both Prabayar & Pascabayar)
     print("📊 Mengambil data survei dari BPS...")
     surveys = fetch_surveys(headers)
     if not surveys:
         print("❌ Tidak ada survei aktif.")
         sys.exit(1)
-    survey = surveys[0]
 
-    active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
-    if not active_periode:
-        print("❌ Tidak ada periode aktif.")
+    survey_caches = {}
+    for survey in surveys:
+        sname = (survey.get("name") or "").upper()
+        if "PASCA" in sname:
+            skey = "PASCABAYAR"
+        elif "PRABAYAR" in sname or "PRA" in sname:
+            skey = "PRABAYAR"
+        else:
+            skey = sname[:20] or "DEFAULT"
+
+        active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
+        if not active_periode:
+            print(f"   ⚠️  {skey}: tidak ada periode aktif, dilewati")
+            continue
+        pid = active_periode["id"]
+
+        template_lookup = survey.get("templateLookup", [])
+        template_mapping = {}
+        if template_lookup:
+            tl = template_lookup[0]
+            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+
+        print(f"📋 Mengambil tugas {skey}...")
+        assignments = fetch_all_assignments(headers, pid)
+        regions = fetch_regions(headers, pid)
+
+        survey_caches[skey] = {
+            "survey": survey,
+            "periode": active_periode,
+            "template_mapping": template_mapping,
+            "assignments": assignments,
+            "regions": regions,
+        }
+        print(f"   {skey}: {len(assignments)} tugas")
+
+    if not survey_caches:
+        print("❌ Tidak ada survei dengan periode aktif.")
         sys.exit(1)
-    pid = active_periode["id"]
-
-    template_lookup = survey.get("templateLookup", [])
-    template_mapping = {}
-    if template_lookup:
-        tl = template_lookup[0]
-        template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
-
-    print("📋 Mengambil daftar tugas dari BPS...")
-    assignments = fetch_all_assignments(headers, pid)
-    print(f"   Ditemukan {len(assignments)} tugas.")
-
-    print("🔐 Mengambil region keys...")
-    regions = fetch_regions(headers, pid)
 
     # Process items
     print(f"\n{'='*50}")
@@ -535,8 +576,7 @@ def main():
             print(f"[{idx+1}/{len(items)}] {val}", end=" ... ", flush=True)
 
             ok, message = submit_single(
-                token_data, val, survey, active_periode,
-                template_mapping, assignments, regions,
+                token_data, val, survey_caches,
                 dry_run=args.dry_run, temp_dir=temp_dir
             )
 
