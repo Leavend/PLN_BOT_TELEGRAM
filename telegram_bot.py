@@ -2875,26 +2875,20 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         waf_block_count = 0
         waf_notified = False
         WAF_ABORT_THRESHOLD = 5
+        batch_start_time = time.time()
+        last_item_label = ""
 
         async def update_status_message_throttled(force=False):
             nonlocal last_update_time
             now = time.time()
             if force or (now - last_update_time >= 1.5):
                 last_update_time = now
-                waf_line = ""
-                if waf_block_count > 0:
-                    waf_line = f"\n• WAF Blocked: {waf_block_count}"
-                pause_line = ""
-                if now < waf_cooldown_until:
-                    rem = int(waf_cooldown_until - now)
-                    pause_line = f"\n• ⏸️ WAF Cooldown: {rem}s"
-                status_text = (
-                    f"⏳ **Memproses Massal (Concurrency: {concurrency})**\n"
-                    f"• Progress: {completed_count}/{total}\n"
-                    f"• Sukses: {successes} | Gagal: {failures}{waf_line}{pause_line}\n"
-                    f"• Sisa: {total - completed_count}"
+                status_text = _build_batch_status(
+                    completed_count, total, successes, failures,
+                    waf_block_count, waf_cooldown_until, now,
+                    batch_start_time, last_item_label
                 )
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Batalkan Batch", callback_data=f"batch_cancel_{chat_id}")]])
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Batalkan", callback_data=f"batch_cancel_{chat_id}")]])
                 await safe_edit_text(status_msg, status_text, parse_mode="Markdown", reply_markup=keyboard)
 
         async def worker(val, idx):
@@ -3208,6 +3202,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     else:
                         failures += 1
                     completed_count += 1
+                    last_item_label = f"{'✅' if ok else '❌'} {val} — {direct_args['nama'][:18]}"
                     report_rows.append({
                         "val": val, "nama": direct_args["nama"],
                         "status": "SUCCESS" if ok else "FAILED",
@@ -3399,26 +3394,20 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         waf_block_count = 0
         waf_notified = False
         WAF_ABORT_THRESHOLD = 5
+        batch_start_time = time.time()
+        last_item_label = ""
 
         async def update_status_message_throttled(force=False):
             nonlocal last_update_time
             now = time.time()
             if force or (now - last_update_time >= 1.5):
                 last_update_time = now
-                waf_line = ""
-                if waf_block_count > 0:
-                    waf_line = f"\n• WAF Blocked: {waf_block_count}"
-                pause_line = ""
-                if now < waf_cooldown_until:
-                    rem = int(waf_cooldown_until - now)
-                    pause_line = f"\n• ⏸️ WAF Cooldown: {rem}s"
-                status_text = (
-                    f"📊 **Memproses CSV (Concurrency: {concurrency})**\n"
-                    f"• Progress: {completed_count}/{total}\n"
-                    f"• Sukses: {successes} | Gagal: {failures}{waf_line}{pause_line}\n"
-                    f"• Sisa: {total - completed_count}"
+                status_text = _build_batch_status(
+                    completed_count, total, successes, failures,
+                    waf_block_count, waf_cooldown_until, now,
+                    batch_start_time, last_item_label
                 )
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Batalkan Batch", callback_data=f"batch_cancel_{chat_id}")]])
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Batalkan", callback_data=f"batch_cancel_{chat_id}")]])
                 await safe_edit_text(status_msg, status_text, parse_mode="Markdown", reply_markup=keyboard)
 
         async def worker(r, idx):
@@ -3627,6 +3616,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     else:
                         failures += 1
                     completed_count += 1
+                    last_item_label = f"{'✅' if ok else '❌'} {idpel or nometer} — {nama[:18]}"
                     report_rows.append({
                         "idpel": idpel, "nometer": nometer, "nama": nama, "alamat": r.get("alamat", ""),
                         "latitude": r.get("latitude", ""), "longitude": r.get("longitude", ""),
@@ -3712,6 +3702,51 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 os.remove(report_path)
             except Exception:
                 pass
+
+def _build_batch_status(completed: int, total: int, successes: int, failures: int,
+                        waf_blocks: int, waf_cooldown_until: float, now: float,
+                        start_time: float, last_item: str) -> str:
+    pct = int(completed / total * 100) if total > 0 else 0
+    bar_len = 20
+    filled = pct * bar_len // 100
+    bar = "▓" * filled + "░" * (bar_len - filled)
+
+    elapsed = now - start_time
+    elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
+    if completed > 0:
+        rate = completed / (elapsed / 60) if elapsed > 0 else 0
+        remaining = total - completed
+        eta_sec = (remaining / rate * 60) if rate > 0 else 0
+        eta_str = f"{int(eta_sec // 60)}m {int(eta_sec % 60)}s"
+        speed_str = f"{rate:.1f}/menit"
+    else:
+        eta_str = "menghitung..."
+        speed_str = "—"
+
+    lines = [
+        f"⚡ **BATCH SUBMIT** — `{pct}%`",
+        f"`{bar}` {completed}/{total}",
+        f"{'━' * 28}",
+        f"✅ Sukses: **{successes}**  ❌ Gagal: **{failures}**",
+    ]
+
+    if waf_blocks > 0:
+        lines.append(f"🛡️ WAF Block: **{waf_blocks}**")
+
+    if now < waf_cooldown_until:
+        rem = int(waf_cooldown_until - now)
+        lines.append(f"⏸️ Cooldown: **{rem}s** remaining")
+
+    lines.append(f"{'━' * 28}")
+    lines.append(f"⏱️ Elapsed: {elapsed_str}  ⏳ ETA: {eta_str}")
+    lines.append(f"🚀 Speed: {speed_str}")
+
+    if last_item:
+        lines.append(f"{'━' * 28}")
+        lines.append(f"📌 {last_item}")
+
+    return "\n".join(lines)
+
 
 # --- BATCH CANCEL CALLBACK ---
 
