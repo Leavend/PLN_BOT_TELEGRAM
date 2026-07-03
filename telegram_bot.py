@@ -136,6 +136,52 @@ class ActiveRunsTracker:
             except Exception as e:
                 logger.error(f"Failed to update/remove lock file: {e}")
 
+
+# ── Global Activity Event Bus ──────────────────────────────────────────
+import collections
+from dataclasses import dataclass, field
+
+@dataclass
+class ActivityEvent:
+    timestamp: float
+    icon: str
+    text: str
+
+class ActivityBus:
+    """Ring buffer of recent activity events. Workers push, /live and /logs consume."""
+    def __init__(self, maxlen: int = 50):
+        self._events: collections.deque = collections.deque(maxlen=maxlen)
+        self._lock = asyncio.Lock()
+        self._batch_stats = {
+            "total": 0, "successes": 0, "failures": 0, "completed": 0,
+            "waf_blocks": 0, "current_proxy": "", "avg_time": 0.0,
+            "batch_active": False
+        }
+
+    async def push(self, icon: str, text: str):
+        evt = ActivityEvent(timestamp=time.time(), icon=icon, text=text)
+        async with self._lock:
+            self._events.append(evt)
+
+    async def update_stats(self, **kwargs):
+        async with self._lock:
+            self._batch_stats.update(kwargs)
+
+    async def get_stats(self) -> dict:
+        async with self._lock:
+            return dict(self._batch_stats)
+
+    async def get_recent(self, n: int = 8) -> list:
+        async with self._lock:
+            return list(self._events)[-n:]
+
+activity_bus = ActivityBus()
+
+# Active /live and /logs stream sessions
+_live_sessions: dict[int, asyncio.Task] = {}
+_logstream_sessions: dict[int, asyncio.Task] = {}
+
+
 async def call_with_retry(func, *args, max_retries=3, delay=3.0, **kwargs):
     from fasih_api import proxy_manager, sticky_proxy_var, DIRECT_CONNECTION
     current = sticky_proxy_var.get()
@@ -2764,10 +2810,12 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
     status_msg = await query.message.edit_text("⏳ Sedang memproses inisialisasi...")
     
     ActiveRunsTracker.increment()
+    await activity_bus.update_stats(batch_active=True, total=len(search_queries), successes=0, failures=0, completed=0, waf_blocks=0)
+    await activity_bus.push("🚀", f"Batch dimulai — {len(search_queries)} item")
     try:
         token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
         headers = get_headers(token_data)
-        
+
         # Fetch surveys
         surveys = await call_with_retry(async_fetch_surveys, headers)
         if not surveys:
@@ -2910,8 +2958,10 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 sticky_proxy_var.set(current_proxy)
                 if is_direct:
                     logger.info(f"Worker assigned DIRECT connection for item {val} (all proxy gateways blocked)")
+                    await activity_bus.push("🌐", f"Direct connection — {val}")
                 elif current_proxy:
                     logger.info(f"Worker assigned sticky proxy for item {val}: {current_proxy}")
+                    await activity_bus.update_stats(current_proxy=f"...{current_proxy[-15:]}" if len(current_proxy) > 15 else current_proxy)
                 
                 is_idpel = len(val) == 12
                 idpel_val = val if is_idpel else ""
@@ -3098,6 +3148,7 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                         f"Consecutive: {consecutive_waf_count}/{WAF_ABORT_THRESHOLD}. Cooldown {cooldown_duration:.0f}s. "
                         f"All gateways blocked: {all_gw_blocked}."
                     )
+                    await activity_bus.push("🛡️", f"WAF block — {val} (cooldown {cooldown_duration:.0f}s)")
                     if not waf_notified:
                         waf_notified = True
                         try:
@@ -3150,7 +3201,12 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                         "message": message
                     })
                     await update_status_message_throttled()
-                
+                    await activity_bus.update_stats(successes=successes, failures=failures, completed=completed_count, waf_blocks=waf_block_count)
+                if ok:
+                    await activity_bus.push("✅", f"{val} — {direct_args['nama'][:20]}")
+                elif not is_waf:
+                    await activity_bus.push("❌", f"{val} — {message[:30]}")
+
                 # Human-like inter-task delay with gaussian distribution
                 # Base: random 5-12s (simulates human reviewing next item)
                 # Server-adaptive: add extra delay when server is slow
@@ -3211,7 +3267,9 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         await safe_edit_text(status_msg, f"❌ Terjadi kesalahan sistem: {str(e)}")
     finally:
         ActiveRunsTracker.decrement()
-        
+        await activity_bus.update_stats(batch_active=False)
+        await activity_bus.push("🏁", f"Batch selesai — ✅{successes} ❌{failures}")
+
     return ConversationHandler.END
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3244,6 +3302,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     status_msg = await update.message.reply_text("📥 Mengunduh berkas CSV...")
     ActiveRunsTracker.increment()
+    await activity_bus.push("📥", "CSV batch dimulai")
     try:
         temp_dir = tempfile.gettempdir()
         csv_path = os.path.join(temp_dir, f"bulk_{chat_id}_{int(datetime.now().timestamp())}.csv")
@@ -3265,6 +3324,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
             
         total = len(records)
+        await activity_bus.update_stats(batch_active=True, total=total, successes=0, failures=0, completed=0, waf_blocks=0)
+        await activity_bus.push("📥", f"CSV batch — {total} item")
         await status_msg.edit_text(f"📊 Menemukan {total} data pelanggan di CSV. Mempersiapkan data sinkronisasi awal...")
         
         # Pre-fetch cache data once to optimize performance and prevent rate limiting
@@ -3419,6 +3480,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                 sticky_proxy_var.set(current_proxy)
                 if is_direct:
                     logger.info(f"Worker assigned DIRECT connection for CSV item {idpel or nometer} (all proxy gateways blocked)")
+                    await activity_bus.push("🌐", f"Direct connection — {idpel or nometer}")
                 elif current_proxy:
                     logger.info(f"Worker assigned sticky proxy for CSV item {idpel or nometer}: {current_proxy}")
                     
@@ -3492,6 +3554,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                         f"Consecutive: {consecutive_waf_count}/{WAF_ABORT_THRESHOLD}. Cooldown {cooldown_duration:.0f}s. "
                         f"All gateways blocked: {all_gw_blocked}."
                     )
+                    await activity_bus.push("🛡️", f"WAF block CSV — {idpel or nometer} (cooldown {cooldown_duration:.0f}s)")
                     if not waf_notified:
                         waf_notified = True
                         try:
@@ -3544,6 +3607,11 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                         "photo_path": photo_path or "", "status": status_label, "message": message
                     })
                     await update_status_message_throttled()
+                    await activity_bus.update_stats(successes=successes, failures=failures, completed=completed_count, waf_blocks=waf_block_count)
+                if ok:
+                    await activity_bus.push("✅", f"{idpel or nometer} — {nama[:20]}")
+                elif not is_waf:
+                    await activity_bus.push("❌", f"{idpel or nometer} — {message[:30]}")
                     
                 sleep_delay = 1.0
                 if elapsed > 20.0:
@@ -3605,6 +3673,8 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(f"❌ Terjadi kesalahan saat memproses bulk: {str(e)}")
     finally:
         ActiveRunsTracker.decrement()
+        await activity_bus.update_stats(batch_active=False)
+        await activity_bus.push("🏁", f"CSV batch selesai — ✅{successes} ❌{failures}")
         if csv_path and os.path.exists(csv_path):
             try:
                 os.remove(csv_path)
@@ -3616,32 +3686,173 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception:
                 pass
 
+# --- LIVE ACTIVITY MONITOR ---
+
+async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start a realtime activity dashboard for any user."""
+    chat_id = update.effective_chat.id
+
+    if chat_id in _live_sessions:
+        old_task = _live_sessions.pop(chat_id)
+        old_task.cancel()
+
+    stats = await activity_bus.get_stats()
+    events = await activity_bus.get_recent(8)
+    text = _build_live_dashboard(stats, events)
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Refresh", callback_data="live_refresh"),
+         InlineKeyboardButton("⏹ Stop Live", callback_data="live_stop")]
+    ])
+    msg = await update.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
+    task = asyncio.create_task(_live_update_loop(msg, chat_id))
+    _live_sessions[chat_id] = task
+
+
+def _build_live_dashboard(stats: dict, events: list) -> str:
+    active = stats.get("batch_active", False)
+    total = stats.get("total", 0)
+    completed = stats.get("completed", 0)
+    successes = stats.get("successes", 0)
+    failures = stats.get("failures", 0)
+    waf = stats.get("waf_blocks", 0)
+
+    if active and total > 0:
+        pct = int(completed / total * 100)
+        bar_filled = pct // 5
+        bar = "█" * bar_filled + "░" * (20 - bar_filled)
+        progress = f"[{bar}] {pct}%"
+        status_icon = "🟢"
+        status_text = "BATCH AKTIF"
+    elif completed > 0:
+        progress = "Selesai"
+        status_icon = "⚪"
+        status_text = "IDLE"
+    else:
+        progress = "—"
+        status_icon = "⚪"
+        status_text = "IDLE"
+
+    header = (
+        f"{status_icon} **LIVE MONITOR** — {status_text}\n"
+        f"{'━' * 28}\n"
+    )
+
+    if total > 0:
+        header += (
+            f"📊 {progress}\n"
+            f"✅ {successes}  ❌ {failures}  🛡️ {waf}  📦 {completed}/{total}\n"
+            f"{'━' * 28}\n"
+        )
+
+    event_lines = []
+    for e in events[-8:]:
+        ts = datetime.fromtimestamp(e.timestamp).strftime("%H:%M:%S")
+        event_lines.append(f"`{ts}` {e.icon} {e.text}")
+
+    if event_lines:
+        header += "\n".join(event_lines)
+    else:
+        header += "_Belum ada aktivitas_"
+
+    header += f"\n{'━' * 28}\n🕐 Update otomatis setiap 3 detik"
+    return header
+
+
+async def _live_update_loop(msg, chat_id: int):
+    try:
+        last_text = ""
+        idle_ticks = 0
+        while True:
+            await asyncio.sleep(3)
+            stats = await activity_bus.get_stats()
+            events = await activity_bus.get_recent(8)
+            text = _build_live_dashboard(stats, events)
+            if text != last_text:
+                last_text = text
+                idle_ticks = 0
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Refresh", callback_data="live_refresh"),
+                     InlineKeyboardButton("⏹ Stop Live", callback_data="live_stop")]
+                ])
+                try:
+                    await msg.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+                except Exception:
+                    pass
+            else:
+                idle_ticks += 1
+            if idle_ticks >= 200:
+                break
+    except asyncio.CancelledError:
+        pass
+    finally:
+        _live_sessions.pop(chat_id, None)
+        try:
+            await msg.edit_text(last_text + "\n\n_Live monitor dihentikan._", parse_mode="Markdown")
+        except Exception:
+            pass
+
+
+async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    chat_id = update.effective_chat.id
+    action = query.data
+
+    if action == "live_stop":
+        task = _live_sessions.pop(chat_id, None)
+        if task:
+            task.cancel()
+        try:
+            await query.message.edit_text("⏹ Live monitor dihentikan.", parse_mode="Markdown")
+        except Exception:
+            pass
+        return
+
+    if action == "live_refresh":
+        stats = await activity_bus.get_stats()
+        events = await activity_bus.get_recent(8)
+        text = _build_live_dashboard(stats, events)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Refresh", callback_data="live_refresh"),
+             InlineKeyboardButton("⏹ Stop Live", callback_data="live_stop")]
+        ])
+        try:
+            await query.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        except Exception:
+            pass
+
+
 # --- ADMIN LOG VIEWER ---
 
 @admin_only
 async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show log viewer menu with tail options."""
-    # Check if log file exists
+    """Show log viewer menu with tail options + realtime stream."""
     if not os.path.exists(LOG_FILE_PATH):
         await update.message.reply_text("📄 File `bot.log` tidak ditemukan di server.")
         return
-    
+
     file_size = os.path.getsize(LOG_FILE_PATH)
     size_label = f"{file_size / 1024:.1f} KB" if file_size < 1024 * 1024 else f"{file_size / (1024*1024):.1f} MB"
-    
-    # Show active runs info
+
     active_runs = ActiveRunsTracker._count
     active_label = f"🟢 {active_runs} batch aktif" if active_runs > 0 else "⚪ Tidak ada batch aktif"
-    
+
     keyboard = [
-        [InlineKeyboardButton("📋 Tail 50 Baris", callback_data="logs_tail_50"),
-         InlineKeyboardButton("📋 Tail 100 Baris", callback_data="logs_tail_100")],
-        [InlineKeyboardButton("📋 Tail 250 Baris", callback_data="logs_tail_250"),
-         InlineKeyboardButton("📋 Tail 500 Baris", callback_data="logs_tail_500")],
-        [InlineKeyboardButton("🔍 Cari Error Terakhir", callback_data="logs_errors")],
+        [InlineKeyboardButton("▶️ Realtime Stream", callback_data="logs_stream")],
+        [InlineKeyboardButton("📋 Tail 50", callback_data="logs_tail_50"),
+         InlineKeyboardButton("📋 Tail 100", callback_data="logs_tail_100")],
+        [InlineKeyboardButton("📋 Tail 250", callback_data="logs_tail_250"),
+         InlineKeyboardButton("📋 Tail 500", callback_data="logs_tail_500")],
+        [InlineKeyboardButton("🔍 Cari Error", callback_data="logs_errors")],
         [InlineKeyboardButton("📥 Download Full Log", callback_data="logs_download")],
     ]
-    
+
     await update.message.reply_text(
         f"🖥️ **SERVER LOG VIEWER**\n"
         f"{'='*30}\n"
@@ -3668,11 +3879,50 @@ async def logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
     
     action = query.data
-    
+    chat_id = update.effective_chat.id
+
+    if action == "logs_stream":
+        if chat_id in _logstream_sessions:
+            old = _logstream_sessions.pop(chat_id)
+            old.cancel()
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏹ Stop Stream", callback_data="logs_stream_stop"),
+             InlineKeyboardButton("🔍 Errors Only", callback_data="logs_stream_errors")],
+            [InlineKeyboardButton("📥 Download", callback_data="logs_download")]
+        ])
+        msg = await query.message.reply_text("🔴 **LOG STREAM** — Memulai...\n_Loading..._", reply_markup=keyboard, parse_mode="Markdown")
+        task = asyncio.create_task(_logstream_loop(msg, chat_id, errors_only=False))
+        _logstream_sessions[chat_id] = task
+        return
+
+    if action == "logs_stream_stop":
+        task = _logstream_sessions.pop(chat_id, None)
+        if task:
+            task.cancel()
+        try:
+            await query.message.edit_text("⏹ Log stream dihentikan.", parse_mode="Markdown")
+        except Exception:
+            pass
+        return
+
+    if action == "logs_stream_errors":
+        if chat_id in _logstream_sessions:
+            old = _logstream_sessions.pop(chat_id)
+            old.cancel()
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏹ Stop Stream", callback_data="logs_stream_stop"),
+             InlineKeyboardButton("📋 All Logs", callback_data="logs_stream")],
+            [InlineKeyboardButton("📥 Download", callback_data="logs_download")]
+        ])
+        msg = await query.message.reply_text("🔴 **ERROR STREAM** — Memulai...\n_Loading..._", reply_markup=keyboard, parse_mode="Markdown")
+        task = asyncio.create_task(_logstream_loop(msg, chat_id, errors_only=True))
+        _logstream_sessions[chat_id] = task
+        return
+
     if not os.path.exists(LOG_FILE_PATH):
         await query.message.reply_text("📄 File `bot.log` tidak ditemukan.")
         return
-    
+
     import io
     
     def _read_tail(n_lines: int) -> str:
@@ -3785,6 +4035,62 @@ async def logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+async def _logstream_loop(msg, chat_id: int, errors_only: bool = False):
+    try:
+        last_text = ""
+        idle_ticks = 0
+        while True:
+            await asyncio.sleep(5)
+
+            def _read_stream_lines():
+                if not os.path.exists(LOG_FILE_PATH):
+                    return []
+                with open(LOG_FILE_PATH, "r", encoding="utf-8", errors="replace") as f:
+                    all_lines = f.readlines()
+                if errors_only:
+                    filtered = [l.rstrip() for l in all_lines if " - ERROR - " in l or " - WARNING - " in l]
+                else:
+                    filtered = [l.rstrip() for l in all_lines]
+                return filtered[-25:]
+
+            lines = await asyncio.to_thread(_read_stream_lines)
+            mode = "ERROR STREAM" if errors_only else "LOG STREAM"
+            ts = datetime.now().strftime("%H:%M:%S")
+            text = f"🔴 **{mode}** — `{ts}`\n{'━' * 28}\n"
+            if lines:
+                content = "\n".join(lines)
+                if len(content) > 3500:
+                    content = content[-3500:]
+                text += f"```\n{content}\n```"
+            else:
+                text += "_Log kosong_"
+
+            if text != last_text:
+                last_text = text
+                idle_ticks = 0
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⏹ Stop", callback_data="logs_stream_stop"),
+                     InlineKeyboardButton("🔍 Errors" if not errors_only else "📋 All", callback_data="logs_stream_errors" if not errors_only else "logs_stream")],
+                    [InlineKeyboardButton("📥 Download", callback_data="logs_download")]
+                ])
+                try:
+                    await msg.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+                except Exception:
+                    pass
+            else:
+                idle_ticks += 1
+            if idle_ticks >= 120:
+                break
+    except asyncio.CancelledError:
+        pass
+    finally:
+        _logstream_sessions.pop(chat_id, None)
+        try:
+            await msg.edit_text(last_text + "\n\n_Stream dihentikan._", parse_mode="Markdown")
+        except Exception:
+            pass
+
+
 async def post_init(application: Application) -> None:
     from concurrent.futures import ThreadPoolExecutor
     loop = asyncio.get_running_loop()
@@ -3800,6 +4106,7 @@ async def post_init(application: Application) -> None:
         BotCommand("batch", "⚡ Kirim kuesioner massal (Batch Submit)"),
         BotCommand("list", "📋 Lihat daftar tugas yang OPEN"),
         BotCommand("submit", "⚡ Kirim kuesioner interaktif (Wizard)"),
+        BotCommand("live", "📡 Monitor aktivitas realtime"),
         BotCommand("logs", "🖥️ Lihat server log (Admin)"),
         BotCommand("logout", "🚪 Keluar & hapus sesi")
     ]
@@ -3983,6 +4290,10 @@ def main():
     app.add_handler(batch_conv)
     app.add_handler(CallbackQueryHandler(list_callback, pattern="^(lpage_|lnoop|lclose)"))
     
+    # Live activity monitor (all users)
+    app.add_handler(CommandHandler("live", live_command))
+    app.add_handler(CallbackQueryHandler(live_callback, pattern="^live_"))
+
     # Admin log viewer
     app.add_handler(CommandHandler("logs", logs_command))
     app.add_handler(CallbackQueryHandler(logs_callback, pattern="^logs_"))
