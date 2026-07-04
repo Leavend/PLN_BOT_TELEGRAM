@@ -863,9 +863,21 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     now = datetime.now()
     created_at = now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
-    # 15 minutes duration
-    start_time = (now - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%S")
-    end_time = now.strftime("%Y-%m-%dT%H:%M:%S")
+    # Random interview time within WITA working hours (07:00-18:00, UTC+8)
+    import random as _rnd
+    today_wita = now + timedelta(hours=8) - timedelta(hours=now.astimezone().utcoffset().total_seconds() / 3600 if now.astimezone().utcoffset() else 0)
+    wita_date = now.date()
+    hour_start = _rnd.randint(7, 16)
+    minute_start = _rnd.randint(0, 59)
+    second_start = _rnd.randint(0, 59)
+    interview_start = datetime(wita_date.year, wita_date.month, wita_date.day,
+                               hour_start, minute_start, second_start)
+    duration_secs = _rnd.randint(120, 360)
+    interview_end = interview_start + timedelta(seconds=duration_secs)
+    if interview_end.hour >= 18:
+        interview_end = interview_end.replace(hour=17, minute=_rnd.randint(45, 59))
+    start_time = interview_start.strftime("%Y-%m-%dT%H:%M:%S")
+    end_time = interview_end.strftime("%Y-%m-%dT%H:%M:%S")
     
     # IDPel HTML Check status
     idpel = flat_answers.get("r101a") or ""
