@@ -689,6 +689,18 @@ def expand_indonesian_address_abbreviations(address: str) -> str:
     return addr.strip()
 
 
+def _clean_address_for_geocoding(addr: str) -> str:
+    """Strip PLN address noise that confuses geocoders."""
+    import re
+    s = addr.upper()
+    s = re.sub(r'\bNO\.?\s*0\b', '', s)
+    s = re.sub(r'\bRT\.?\s*\d+', '', s)
+    s = re.sub(r'\bRW\.?\s*\d+', '', s)
+    s = re.sub(r'\b(JL\.?\s*){2,}', 'JL ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+
 def geocode_address(alamat, kel="", kec="", kab="", prov=""):
     """Geocode address via Mapbox (primary) → Nominatim (fallback) → None."""
     import requests as _req
@@ -697,7 +709,7 @@ def geocode_address(alamat, kel="", kec="", kab="", prov=""):
     mapbox_token = os.getenv("MAPBOX_ACCESS_TOKEN")
     if mapbox_token:
         import urllib.parse
-        alamat_clean = expand_indonesian_address_abbreviations(alamat)
+        alamat_clean = expand_indonesian_address_abbreviations(_clean_address_for_geocoding(alamat))
         if alamat_clean:
             q = alamat_clean
             for part in (kel, kec, kab, prov):
@@ -716,7 +728,7 @@ def geocode_address(alamat, kel="", kec="", kab="", prov=""):
                 pass
 
     queries = []
-    alamat_clean = expand_indonesian_address_abbreviations(alamat)
+    alamat_clean = expand_indonesian_address_abbreviations(_clean_address_for_geocoding(alamat))
     alamat_clean = alamat_clean.replace("JL.", "Jalan ").strip() if alamat_clean else ""
     if alamat_clean:
         if kab and prov:
