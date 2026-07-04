@@ -2817,41 +2817,64 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
         token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
         headers = get_headers(token_data)
 
-        # Fetch surveys
+        # Fetch surveys — cache both Prabayar & Pascabayar
         surveys = await call_with_retry(async_fetch_surveys, headers)
         if not surveys:
             await status_msg.edit_text("📋 Tidak ada survei yang aktif di akun Anda.")
             return ConversationHandler.END
-            
-        survey = surveys[0]
-        active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
-        if not active_periode:
-            await status_msg.edit_text("📋 Tidak ada periode aktif.")
+
+        survey_caches = {}
+        for sv in surveys:
+            sname = (sv.get("name") or "").upper()
+            if "PASCA" in sname:
+                skey = "PASCABAYAR"
+            elif "PRABAYAR" in sname or "PRA" in sname:
+                skey = "PRABAYAR"
+            else:
+                skey = sname[:20] or "DEFAULT"
+
+            ap = next((p for p in sv.get("listPeriode", []) if p.get("isActive")), None)
+            if not ap:
+                continue
+            tl_list = sv.get("templateLookup", [])
+            tm = {}
+            if tl_list:
+                tl = tl_list[0]
+                tm = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
+
+            await status_msg.edit_text(f"📋 Mengambil tugas {skey}...")
+            assigns = await call_with_retry(async_fetch_all_assignments, headers, ap["id"]) or []
+            try:
+                regs = await call_with_retry(async_fetch_regions, headers, ap["id"])
+            except Exception:
+                regs = None
+
+            survey_caches[skey] = {
+                "survey": sv, "periode": ap, "pid": ap["id"],
+                "template_mapping": tm, "assignments": assigns, "regions": regs,
+                "idpel_slot": next((s for s, v in tm.items() if v == "r101a"), "data3"),
+                "nometer_slot": next((s for s, v in tm.items() if v == "r101b"), "data1"),
+            }
+            logger.info(f"Survey {skey}: {len(assigns)} assignments cached")
+
+        if not survey_caches:
+            await status_msg.edit_text("📋 Tidak ada survei dengan periode aktif.")
             return ConversationHandler.END
-            
-        pid = active_periode["id"]
-        
-        # Fetch template mapping
-        template_lookup = survey.get("templateLookup", [])
-        template_mapping = {}
-        if template_lookup:
-            tl = template_lookup[0]
-            template_mapping = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
-            
-        idpel_slot = next((slot for slot, var in template_mapping.items() if var == "r101a"), "data3")
-        nometer_slot = next((slot for slot, var in template_mapping.items() if var == "r101b"), "data1")
-        
-        # Fetch all assignments once for fast lookup
-        await status_msg.edit_text("📋 Sedang mengambil seluruh daftar tugas dari server BPS...")
-        open_assignments = await call_with_retry(async_fetch_all_assignments, headers, pid) or []
-        
-        # Fetch regions list once for encryption keys
-        await status_msg.edit_text("📋 Sedang mengambil data region dari server BPS...")
-        try:
-            regions_list = await call_with_retry(async_fetch_regions, headers, pid)
-        except Exception as e:
-            logger.warning(f"Failed to fetch BPS regions: {e}. Falling back to dynamic fetching.")
-            regions_list = None
+
+        # Flatten assignments for backward-compat search (used in worker)
+        all_survey_assignments = []
+        for skey, sc in survey_caches.items():
+            for a in sc["assignments"]:
+                all_survey_assignments.append((skey, a))
+
+        # Legacy aliases for single-survey code paths below
+        first_key = next(iter(survey_caches))
+        survey = survey_caches[first_key]["survey"]
+        template_mapping = survey_caches[first_key]["template_mapping"]
+        idpel_slot = survey_caches[first_key]["idpel_slot"]
+        nometer_slot = survey_caches[first_key]["nometer_slot"]
+        open_assignments = survey_caches[first_key]["assignments"]
+        regions_list = survey_caches[first_key]["regions"]
             
         from pln_lookup import PLNLookupTool
         pln_tool = PLNLookupTool()
@@ -2973,16 +2996,19 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                 is_idpel = len(val) == 12
                 idpel_val = val if is_idpel else ""
                 nometer_val = "" if is_idpel else val
-                
-                # Check if assignment exists
+
+                # Search ALL surveys' assignments for existing match
                 target = None
-                for a in open_assignments:
-                    v_idpel = (a.get(idpel_slot) or "").strip()
-                    v_nometer = (a.get(nometer_slot) or "").strip()
+                matched_survey_key = None
+                for skey, a in all_survey_assignments:
+                    sc = survey_caches[skey]
+                    v_idpel = (a.get(sc["idpel_slot"]) or "").strip()
+                    v_nometer = (a.get(sc["nometer_slot"]) or "").strip()
                     if (is_idpel and v_idpel == val) or (not is_idpel and v_nometer == val):
                         target = a
+                        matched_survey_key = skey
                         break
-                        
+
                 create_new = False
                 template_assignment_id = None
                 pln_profile = None
@@ -3090,29 +3116,46 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     except Exception as pln_err:
                         logger.warning(f"PLN lookup failed for batch item {val}: {pln_err}")
                     
-                    # Find template assignment
-                    template_assignment = None
-                    if open_assignments:
-                        template_assignment = find_template_assignment_for_region(open_assignments, pln_profile)
-                    
+                    # Determine correct survey from PLN tarif if no existing assignment matched
+                    if not matched_survey_key:
+                        tarif = direct_args.get("tarif", "")
+                        is_prabayar = tarif.strip().upper().endswith("M")
+                        if is_prabayar and "PRABAYAR" in survey_caches:
+                            matched_survey_key = "PRABAYAR"
+                        elif not is_prabayar and "PASCABAYAR" in survey_caches:
+                            matched_survey_key = "PASCABAYAR"
+                        else:
+                            matched_survey_key = next(iter(survey_caches))
+
+                    # Find template assignment from the correct survey
+                    active_sc = survey_caches[matched_survey_key]
+                    active_assigns = active_sc["assignments"]
+                    open_assigns_filtered = [a for a in active_assigns
+                                             if "OPEN" in (a.get("assignmentStatusAlias") or "")]
+                    pool = open_assigns_filtered or active_assigns
+                    template_assignment = find_template_assignment_for_region(pool, pln_profile) if pool else None
+
                     if not template_assignment:
                         async with progress_lock:
                             failures += 1
                             completed_count += 1
                             report_rows.append({
                                 "val": val, "nama": direct_args["nama"], "status": "FAILED",
-                                "message": "Template assignment acuan tidak tersedia di BPS."
+                                "message": f"Template assignment tidak tersedia di survey {matched_survey_key}."
                             })
                             await update_status_message_throttled()
                         return
-                        
+
                     template_assignment_id = template_assignment["id"]
+                    template_mapping = active_sc["template_mapping"]
+                    regions_list = active_sc["regions"]
                 
                 photo_path = get_random_house_photo()
                 
                 # Submit to BPS with pre-fetched cached objects
                 import time as time_mod
                 start_time = time_mod.time()
+                active_sc = survey_caches[matched_survey_key]
                 ok, message = await submit_fasih_safe(
                     t_data, token_file,
                     idpel=idpel_val,
@@ -3123,9 +3166,9 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     photo_path=photo_path,
                     lat=lat,
                     lon=lon,
-                    cached_assignments=open_assignments,
-                    cached_survey=survey,
-                    cached_active_periode=active_periode,
+                    cached_assignments=active_sc["assignments"],
+                    cached_survey=active_sc["survey"],
+                    cached_active_periode=active_sc["periode"],
                     cached_template_mapping=template_mapping,
                     cached_regions=regions_list
                 )
@@ -3337,38 +3380,61 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
         await activity_bus.push("📥", f"CSV batch — {total} item")
         await status_msg.edit_text(f"📊 Menemukan {total} data pelanggan di CSV. Mempersiapkan data sinkronisasi awal...")
         
-        # Pre-fetch cache data once to optimize performance and prevent rate limiting
+        # Pre-fetch cache data — both Prabayar & Pascabayar surveys
+        csv_survey_caches = {}
         survey = None
         active_periode = None
         template_mapping = {}
         cached_assignments = None
         cached_regions = None
-        
+
         try:
             token_data = await async_refresh_token_if_needed(token_data, token_file=token_file, exit_on_failure=False)
             headers = get_headers(token_data)
-            
+
             await status_msg.edit_text("📊 Mengambil info survei aktif dari BPS...")
             surveys = await call_with_retry(async_fetch_surveys, headers)
             if surveys:
-                survey = surveys[0]
-                active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
-                if active_periode:
-                    template_lookup = survey.get("templateLookup", [])
-                    if template_lookup:
-                        tl = template_lookup[0]
-                        template_mapping = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
-                    
-                    await status_msg.edit_text("📊 Mengunduh seluruh daftar penugasan & region BPS...")
-                    cached_assignments = await call_with_retry(async_fetch_all_assignments, headers, active_periode["id"])
+                for sv in surveys:
+                    sname = (sv.get("name") or "").upper()
+                    if "PASCA" in sname:
+                        skey = "PASCABAYAR"
+                    elif "PRABAYAR" in sname or "PRA" in sname:
+                        skey = "PRABAYAR"
+                    else:
+                        skey = sname[:20] or "DEFAULT"
+                    ap = next((p for p in sv.get("listPeriode", []) if p.get("isActive")), None)
+                    if not ap:
+                        continue
+                    tl_list = sv.get("templateLookup", [])
+                    tm = {}
+                    if tl_list:
+                        tl = tl_list[0]
+                        tm = await call_with_retry(async_fetch_template_mapping, headers, tl["templateId"], tl["templateVersion"])
+                    await status_msg.edit_text(f"📊 Mengunduh tugas {skey}...")
+                    assigns = await call_with_retry(async_fetch_all_assignments, headers, ap["id"])
                     try:
-                        cached_regions = await call_with_retry(async_fetch_regions, headers, active_periode["id"])
-                    except Exception as reg_err:
-                        logger.warning(f"Failed to fetch regions in initial CSV sync: {reg_err}")
-                        cached_regions = None
-                    await status_msg.edit_text(f"✅ Sinkronisasi awal berhasil. Menemukan {len(cached_assignments)} tugas. Memulai bulk submit...")
+                        regs = await call_with_retry(async_fetch_regions, headers, ap["id"])
+                    except Exception:
+                        regs = None
+                    csv_survey_caches[skey] = {
+                        "survey": sv, "periode": ap, "pid": ap["id"],
+                        "template_mapping": tm, "assignments": assigns, "regions": regs,
+                    }
+                    logger.info(f"CSV Survey {skey}: {len(assigns)} assignments cached")
+
+                if csv_survey_caches:
+                    first_key = next(iter(csv_survey_caches))
+                    survey = csv_survey_caches[first_key]["survey"]
+                    active_periode = csv_survey_caches[first_key]["periode"]
+                    template_mapping = csv_survey_caches[first_key]["template_mapping"]
+                    cached_assignments = csv_survey_caches[first_key]["assignments"]
+                    cached_regions = csv_survey_caches[first_key]["regions"]
+                    total_assigns = sum(len(sc["assignments"]) for sc in csv_survey_caches.values())
+                    await status_msg.edit_text(f"✅ Sinkronisasi berhasil. {len(csv_survey_caches)} survei, {total_assigns} tugas total. Memulai bulk submit...")
         except Exception as e:
             await status_msg.edit_text(f"⚠️ Peringatan sinkronisasi awal gagal: {e}. Melanjutkan dengan mode dinamis (tanpa cache)...")
+            csv_survey_caches = {}
             survey = None
             active_periode = None
             template_mapping = {}
@@ -3530,6 +3596,18 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     
                 import time as time_mod
                 start_time = time_mod.time()
+                # Pick correct survey based on tarif
+                csv_tarif = direct_args.get("tarif", "")
+                csv_is_prabayar = csv_tarif.strip().upper().endswith("M")
+                if csv_is_prabayar and "PRABAYAR" in csv_survey_caches:
+                    csv_sc = csv_survey_caches["PRABAYAR"]
+                elif not csv_is_prabayar and "PASCABAYAR" in csv_survey_caches:
+                    csv_sc = csv_survey_caches["PASCABAYAR"]
+                elif csv_survey_caches:
+                    csv_sc = csv_survey_caches[next(iter(csv_survey_caches))]
+                else:
+                    csv_sc = {"survey": survey, "periode": active_periode, "template_mapping": template_mapping, "assignments": cached_assignments, "regions": cached_regions}
+
                 ok, message = await submit_fasih_safe(
                     t_data, token_file,
                     idpel=idpel,
@@ -3539,11 +3617,11 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     photo_path=photo_path,
                     lat=lat,
                     lon=pass_lon,
-                    cached_assignments=cached_assignments,
-                    cached_survey=survey,
-                    cached_active_periode=active_periode,
-                    cached_template_mapping=template_mapping,
-                    cached_regions=cached_regions
+                    cached_assignments=csv_sc.get("assignments", cached_assignments),
+                    cached_survey=csv_sc.get("survey", survey),
+                    cached_active_periode=csv_sc.get("periode", active_periode),
+                    cached_template_mapping=csv_sc.get("template_mapping", template_mapping),
+                    cached_regions=csv_sc.get("regions", cached_regions)
                 )
                 elapsed = time_mod.time() - start_time
                 

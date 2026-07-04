@@ -668,6 +668,89 @@ INDONESIAN_PROVINCES = {
     "papua barat daya": (-0.8762, 131.2514),
 }
 
+def expand_indonesian_address_abbreviations(address: str) -> str:
+    if not address:
+        return ""
+    import re
+    addr = " " + address.upper() + " "
+    mappings = {
+        r"\bOTISTA\b": "Otto Iskandardinata",
+        r"\bGATSU\b": "Gatot Subroto",
+        r"\bA\.?\s*YANI\b": "Ahmad Yani",
+        r"\bM\.?\s*T\.?\s*HARYONO\b": "M.T. Haryono",
+        r"\bJEND\.?\s*SUDIRMAN\b": "Jenderal Sudirman",
+        r"\bS\.?\s*PARMAN\b": "S. Parman",
+        r"\bHOS\s+COKROAMINOTO\b": "HOS Cokroaminoto",
+        r"\bSUPRAPTO\b": "Letjen Suprapto",
+        r"\bDI\s+PANJAITAN\b": "D.I. Panjaitan",
+    }
+    for pattern, replacement in mappings.items():
+        addr = re.sub(pattern, replacement, addr)
+    return addr.strip()
+
+
+def geocode_address(alamat, kel="", kec="", kab="", prov=""):
+    """Geocode address via Mapbox (primary) → Nominatim (fallback) → None."""
+    import requests as _req
+    import random
+
+    mapbox_token = os.getenv("MAPBOX_ACCESS_TOKEN")
+    if mapbox_token:
+        import urllib.parse
+        alamat_clean = expand_indonesian_address_abbreviations(alamat)
+        if alamat_clean:
+            q = alamat_clean
+            for part in (kel, kec, kab, prov):
+                if part:
+                    q += f", {part}"
+            q += ", Indonesia"
+            try:
+                quoted_q = urllib.parse.quote(q)
+                url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{quoted_q}.json"
+                r = _req.get(url, params={"access_token": mapbox_token, "limit": 1, "country": "id"}, timeout=5)
+                res = r.json()
+                if res.get("features"):
+                    center = res["features"][0]["geometry"]["coordinates"]
+                    return float(center[1]), float(center[0])
+            except Exception:
+                pass
+
+    queries = []
+    alamat_clean = expand_indonesian_address_abbreviations(alamat)
+    alamat_clean = alamat_clean.replace("JL.", "Jalan ").strip() if alamat_clean else ""
+    if alamat_clean:
+        if kab and prov:
+            queries.append(f"{alamat_clean}, {kab}, {prov}, Indonesia")
+        if kab:
+            queries.append(f"{alamat_clean}, {kab}, Indonesia")
+        if kel and kec and kab and prov:
+            queries.append(f"{alamat_clean}, {kel}, {kec}, {kab}, {prov}, Indonesia")
+    if kel and kec and kab and prov:
+        queries.append(f"{kel}, {kec}, {kab}, {prov}, Indonesia")
+    if kec and kab and prov:
+        queries.append(f"{kec}, {kab}, {prov}, Indonesia")
+    if kab and prov:
+        queries.append(f"{kab}, {prov}, Indonesia")
+    for q in queries:
+        try:
+            r = _req.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": q, "format": "json", "limit": 1},
+                headers={"User-Agent": "FasihBPSBot/1.0"}, timeout=5
+            )
+            res = r.json()
+            if res:
+                lat = float(res[0]["lat"])
+                lon = float(res[0]["lon"])
+                if q != queries[0] if queries else False:
+                    lat += random.uniform(-0.0008, 0.0008)
+                    lon += random.uniform(-0.0008, 0.0008)
+                return lat, lon
+        except Exception:
+            pass
+    return None, None
+
+
 def get_fallback_coordinate(prov_str, kab_str, kec_str, alamat_str):
     import random
     prov_clean = str(prov_str or "").lower().strip()

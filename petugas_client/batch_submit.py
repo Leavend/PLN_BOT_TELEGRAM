@@ -44,6 +44,7 @@ from fasih_archive import create_7z_archive
 from submit_fasih import (
     build_dynamic_answers, stage_and_encrypt, clean_pln_name,
     build_new_assignment_target, get_fallback_coordinate,
+    geocode_address,
     STATIC_LEGACY_KEY,
 )
 
@@ -352,7 +353,7 @@ def submit_single(
             except Exception as e:
                 logger.warning(f"Photo upload failed: {e}")
 
-        # Coordinates — PLN coords (set above) take priority over target coords
+        # Coordinates — PLN coords → target coords → Mapbox geocoding → fallback
         if lat is None or lon is None:
             t_lat, t_lon = target.get("latitude"), target.get("longitude")
             try:
@@ -361,8 +362,19 @@ def submit_single(
                 else:
                     raise ValueError
             except (ValueError, TypeError):
-                addr = target.get("data5", "") or target.get("data6", "") or ""
-                region_name = (target.get("region") or {}).get("name", "")
+                pass
+
+        if lat is None or lon is None:
+            alamat_geo = direct_args.get("alamat", "")
+            nama_kel = direct_args.get("pln_nama_kel", "") or pln_data.get("nama_kel", "") if pln_data else ""
+            nama_kec = direct_args.get("pln_nama_kec", "") or pln_data.get("nama_kec", "") if pln_data else ""
+            nama_kab = direct_args.get("pln_nama_kab", "") or pln_data.get("nama_kab", "") if pln_data else ""
+            nama_prov = direct_args.get("pln_nama_prov", "") or pln_data.get("nama_prov", "") if pln_data else ""
+            lat, lon = geocode_address(alamat_geo, nama_kel, nama_kec, nama_kab, nama_prov)
+
+        if lat is None or lon is None:
+            region_name = (target.get("region") or {}).get("name", "")
+            addr = direct_args.get("alamat", "")
             lat, lon = get_fallback_coordinate(region_name, "", "", addr)
 
         answers["r105"] = {
