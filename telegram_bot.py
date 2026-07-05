@@ -3051,6 +3051,11 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                                 pln_profile = profiles[0]
                                 direct_args["tarif"] = str(pln_profile.get("tarif", pln_profile.get("gol_tarif", "R-1"))).strip()
                                 direct_args["daya"] = str(pln_profile.get("daya", pln_profile.get("daya_51", "900"))).strip()
+                                ket_produk = str(pln_profile.get("ket_produk") or "").strip().lower()
+                                if "prabayar" in ket_produk:
+                                    direct_args["produk"] = "PRABAYAR"
+                                elif "pascabayar" in ket_produk or "postpaid" in ket_produk:
+                                    direct_args["produk"] = "PASCABAYAR"
                     except Exception:
                         pass
                 else:
@@ -3079,7 +3084,12 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                                 direct_args["alamat"] = str(pln_profile.get("alamat") or pln_profile.get("namapnj") or pln_profile.get("alamat_51") or "").strip()
                                 direct_args["tarif"] = str(pln_profile.get("tarif", pln_profile.get("gol_tarif", "R-1"))).strip()
                                 direct_args["daya"] = str(pln_profile.get("daya", "900")).strip()
-                                
+                                ket_produk = str(pln_profile.get("ket_produk") or "").strip().lower()
+                                if "prabayar" in ket_produk:
+                                    direct_args["produk"] = "PRABAYAR"
+                                elif "pascabayar" in ket_produk or "postpaid" in ket_produk:
+                                    direct_args["produk"] = "PASCABAYAR"
+
                                 idpel_val = str(pln_profile.get("id_pelanggan", "")).strip() or idpel_val
                                 nometer_val = str(
                                     pln_profile.get("nometer_kwh") or 
@@ -3116,10 +3126,11 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     except Exception as pln_err:
                         logger.warning(f"PLN lookup failed for batch item {val}: {pln_err}")
                     
-                    # Determine correct survey from PLN tarif if no existing assignment matched
+                    # Determine correct survey from PLN produk field (tarif suffix fallback)
                     if not matched_survey_key:
-                        tarif = direct_args.get("tarif", "")
-                        is_prabayar = tarif.strip().upper().endswith("M")
+                        produk = (direct_args.get("produk") or "").strip().upper()
+                        tarif = (direct_args.get("tarif") or "").strip().upper()
+                        is_prabayar = (produk == "PRABAYAR") if produk else tarif.endswith("M")
                         if is_prabayar and "PRABAYAR" in survey_caches:
                             matched_survey_key = "PRABAYAR"
                         elif not is_prabayar and "PASCABAYAR" in survey_caches:
@@ -3572,6 +3583,7 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     "alamat": r.get("alamat", ""),
                     "tarif": r.get("tarif", "R-1"),
                     "daya": r.get("daya", "900"),
+                    "produk": r.get("produk", ""),
                     "hasil": r.get("hasil", "1"),
                     "kelurahan": r.get("kelurahan", "001"),
                     "kdpm": "01",
@@ -3596,9 +3608,10 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                     
                 import time as time_mod
                 start_time = time_mod.time()
-                # Pick correct survey based on tarif
-                csv_tarif = direct_args.get("tarif", "")
-                csv_is_prabayar = csv_tarif.strip().upper().endswith("M")
+                # Pick correct survey based on PLN produk field (tarif suffix fallback)
+                csv_produk = (direct_args.get("produk") or "").strip().upper()
+                csv_tarif = (direct_args.get("tarif") or "").strip().upper()
+                csv_is_prabayar = (csv_produk == "PRABAYAR") if csv_produk else csv_tarif.endswith("M")
                 if csv_is_prabayar and "PRABAYAR" in csv_survey_caches:
                     csv_sc = csv_survey_caches["PRABAYAR"]
                 elif not csv_is_prabayar and "PASCABAYAR" in csv_survey_caches:

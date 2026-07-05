@@ -158,9 +158,12 @@ def ensure_login() -> dict:
 
 # --- Submit Pipeline ---
 
-def _is_prabayar(tarif: str) -> bool:
-    """PLN tarif ending in M = Prabayar (prepaid token), else Pascabayar."""
-    return tarif.strip().upper().endswith("M")
+def _is_prabayar(direct_args: dict) -> bool:
+    """Determine product type from PLN API explicit 'produk' field, tarif suffix fallback."""
+    produk = (direct_args.get("produk") or "").strip().upper()
+    if produk:
+        return produk == "PRABAYAR"
+    return (direct_args.get("tarif") or "").strip().upper().endswith("M")
 
 
 def _find_template_for_region(open_assignments, pln_data):
@@ -259,6 +262,8 @@ def submit_single(
                 direct_args["nik"] = pln_data["nik"]
             if pln_data.get("tarif"):
                 direct_args["tarif"] = pln_data["tarif"]
+            if pln_data.get("produk"):
+                direct_args["produk"] = pln_data["produk"]
             if pln_data.get("daya"):
                 direct_args["daya"] = str(pln_data["daya"])
             if pln_data.get("idpel"):
@@ -288,11 +293,10 @@ def submit_single(
                 photo_path = download_photo(pln_data["photo_url"], temp_dir)
 
         if not target:
-            # No existing assignment — determine survey from PLN tarif
-            tarif = direct_args.get("tarif", "")
-            if _is_prabayar(tarif) and "PRABAYAR" in survey_caches:
+            # No existing assignment — determine survey from PLN produk field
+            if _is_prabayar(direct_args) and "PRABAYAR" in survey_caches:
                 matched_key = "PRABAYAR"
-            elif not _is_prabayar(tarif) and "PASCABAYAR" in survey_caches:
+            elif not _is_prabayar(direct_args) and "PASCABAYAR" in survey_caches:
                 matched_key = "PASCABAYAR"
             else:
                 matched_key = next(iter(survey_caches))

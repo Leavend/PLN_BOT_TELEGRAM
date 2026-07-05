@@ -125,18 +125,36 @@ def extract_profile_data(raw_data: dict) -> dict:
     nama = clean_pln_name(str(p.get("nama", "")).strip())
     alamat = construct_pln_alamat(p)
 
+    # Validate nometer: real PLN meter numbers are 10-11 digits
+    nometer_raw = ""
+    for nk in ("nometer_kwh", "nomor_meter_kwh", "no_meter_kwh",
+               "no_meter", "nomor_meter", "nometer", "meter_number"):
+        candidate = str(p.get(nk) or "").strip()
+        if candidate and len(candidate) >= 8 and candidate.isdigit():
+            nometer_raw = candidate
+            break
+
+    # Derive explicit product type from AP2T ket_produk field
+    ket_produk_raw = str(p.get("ket_produk") or "").strip()
+    tarif_raw = str(p.get("tarif") or p.get("gol_tarif") or "").strip()
+    if "prabayar" in ket_produk_raw.lower():
+        produk = "PRABAYAR"
+    elif "pascabayar" in ket_produk_raw.lower() or "postpaid" in ket_produk_raw.lower():
+        produk = "PASCABAYAR"
+    elif tarif_raw.upper().endswith("M"):
+        produk = "PRABAYAR"
+    else:
+        produk = "PASCABAYAR"
+
     return {
         "idpel": str(p.get("id_pelanggan") or p.get("idpel") or "").strip(),
-        "nometer": str(
-            p.get("nometer_kwh") or p.get("nomor_meter_kwh") or p.get("no_meter_kwh") or
-            p.get("no_meter") or p.get("nomor_meter") or p.get("nometer") or
-            p.get("meter_number") or ""
-        ).strip(),
+        "nometer": nometer_raw,
         "nama": nama,
         "alamat": alamat,
         "nik": str(p.get("noidentitas") or p.get("no_identitas") or "").strip(),
-        "tarif": str(p.get("tarif") or p.get("gol_tarif") or "").strip(),
+        "tarif": tarif_raw,
         "daya": str(p.get("daya") or p.get("daya_51") or "").strip(),
+        "produk": produk,
         "keperluan": str(p.get("keperluan") or "").strip(),
         "kd_prov": str(p.get("kd_prov") or "").strip(),
         "kd_kab": str(p.get("kd_kab") or "").strip(),
