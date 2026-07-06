@@ -62,7 +62,23 @@ logger = logging.getLogger("petugas")
 
 # --- Config ---
 
-PLN_API_URL = os.getenv("PLN_API_URL", "").rstrip("/")
+def _resolve_pln_url() -> str:
+    """PLN API URL source of truth = git-tracked pln_url.txt (propagated via
+    `fasih-update`). The quick Cloudflare tunnel rotates its URL on every
+    restart; keeping it in git lets all petugas pick up a new URL with a plain
+    `git pull` instead of editing each HP's .env. Env PLN_API_URL is only a
+    fallback for when the file is missing/empty."""
+    try:
+        with open(os.path.join(REPO_ROOT, "pln_url.txt")) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    return line.rstrip("/")
+    except OSError:
+        pass
+    return os.getenv("PLN_API_URL", "").rstrip("/")
+
+PLN_API_URL = _resolve_pln_url()
 PLN_API_KEY = os.getenv("PLN_API_KEY", "")
 TOKEN_FILE = os.path.join(REPO_ROOT, "fasih_token.json")
 
