@@ -518,9 +518,27 @@ def fetch_template_mapping(headers: dict, template_id: str, version: str) -> dic
     return mapping
 
 
+def mask_pii_name(name: str) -> str:
+    """Mask a person's name the way the FASIH mobile app does in the plaintext
+    quick-view slot: keep the first and last character of each word, replace the
+    middle with '*'. 'ANIS SANTOSA' -> 'A**S S*****A'. Tokens of <=2 chars (e.g.
+    the numeric suffixes we append for duplicates) are kept as-is."""
+    def mask_word(w: str) -> str:
+        return w if len(w) <= 2 else w[0] + "*" * (len(w) - 2) + w[-1]
+    return " ".join(mask_word(w) for w in str(name).split(" "))
+
+
 def map_answers_to_data_slots(answers: dict, template_mapping: dict) -> dict:
-    """Map answer keys to data1-data10 slots based on template mapping."""
+    """Map answer keys to data1-data10 slots based on template mapping.
+
+    The nama pelanggan (r103) is masked here to match the official FASIH app,
+    which only exposes a masked name in these plaintext display slots. The real
+    name stays intact in the encrypted archive (built from `answers`), so BPS
+    validation against the DIL is unaffected."""
     result = {}
     for slot, field_key in template_mapping.items():
-        result[slot] = answers.get(field_key, "")
+        val = answers.get(field_key, "")
+        if field_key == "r103" and val:
+            val = mask_pii_name(val)
+        result[slot] = val
     return result
