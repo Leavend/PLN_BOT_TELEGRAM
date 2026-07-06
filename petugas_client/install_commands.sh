@@ -131,10 +131,8 @@ cat > "$BIN/fasih-status" << EOF
 cd "$REPO"
 python3 -c "
 import os
-from dotenv import load_dotenv
-load_dotenv()
-url = os.getenv('PLN_API_URL','')
-key = os.getenv('PLN_API_KEY','')
+# Resolve URL like submit does: pln_url.txt (git-tracked) wins, .env only fallback
+from petugas_client.batch_submit import PLN_API_URL as url, PLN_API_KEY as key
 token = os.path.exists('fasih_token.json')
 print('📡 PLN API:', url or '❌ NOT SET')
 print('🔑 API Key:', ('✅ ' + key[:8] + '...') if key else '⚠️  kosong')
