@@ -249,6 +249,13 @@ def submit_single(
         lat, lon = None, None
         pln_data = pln_lookup(idpel=idpel_val, nometer=nometer_val)
         photo_path = None
+
+        # GUARD: never submit without valid PLN data. Without it the survey
+        # (Prabayar/Pascabayar), nama, alamat & coords all fall back to
+        # placeholders → junk record in the wrong survey. Abort instead.
+        if not pln_data:
+            return False, "❌ Data PLN tidak ditemukan / server PLN tak terjangkau (cek fasih-status). Item dilewati agar tidak kirim data placeholder."
+
         if pln_data:
             pln_nama = pln_data.get("nama") or ""
             if pln_nama and pln_nama.upper() != "NONAME":
