@@ -551,7 +551,15 @@ def main():
 
     # Step 2-3: Fetch surveys + assignments (cached once, both Prabayar & Pascabayar)
     print("📊 Mengambil data survei dari BPS...")
-    surveys = fetch_surveys(headers)
+    try:
+        surveys = fetch_surveys(headers)
+    except Exception as e:
+        msg = str(e)
+        if any(c in msg for c in ("500", "502", "503", "504")):
+            print("❌ Server BPS lagi sibuk/down (5xx). Bukan masalah data kamu — tunggu beberapa menit, cek 'fasih-status', lalu coba lagi.")
+        else:
+            print(f"❌ Gagal ambil data survei dari BPS: {msg[:150]}")
+        sys.exit(1)
     if not surveys:
         print("❌ Tidak ada survei aktif.")
         sys.exit(1)

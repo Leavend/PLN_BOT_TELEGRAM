@@ -130,7 +130,7 @@ cat > "$BIN/fasih-status" << EOF
 #!/bin/bash
 cd "$REPO"
 python3 -c "
-import os
+import os, requests
 # Resolve URL like submit does: pln_url.txt (git-tracked) wins, .env only fallback
 from petugas_client.batch_submit import PLN_API_URL as url, PLN_API_KEY as key
 token = os.path.exists('fasih_token.json')
@@ -138,14 +138,23 @@ print('📡 PLN API:', url or '❌ NOT SET')
 print('🔑 API Key:', ('✅ ' + key[:8] + '...') if key else '⚠️  kosong')
 print('🎫 BPS Token:', '✅ ada' if token else '❌ belum login')
 if url:
-    import requests
     try:
-        r = requests.get(url + '/health', timeout=5)
-        d = r.json()
-        print('🏥 Server:', '✅ online —', d.get('photos',0), 'foto')
+        d = requests.get(url + '/health', timeout=5).json()
+        print('🏥 PLN Server:', '✅ online —', d.get('photos',0), 'foto')
     except:
-        print('🏥 Server: ❌ offline')
+        print('🏥 PLN Server: ❌ offline')
 "
+# BPS check via curl: the BPS WAF resets python-requests' TLS handshake even
+# when BPS is up (real submits pass through the proxy pool), so a python probe
+# gives false negatives. curl passes the WAF and reports the true status.
+BPS_CODE=\$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://fasih-survey.bps.go.id" 2>/dev/null)
+if [ -z "\$BPS_CODE" ] || [ "\$BPS_CODE" = "000" ]; then
+    echo "🏛️  BPS Survey: ❌ tak terjangkau (BPS/jaringan bermasalah)"
+elif [ "\$BPS_CODE" -ge 500 ]; then
+    echo "🏛️  BPS Survey: ❌ down (HTTP \$BPS_CODE) — tunggu beberapa menit"
+else
+    echo "🏛️  BPS Survey: ✅ ready"
+fi
 EOF
 
 chmod +x "$BIN"/fasih-*
