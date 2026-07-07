@@ -130,7 +130,7 @@ cat > "$BIN/fasih-status" << EOF
 #!/bin/bash
 cd "$REPO"
 python3 -c "
-import os, requests
+import os, json, requests
 # Resolve URL like submit does: pln_url.txt (git-tracked) wins, .env only fallback
 from petugas_client.batch_submit import PLN_API_URL as url, PLN_API_KEY as key
 token = os.path.exists('fasih_token.json')
@@ -143,18 +143,27 @@ if url:
         print('🏥 PLN Server:', '✅ online —', d.get('photos',0), 'foto')
     except:
         print('🏥 PLN Server: ❌ offline')
+# BPS readiness: probe the SAME python path submit uses. A curl probe would
+# false-positive — the BPS WAF resets python-requests' TLS but not curl's, so
+# 'BPS up via curl' does NOT mean 'submit will work'. This runs the real call.
+if token:
+    try:
+        from fasih_auth import get_headers
+        from fasih_api import fetch_surveys
+        with open('fasih_token.json') as f: td = json.load(f)
+        n = len(fetch_surveys(get_headers(td)))
+        print('🏛️  BPS Survey: ✅ ready (' + str(n) + ' survei) — submit bisa')
+    except Exception as e:
+        m = str(e)
+        if any(c in m for c in ('500','502','503','504')):
+            print('🏛️  BPS Survey: ❌ down 5xx — tunggu beberapa menit')
+        elif ('reset' in m.lower()) or ('Max retries' in m) or ('refused' in m.lower()):
+            print('🏛️  BPS Survey: ❌ diblok/reset (WAF/jaringan) — coba lagi / ganti jaringan')
+        else:
+            print('🏛️  BPS Survey: ❌ gagal — ' + m[:50])
+else:
+    print('🏛️  BPS Survey: ⚠️  login dulu (fasih-login)')
 "
-# BPS check via curl: the BPS WAF resets python-requests' TLS handshake even
-# when BPS is up (real submits pass through the proxy pool), so a python probe
-# gives false negatives. curl passes the WAF and reports the true status.
-BPS_CODE=\$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://fasih-survey.bps.go.id" 2>/dev/null)
-if [ -z "\$BPS_CODE" ] || [ "\$BPS_CODE" = "000" ]; then
-    echo "🏛️  BPS Survey: ❌ tak terjangkau (BPS/jaringan bermasalah)"
-elif [ "\$BPS_CODE" -ge 500 ]; then
-    echo "🏛️  BPS Survey: ❌ down (HTTP \$BPS_CODE) — tunggu beberapa menit"
-else
-    echo "🏛️  BPS Survey: ✅ ready"
-fi
 EOF
 
 chmod +x "$BIN"/fasih-*
