@@ -349,6 +349,16 @@ def submit_single(
                 direct_args["idpel"] = idpel_val
                 direct_args["nometer"] = nometer_val
 
+        # Anti-dupe FIRST (before PLN lookup): for a known idpel a single check-idpln
+        # says if it's already registered — skip tercatat without wasting a PLN lookup
+        # (also lowers CEK/PLN load, which feeds the 429 that would disable CEK).
+        # Nometer-only items resolve idpel via PLN below and are CEK'd there.
+        import uuid
+        aid = target.get("id") if target else str(uuid.uuid4())
+        d_idpln = _cek(check_idpln, headers, aid, idpel_val) if idpel_val else {}
+        if d_idpln.get("fasih_exists") and not resubmit_all:
+            return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
+
         # Step 5: PLN lookup via server API
         lat, lon = None, None
         pln_data = pln_lookup(idpel=idpel_val, nometer=nometer_val)
@@ -403,14 +413,11 @@ def submit_single(
             if pln_data.get("photo_url"):
                 photo_path = download_photo(pln_data["photo_url"], temp_dir)
 
-        # Step 5b: CEK IDPel — the FASIH app calls this before submit. BPS records
-        # the verification per assignmentId (skipping it => record counts as
-        # unverified/invalid). Use the SAME id the submit will use, like the app.
-        # Its prelist_source is BPS's authoritative survey classification, so we
-        # route create_new by it (PLN produk is only the fallback).
-        import uuid
-        aid = target.get("id") if target else str(uuid.uuid4())
-        d_idpln = _cek(check_idpln, headers, aid, idpel_val)
+        # Step 5b: CEK IDPel — reuse the early result; only CEK now if the idpel was
+        # just resolved via PLN (nometer input). prelist_source (BPS's authoritative
+        # Prabayar/Pascabayar) routes create_new; PLN produk is the fallback.
+        if not d_idpln and idpel_val:
+            d_idpln = _cek(check_idpln, headers, aid, idpel_val)
         prelist = (d_idpln.get("prelist_source") or "").strip().upper()
         if d_idpln and not d_idpln.get("exists"):
             logger.warning(f"CEK IDPel {idpel_val}: exists=false di BPS")
@@ -819,6 +826,7 @@ def main():
             else:
                 failures += 1
             report_rows.append({
+                "_idx": idx,
                 "val": val, "status": "SUCCESS" if ok else "FAILED", "message": message
             })
 
@@ -834,7 +842,8 @@ def main():
             eta_str = f"{int(eta//60)}m{int(eta%60)}s" if eta > 0 else "—"
             print(f"   [{bar}] {pct}% | ✅{successes} ❌{failures} | ⏱{elapsed_str} ETA:{eta_str} | {rate:.1f}/min")
 
-    # Report
+    # Report — restore input order (parallel completes out of order)
+    report_rows.sort(key=lambda r: r["_idx"])
     elapsed_total = time.time() - start_time
     print(f"\n{'='*50}")
     print(f"🏁 BATCH SELESAI")
@@ -842,6 +851,11 @@ def main():
     print(f"   ❌ Gagal:  {failures}")
     print(f"   ⏱  Waktu:  {int(elapsed_total//60)}m {int(elapsed_total%60)}s")
     print(f"{'='*50}")
+    # Dedup guard degrades if CEK got disabled mid-run (429/timeout) — warn loudly so
+    # silent duplicates for already-tercatat items don't go unnoticed (finding #1).
+    if not _cek_state["enabled"] and not args.no_cek:
+        print("⚠️  CEK sempat mati (429/timeout) di tengah batch — guard anti-dupe bocor.")
+        print("    Item TERCATAT setelah itu bisa jadi dobel. Ganti akun / cek ulang ID-nya.")
 
     failed = [r for r in report_rows if r["status"] == "FAILED"]
     if failed:
@@ -855,7 +869,7 @@ def main():
     # Save CSV report
     report_file = f"batch_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     with open(report_file, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["val", "status", "message"])
+        writer = csv.DictWriter(f, fieldnames=["val", "status", "message"], extrasaction="ignore")
         writer.writeheader()
         writer.writerows(report_rows)
     print(f"\n📄 Report: {report_file}")
