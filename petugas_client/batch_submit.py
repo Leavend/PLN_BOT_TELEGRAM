@@ -217,9 +217,13 @@ def _cek(fn, *args) -> dict:
     try:
         return fn(*args).get("data") or {}
     except Exception as e:
-        if "429" in str(e):
+        msg = str(e).lower()
+        # Disable CEK for the rest of the run on a persistent failure (429 quota,
+        # or read/connect timeout when BPS is slow) — it would only waste ~30s per
+        # item. The submit itself still registers the record via paradata.
+        if any(t in msg for t in ("429", "timed out", "timeout", "max retries", "connection")):
             _cek_state["enabled"] = False
-            logger.warning("⏭️  CEK dinonaktifkan (429 rate-limit BPS) — submit tetap jalan & TERDATA lewat paradata")
+            logger.warning("⏭️  CEK dinonaktifkan (BPS 429/timeout) — submit tetap jalan & TERDATA lewat paradata")
         else:
             logger.warning(f"CEK gagal: {e}")
         return {}
