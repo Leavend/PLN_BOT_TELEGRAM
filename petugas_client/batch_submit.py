@@ -202,6 +202,29 @@ def _find_template_for_region(open_assignments, pln_data):
     return open_assignments[0]
 
 
+# CEK (check-idpln / check-nikpln) is best-effort only. The record registers into
+# the FASIH frame from the SUBMIT itself (paradata) — VERIFIED: an item submitted
+# while both CEK calls returned 429 still got fasih_exists=true. BPS rate-limits
+# these connector endpoints per-account (a 429 can lock an account for hours), so
+# once we see a 429 we stop calling them for the rest of the run: submits keep
+# working + registering, just without prelist routing / NIK-pemadanan display
+# (wilayah still correct — it comes from PLN kd_kel, not CEK).
+_cek_state = {"enabled": True}
+
+def _cek(fn, *args) -> dict:
+    if not _cek_state["enabled"]:
+        return {}
+    try:
+        return fn(*args).get("data") or {}
+    except Exception as e:
+        if "429" in str(e):
+            _cek_state["enabled"] = False
+            logger.warning("⏭️  CEK dinonaktifkan (429 rate-limit BPS) — submit tetap jalan & TERDATA lewat paradata")
+        else:
+            logger.warning(f"CEK gagal: {e}")
+        return {}
+
+
 def submit_single(
     token_data: dict,
     val: str,
@@ -262,10 +285,7 @@ def submit_single(
                 # record (old empty-paradata records never registered).
                 import uuid as _uuid
                 chk_idpel = (target.get(i_slot) or idpel_val or "").strip()
-                try:
-                    fe = (check_idpln(headers, str(_uuid.uuid4()), chk_idpel).get("data") or {}).get("fasih_exists")
-                except Exception:
-                    fe = None
+                fe = _cek(check_idpln, headers, str(_uuid.uuid4()), chk_idpel).get("fasih_exists")
                 if fe:
                     return True, "Sudah TERCATAT di FASIH — skip."
                 logger.info(f"Re-register {chk_idpel}: belum tercatat → create_new")
@@ -342,15 +362,10 @@ def submit_single(
         # route create_new by it (PLN produk is only the fallback).
         import uuid
         aid = target.get("id") if target else str(uuid.uuid4())
-        prelist = ""
-        try:
-            r_idpln = check_idpln(headers, aid, idpel_val)
-            d_idpln = r_idpln.get("data") or {}
-            prelist = (d_idpln.get("prelist_source") or "").strip().upper()
-            if not d_idpln.get("exists"):
-                logger.warning(f"CEK IDPel {idpel_val}: exists=false di BPS")
-        except Exception as e:
-            logger.warning(f"CEK IDPel gagal ({idpel_val}): {e}")
+        d_idpln = _cek(check_idpln, headers, aid, idpel_val)
+        prelist = (d_idpln.get("prelist_source") or "").strip().upper()
+        if d_idpln and not d_idpln.get("exists"):
+            logger.warning(f"CEK IDPel {idpel_val}: exists=false di BPS")
 
         if not target:
             # No existing assignment — route by BPS prelist_source, else PLN produk
@@ -385,17 +400,11 @@ def submit_single(
         cached_regions = sc["regions"]
         pid = sc["periode"]["id"]
 
-        # CEK NIK (pemadanan) — companion verification before submit
+        # CEK NIK (pemadanan) — companion verification, best-effort (see _cek)
         nik_val = direct_args.get("nik") or ""
-        nikpln_data = {}
-        if nik_val:
-            try:
-                r_nikpln = check_nikpln(headers, aid, nik_val)
-                nikpln_data = r_nikpln.get("data") or {}
-                if not nikpln_data.get("exists"):
-                    logger.warning(f"CEK NIK {nik_val}: exists=false (tidak padan) di BPS")
-            except Exception as e:
-                logger.warning(f"CEK NIK gagal: {e}")
+        nikpln_data = _cek(check_nikpln, headers, aid, nik_val) if nik_val else {}
+        if nik_val and nikpln_data and not nikpln_data.get("exists"):
+            logger.warning(f"CEK NIK {nik_val}: exists=false (tidak padan) di BPS")
 
         # Step 6: Build answers
         answers = build_dynamic_answers(target, direct_args, cached_template_mapping)
@@ -568,8 +577,12 @@ def main():
     parser.add_argument("--list", "-l", help="Daftar IDPel/NoMeter dipisah koma")
     parser.add_argument("--dry-run", action="store_true", help="Test tanpa submit ke BPS")
     parser.add_argument("--force", action="store_true", help="Re-register: paksa submit ulang record lama yang BELUM tercatat di FASIH (fasih_exists=false); yang sudah tercatat dilewati")
+    parser.add_argument("--no-cek", action="store_true", help="Skip CEK IDPel/NIK dari awal (hindari 429 rate-limit). Data tetap TERDATA di FASIH via paradata; kehilangan routing prelist + tampilan pemadanan NIK")
     parser.add_argument("--delay", type=float, default=2.0, help="Rata-rata delay antar item (detik)")
     args = parser.parse_args()
+
+    if args.no_cek:
+        _cek_state["enabled"] = False
 
     # Parse item list
     items = []
@@ -609,6 +622,8 @@ def main():
         print("🧪 Mode: DRY RUN (tidak submit ke BPS)")
     if args.force:
         print("🔁 Mode: FORCE RE-REGISTER (submit ulang record yang belum tercatat di FASIH)")
+    if args.no_cek:
+        print("⏭️  Mode: NO-CEK (skip CEK IDPel/NIK — data tetap terdata via paradata)")
     print()
 
     # Step 1: Login
