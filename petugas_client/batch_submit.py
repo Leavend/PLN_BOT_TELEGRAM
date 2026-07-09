@@ -595,6 +595,7 @@ def main():
     parser.add_argument("--force", action="store_true", help="Re-register: paksa submit ulang record lama yang BELUM tercatat di FASIH (fasih_exists=false); yang sudah tercatat dilewati")
     parser.add_argument("--no-cek", action="store_true", help="Skip CEK IDPel/NIK dari awal (hindari 429 rate-limit). Data tetap TERDATA di FASIH via paradata; kehilangan routing prelist + tampilan pemadanan NIK")
     parser.add_argument("--resubmit-all", action="store_true", help="Submit ULANG semua ID walau sudah TERCATAT (buat betulin region/BLOK III record lama). Bikin record baru; yang lama jadi dobel")
+    parser.add_argument("--fast", action="store_true", help="Ambil 1 halaman tugas aja (cukup buat template create_new) — jauh lebih cepat + gak timeout di akun gede. Existing-match cuma lihat halaman itu")
     parser.add_argument("--delay", type=float, default=2.0, help="Rata-rata delay antar item (detik)")
     args = parser.parse_args()
 
@@ -643,6 +644,8 @@ def main():
         print("♻️  Mode: RESUBMIT-ALL (submit ulang semua walau sudah tercatat — betulin region)")
     if args.no_cek:
         print("⏭️  Mode: NO-CEK (skip CEK IDPel/NIK — data tetap terdata via paradata)")
+    if args.fast:
+        print("⚡ Mode: FAST (ambil 1 halaman tugas — create_new only)")
     print()
 
     # Step 1: Login
@@ -686,8 +689,15 @@ def main():
             tl = template_lookup[0]
             template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
 
-        print(f"📋 Mengambil tugas {skey}...")
-        assignments = fetch_all_assignments(headers, pid)
+        if args.fast:
+            # --fast: only the first page (enough templates for create_new) —
+            # skips slow full pagination that times out on big accounts.
+            print(f"📋 Mengambil template {skey} (fast)...")
+            fp = fetch_assignments(headers, pid, 0)
+            assignments = (fp.get("data") or {}).get("content", []) or []
+        else:
+            print(f"📋 Mengambil tugas {skey}...")
+            assignments = fetch_all_assignments(headers, pid)
         regions = fetch_regions(headers, pid)
 
         survey_caches[skey] = {
