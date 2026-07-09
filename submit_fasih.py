@@ -407,9 +407,10 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
             kec_info = kec_cache.get(target_kec)
             if kec_info:
                 l1_code = kec_info["l1_code"]
-                l1_name = "KALIMANTAN TIMUR"
+                l1_name = str(direct_args.get("pln_nama_prov") or "KALIMANTAN TIMUR").strip().upper()
                 l2_code = kec_info["l2_code"][-2:]
-                l2_name = "KOTA BONTANG"
+                # Never hardcode Bontang — use the customer's actual kabupaten
+                l2_name = str(direct_args.get("pln_nama_kab") or l2_name).strip().upper()
                 l2_fullcode = kec_info["l2_code"]
                 l3_code = kec_info["code"][-3:]
                 l3_name = kec_info["full_name"]
