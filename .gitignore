@@ -43,3 +43,4 @@ mitra_bps_results*.txt
 *.db-journal
 *.db-wal
 *.db-shm
+.fasih_survey_cache.json

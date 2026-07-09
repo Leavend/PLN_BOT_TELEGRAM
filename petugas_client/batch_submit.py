@@ -229,6 +229,48 @@ def _cek(fn, *args) -> dict:
         return {}
 
 
+# --fast survey cache: the survey/periode/template/region setup is stable within
+# a period, so cache it to disk (per account) and reuse — subsequent --fast runs
+# do ZERO BPS fetch (can't time out). create_new still needs a template to clone
+# (copyFromId + region), so a handful are cached too.
+_SURVEY_CACHE_FILE = os.path.join(REPO_ROOT, ".fasih_survey_cache.json")
+_SURVEY_CACHE_TTL = 12 * 3600
+
+def _account_email(token_data: dict) -> str:
+    try:
+        p = token_data["access_token"].split(".")[1]
+        p += "=" * (4 - len(p) % 4)
+        j = json.loads(base64.urlsafe_b64decode(p.encode()))
+        return j.get("email") or j.get("preferred_username") or ""
+    except Exception:
+        return ""
+
+def _load_survey_cache(email: str):
+    try:
+        with open(_SURVEY_CACHE_FILE) as f:
+            c = json.load(f)
+        if c.get("email") == email and (time.time() - c.get("ts", 0)) < _SURVEY_CACHE_TTL:
+            return c.get("survey_caches")
+    except Exception:
+        pass
+    return None
+
+def _save_survey_cache(email: str, survey_caches: dict):
+    try:
+        trimmed = {}
+        for k, sc in survey_caches.items():
+            trimmed[k] = {
+                "periode": sc["periode"],
+                "template_mapping": sc["template_mapping"],
+                "assignments": sc["assignments"][:20],  # a few templates is enough
+                "regions": sc["regions"],
+            }
+        with open(_SURVEY_CACHE_FILE, "w") as f:
+            json.dump({"email": email, "ts": time.time(), "survey_caches": trimmed}, f)
+    except Exception as e:
+        logger.warning(f"Gagal simpan cache survei: {e}")
+
+
 def submit_single(
     token_data: dict,
     val: str,
@@ -595,7 +637,7 @@ def main():
     parser.add_argument("--force", action="store_true", help="Re-register: paksa submit ulang record lama yang BELUM tercatat di FASIH (fasih_exists=false); yang sudah tercatat dilewati")
     parser.add_argument("--no-cek", action="store_true", help="Skip CEK IDPel/NIK dari awal (hindari 429 rate-limit). Data tetap TERDATA di FASIH via paradata; kehilangan routing prelist + tampilan pemadanan NIK")
     parser.add_argument("--resubmit-all", action="store_true", help="Submit ULANG semua ID walau sudah TERCATAT (buat betulin region/BLOK III record lama). Bikin record baru; yang lama jadi dobel")
-    parser.add_argument("--fast", action="store_true", help="Ambil 1 halaman tugas aja (cukup buat template create_new) — jauh lebih cepat + gak timeout di akun gede. Existing-match cuma lihat halaman itu")
+    parser.add_argument("--fast", action="store_true", help="Setup survei dari cache disk (run pertama ambil 1 halaman lalu di-cache; run berikutnya ZERO fetch, gak bisa timeout). Buat create_new/add-sample")
     parser.add_argument("--delay", type=float, default=2.0, help="Rata-rata delay antar item (detik)")
     args = parser.parse_args()
 
@@ -652,66 +694,75 @@ def main():
     token_data = ensure_login()
     headers = get_headers(token_data)
 
-    # Step 2-3: Fetch surveys + assignments (cached once, both Prabayar & Pascabayar)
-    print("📊 Mengambil data survei dari BPS...")
-    try:
-        surveys = fetch_surveys(headers)
-    except Exception as e:
-        msg = str(e)
-        if any(c in msg for c in ("500", "502", "503", "504")):
-            print("❌ Server BPS lagi sibuk/down (5xx). Bukan masalah data kamu — tunggu beberapa menit, cek 'fasih-status', lalu coba lagi.")
-        else:
-            print(f"❌ Gagal ambil data survei dari BPS: {msg[:150]}")
-        sys.exit(1)
-    if not surveys:
-        print("❌ Tidak ada survei aktif.")
-        sys.exit(1)
+    # Step 2-3: survey/periode/template/region setup. With --fast, reuse a disk
+    # cache (per account) so repeat runs do ZERO BPS fetch and can't time out.
+    email = _account_email(token_data)
+    survey_caches = _load_survey_cache(email) if args.fast else None
+    if survey_caches:
+        n = sum(len(sc.get("assignments", [])) for sc in survey_caches.values())
+        print(f"📊 Pakai cache survei (skip fetch BPS) — {', '.join(survey_caches)} · {n} template")
+    else:
+        print("📊 Mengambil data survei dari BPS...")
+        try:
+            surveys = fetch_surveys(headers)
+        except Exception as e:
+            msg = str(e)
+            if any(c in msg for c in ("500", "502", "503", "504")):
+                print("❌ Server BPS lagi sibuk/down (5xx). Bukan masalah data kamu — tunggu beberapa menit, cek 'fasih-status', lalu coba lagi.")
+            else:
+                print(f"❌ Gagal ambil data survei dari BPS: {msg[:150]}")
+            sys.exit(1)
+        if not surveys:
+            print("❌ Tidak ada survei aktif.")
+            sys.exit(1)
 
-    survey_caches = {}
-    for survey in surveys:
-        sname = (survey.get("name") or "").upper()
-        if "PASCA" in sname:
-            skey = "PASCABAYAR"
-        elif "PRABAYAR" in sname or "PRA" in sname:
-            skey = "PRABAYAR"
-        else:
-            skey = sname[:20] or "DEFAULT"
+        survey_caches = {}
+        for survey in surveys:
+            sname = (survey.get("name") or "").upper()
+            if "PASCA" in sname:
+                skey = "PASCABAYAR"
+            elif "PRABAYAR" in sname or "PRA" in sname:
+                skey = "PRABAYAR"
+            else:
+                skey = sname[:20] or "DEFAULT"
 
-        active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
-        if not active_periode:
-            print(f"   ⚠️  {skey}: tidak ada periode aktif, dilewati")
-            continue
-        pid = active_periode["id"]
+            active_periode = next((p for p in survey.get("listPeriode", []) if p.get("isActive")), None)
+            if not active_periode:
+                print(f"   ⚠️  {skey}: tidak ada periode aktif, dilewati")
+                continue
+            pid = active_periode["id"]
 
-        template_lookup = survey.get("templateLookup", [])
-        template_mapping = {}
-        if template_lookup:
-            tl = template_lookup[0]
-            template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
+            template_lookup = survey.get("templateLookup", [])
+            template_mapping = {}
+            if template_lookup:
+                tl = template_lookup[0]
+                template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
 
+            if args.fast:
+                # --fast: only the first page (enough templates for create_new) —
+                # skips slow full pagination that times out on big accounts.
+                print(f"📋 Mengambil template {skey} (fast)...")
+                fp = fetch_assignments(headers, pid, 0)
+                assignments = (fp.get("data") or {}).get("content", []) or []
+            else:
+                print(f"📋 Mengambil tugas {skey}...")
+                assignments = fetch_all_assignments(headers, pid)
+            regions = fetch_regions(headers, pid)
+
+            survey_caches[skey] = {
+                "survey": survey,
+                "periode": active_periode,
+                "template_mapping": template_mapping,
+                "assignments": assignments,
+                "regions": regions,
+            }
+            print(f"   {skey}: {len(assignments)} tugas")
+
+        if not survey_caches:
+            print("❌ Tidak ada survei dengan periode aktif.")
+            sys.exit(1)
         if args.fast:
-            # --fast: only the first page (enough templates for create_new) —
-            # skips slow full pagination that times out on big accounts.
-            print(f"📋 Mengambil template {skey} (fast)...")
-            fp = fetch_assignments(headers, pid, 0)
-            assignments = (fp.get("data") or {}).get("content", []) or []
-        else:
-            print(f"📋 Mengambil tugas {skey}...")
-            assignments = fetch_all_assignments(headers, pid)
-        regions = fetch_regions(headers, pid)
-
-        survey_caches[skey] = {
-            "survey": survey,
-            "periode": active_periode,
-            "template_mapping": template_mapping,
-            "assignments": assignments,
-            "regions": regions,
-        }
-        print(f"   {skey}: {len(assignments)} tugas")
-
-    if not survey_caches:
-        print("❌ Tidak ada survei dengan periode aktif.")
-        sys.exit(1)
+            _save_survey_cache(email, survey_caches)
 
     # Process items
     print(f"\n{'='*50}")
