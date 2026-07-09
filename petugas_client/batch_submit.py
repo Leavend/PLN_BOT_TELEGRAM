@@ -232,6 +232,7 @@ def submit_single(
     dry_run: bool = False,
     temp_dir: str = "",
     force: bool = False,
+    resubmit_all: bool = False,
 ) -> tuple[bool, str]:
     """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
     try:
@@ -278,17 +279,22 @@ def submit_single(
             n_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
             status_alias = target.get("assignmentStatusAlias") or ""
             if "SUBMITTED" in status_alias or "DONE" in status_alias or "APPROVED" in status_alias:
-                if not force:
+                if not force and not resubmit_all:
                     return True, f"Sudah terkirim (Status: {status_alias})."
-                # --force re-register: skip if already in the FASIH frame, else
-                # drop the match so the create_new path builds a fresh, registered
-                # record (old empty-paradata records never registered).
                 import uuid as _uuid
                 chk_idpel = (target.get(i_slot) or idpel_val or "").strip()
-                fe = _cek(check_idpln, headers, str(_uuid.uuid4()), chk_idpel).get("fasih_exists")
-                if fe:
-                    return True, "Sudah TERCATAT di FASIH — skip."
-                logger.info(f"Re-register {chk_idpel}: belum tercatat → create_new")
+                if resubmit_all:
+                    # --resubmit-all: rebuild + submit again EVEN IF already
+                    # registered — fixes region/BLOK III of old records (creates a
+                    # fresh record with the corrected data).
+                    logger.info(f"Resubmit-all {chk_idpel}: submit ulang (perbaiki region/data)")
+                else:
+                    # --force re-register: skip if already in the FASIH frame, else
+                    # drop the match so create_new builds a fresh registered record.
+                    fe = _cek(check_idpln, headers, str(_uuid.uuid4()), chk_idpel).get("fasih_exists")
+                    if fe:
+                        return True, "Sudah TERCATAT di FASIH — skip."
+                    logger.info(f"Re-register {chk_idpel}: belum tercatat → create_new")
                 if chk_idpel:
                     idpel_val = chk_idpel
                 target = None
@@ -578,6 +584,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Test tanpa submit ke BPS")
     parser.add_argument("--force", action="store_true", help="Re-register: paksa submit ulang record lama yang BELUM tercatat di FASIH (fasih_exists=false); yang sudah tercatat dilewati")
     parser.add_argument("--no-cek", action="store_true", help="Skip CEK IDPel/NIK dari awal (hindari 429 rate-limit). Data tetap TERDATA di FASIH via paradata; kehilangan routing prelist + tampilan pemadanan NIK")
+    parser.add_argument("--resubmit-all", action="store_true", help="Submit ULANG semua ID walau sudah TERCATAT (buat betulin region/BLOK III record lama). Bikin record baru; yang lama jadi dobel")
     parser.add_argument("--delay", type=float, default=2.0, help="Rata-rata delay antar item (detik)")
     args = parser.parse_args()
 
@@ -622,6 +629,8 @@ def main():
         print("🧪 Mode: DRY RUN (tidak submit ke BPS)")
     if args.force:
         print("🔁 Mode: FORCE RE-REGISTER (submit ulang record yang belum tercatat di FASIH)")
+    if args.resubmit_all:
+        print("♻️  Mode: RESUBMIT-ALL (submit ulang semua walau sudah tercatat — betulin region)")
     if args.no_cek:
         print("⏭️  Mode: NO-CEK (skip CEK IDPel/NIK — data tetap terdata via paradata)")
     print()
@@ -705,7 +714,8 @@ def main():
 
             ok, message = submit_single(
                 token_data, val, survey_caches,
-                dry_run=args.dry_run, temp_dir=temp_dir, force=args.force
+                dry_run=args.dry_run, temp_dir=temp_dir, force=args.force,
+                resubmit_all=args.resubmit_all
             )
 
             if ok:
