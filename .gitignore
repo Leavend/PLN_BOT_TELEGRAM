@@ -47,3 +47,5 @@ mitra_bps_results*.txt
 
 .fasih_tercatat_cache.json
 .fasih_accounts.txt
+aliases_emails.txt
+aliases_names.txt
