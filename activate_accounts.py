@@ -65,7 +65,7 @@ def fetch_imap():
     import imaplib, email
     raw = open(GMAIL_CFG).read().strip()
     user, _, pw = raw.partition(":")
-    user, pw = user.strip(), pw.strip()
+    user, pw = user.strip(), pw.replace(" ", "").strip()  # app password sering ditulis 4x4 spasi
     M = imaplib.IMAP4_SSL("imap.gmail.com")
     M.login(user, pw)
     M.select("INBOX")
