@@ -733,6 +733,15 @@ def main():
     print(f"   ⏱  Waktu:  {int(elapsed_total//60)}m {int(elapsed_total%60)}s")
     print(f"{'='*50}")
 
+    failed = [r for r in report_rows if r["status"] == "FAILED"]
+    if failed:
+        print(f"\n❌ {len(failed)} ID GAGAL (+ alasan):")
+        for r in failed:
+            print(f"   • {r['val']} — {r['message'][:90]}")
+        print(f"\n📋 Copy ID gagal (paste ulang buat coba lagi):")
+        for r in failed:
+            print(f"{r['val']}")
+
     # Save CSV report
     report_file = f"batch_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     with open(report_file, "w", encoding="utf-8", newline="") as f:
