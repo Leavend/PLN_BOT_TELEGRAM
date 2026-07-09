@@ -476,6 +476,34 @@ def request_photo_presign_get(headers: dict, assignment_id: str, copy_from_id: s
         )
     return res_json
 
+def check_idpln(headers: dict, assignment_id: str, idpel: str) -> dict:
+    """CEK ID Pelanggan — the FASIH app calls this (with the assignmentId) before
+    submit. BPS records the verification per assignment; skipping it makes the
+    submitted record count as unverified/invalid. Returns the connector data
+    (exists, nama, nomor_meter, prelist_source, region codes)."""
+    resp = session.post(
+        f"{BASE_URL}/mobile/connector/api/hit/check-idpln",
+        headers=headers,
+        json={"assignmentId": assignment_id, "body": {"id_pelanggan_pln": idpel}},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def check_nikpln(headers: dict, assignment_id: str, nik: str) -> dict:
+    """CEK NIK (pemadanan) — companion to check_idpln. Returns exists, nama,
+    nomor_kartu_keluarga."""
+    resp = session.post(
+        f"{BASE_URL}/mobile/connector/api/hit/check-nikpln",
+        headers=headers,
+        json={"assignmentId": assignment_id, "body": {"nik": nik}},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def confirm_submit(headers: dict, params: dict, is_edit: bool = False) -> dict:
     """Step 3: Confirm submission with metadata."""
     url_path = "edit" if is_edit else "submit"

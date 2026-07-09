@@ -152,6 +152,7 @@ def extract_profile_data(raw_data: dict) -> dict:
         "nama": nama,
         "alamat": alamat,
         "nik": str(p.get("noidentitas") or p.get("no_identitas") or "").strip(),
+        "no_hp": str(p.get("notelp_hp") or p.get("notelp") or "").strip(),
         "tarif": tarif_raw,
         "daya": str(p.get("daya") or p.get("daya_51") or "").strip(),
         "produk": produk,

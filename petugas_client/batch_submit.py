@@ -38,6 +38,7 @@ from fasih_api import (
     request_photo_presign_put, upload_photo_to_s3, request_photo_presign_get,
     confirm_submit, request_presign_url, upload_to_s3,
     map_answers_to_data_slots,
+    check_idpln, check_nikpln,
 )
 from fasih_crypto import compute_md5, compute_md5_base64
 from fasih_archive import create_7z_archive
@@ -315,9 +316,28 @@ def submit_single(
             if pln_data.get("photo_url"):
                 photo_path = download_photo(pln_data["photo_url"], temp_dir)
 
+        # Step 5b: CEK IDPel — the FASIH app calls this before submit. BPS records
+        # the verification per assignmentId (skipping it => record counts as
+        # unverified/invalid). Use the SAME id the submit will use, like the app.
+        # Its prelist_source is BPS's authoritative survey classification, so we
+        # route create_new by it (PLN produk is only the fallback).
+        import uuid
+        aid = target.get("id") if target else str(uuid.uuid4())
+        prelist = ""
+        try:
+            r_idpln = check_idpln(headers, aid, idpel_val)
+            d_idpln = r_idpln.get("data") or {}
+            prelist = (d_idpln.get("prelist_source") or "").strip().upper()
+            if not d_idpln.get("exists"):
+                logger.warning(f"CEK IDPel {idpel_val}: exists=false di BPS")
+        except Exception as e:
+            logger.warning(f"CEK IDPel gagal ({idpel_val}): {e}")
+
         if not target:
-            # No existing assignment — determine survey from PLN produk field
-            if _is_prabayar(direct_args) and "PRABAYAR" in survey_caches:
+            # No existing assignment — route by BPS prelist_source, else PLN produk
+            if prelist in ("PRABAYAR", "PASCABAYAR") and prelist in survey_caches:
+                matched_key = prelist
+            elif _is_prabayar(direct_args) and "PRABAYAR" in survey_caches:
                 matched_key = "PRABAYAR"
             elif not _is_prabayar(direct_args) and "PASCABAYAR" in survey_caches:
                 matched_key = "PASCABAYAR"
@@ -333,9 +353,9 @@ def submit_single(
             if not template_pool:
                 return False, f"Tidak ada assignment di survey {matched_key}."
             template_assignment = _find_template_for_region(template_pool, pln_data)
-            template_assignment_id = template_assignment["id"]
             target = build_new_assignment_target(
                 template_assignment, idpel_val, nometer_val, sc["template_mapping"])
+            target["id"] = aid  # same id used for CEK, mirrors the app
             target["data2"] = direct_args.get("nama") or ""
             target["data4"] = direct_args.get("alamat") or ""
             target["data5"] = direct_args.get("alamat") or ""
@@ -345,6 +365,16 @@ def submit_single(
         cached_template_mapping = sc["template_mapping"]
         cached_regions = sc["regions"]
         pid = sc["periode"]["id"]
+
+        # CEK NIK (pemadanan) — companion verification before submit
+        nik_val = direct_args.get("nik") or ""
+        if nik_val:
+            try:
+                r_nikpln = check_nikpln(headers, aid, nik_val)
+                if not (r_nikpln.get("data") or {}).get("exists"):
+                    logger.warning(f"CEK NIK {nik_val}: exists=false (tidak padan) di BPS")
+            except Exception as e:
+                logger.warning(f"CEK NIK gagal: {e}")
 
         # Step 6: Build answers
         answers = build_dynamic_answers(target, direct_args, cached_template_mapping)
