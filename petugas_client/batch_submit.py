@@ -474,9 +474,14 @@ def submit_single(
 
         is_edit = target.get("assignmentStatusAlias") != "OPEN"
         copy_from_id = target.get("copyFromId")
+        # Match the FASIH app exactly: archive filename carries a submit-time epoch
+        # ms suffix ({id}_{epochms}.7z). BPS's registration pipeline keys off this
+        # format; a plain {id}.7z lands as a record but never registers into the
+        # FASIH frame (check-idpln fasih_exists stays false = "belum tercatat").
+        arc_filename = f"{target['id']}_{int(time.time() * 1000)}.7z"
         presign_resp = request_presign_url(
             headers, target["id"], pid,
-            [f"{target['id']}.7z"], is_edit, copy_from_id
+            [arc_filename], is_edit, copy_from_id
         )
         data_obj = presign_resp.get("data", {})
         if isinstance(data_obj, list):
@@ -507,7 +512,7 @@ def submit_single(
         params = {
             "surveyPeriodeId": str(target.get("surveyPeriodId") or ""),
             "assignmentId": str(target.get("id") or ""),
-            "filename": f"{target.get('id')}.7z",
+            "filename": arc_filename,
             "md5": str(archive_md5),
             "createStatus": "true" if target.get("isNew", False) else "false",
             "draftStatus": "false",
@@ -518,7 +523,7 @@ def submit_single(
             "copyFromId": str(target.get("copyFromId") or ""),
             "statusApproval": "false",
             "sourceFrom": "CAPI",
-            "paradata": "", "comment": "", "note": ""
+            "paradata": "", "comment": '{"dataKey":"","notes":[]}', "note": ""
         }
 
         if not dry_run:

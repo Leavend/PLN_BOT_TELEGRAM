@@ -984,9 +984,13 @@ async def submit_fasih_safe(
                 
             is_edit = target.get("assignmentStatusAlias") != "OPEN"
             copy_from_id = target.get("copyFromId")
+            # Match the FASIH app: {id}_{epochms}.7z — BPS registers the sample into
+            # the FASIH frame (check-idpln fasih_exists=true) only with this filename;
+            # a plain {id}.7z submits but never registers ("belum tercatat").
+            arc_filename = f"{target['id']}_{int(time.time() * 1000)}.7z"
             error_detail = None
             try:
-                presign_resp = await call_with_retry(async_request_presign_url, headers, target["id"], pid, [f"{target['id']}.7z"], is_edit, copy_from_id, max_retries=5)
+                presign_resp = await call_with_retry(async_request_presign_url, headers, target["id"], pid, [arc_filename], is_edit, copy_from_id, max_retries=5)
                 data_obj = presign_resp.get("data", {})
                 if isinstance(data_obj, list):
                     urls = data_obj
@@ -1040,7 +1044,7 @@ async def submit_fasih_safe(
         params = {
             "surveyPeriodeId": str(target.get("surveyPeriodId") or ""),
             "assignmentId": str(target.get("id") or ""),
-            "filename": f"{target.get('id')}.7z",
+            "filename": arc_filename,
             "md5": str(archive_md5),
             "createStatus": "true" if target.get("isNew", False) else "false",
             "draftStatus": "false",
