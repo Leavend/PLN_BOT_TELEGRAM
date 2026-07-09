@@ -371,7 +371,28 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
     l4_code = l4.get("code") or "003"
     l4_name = l4.get("name") or "BERBAS PANTAI"
     l4_fullcode = l4.get("fullCode") or "6474020003"
-    
+
+    # HIGHEST PRIORITY: PLN kd_kel is the 10-digit BPS desa code
+    # (prov2 + kab2 + kec3 + kel3, identical to check-idpln kode_desa). Slice it
+    # directly so the wilayah is correct for ANY kabupaten. The name-based lookup
+    # below is Bontang-tuned and mislabels other kabupaten (e.g. Kutai Timur data
+    # came out as KOTA BONTANG / 6404). Names come from PLN/AP2T.
+    bps_desa = str(direct_args.get("pln_kd_kel") or "").strip()
+    if len(bps_desa) == 10 and bps_desa.isdigit():
+        return {
+            "l1_code": bps_desa[0:2],
+            "l1_name": str(direct_args.get("pln_nama_prov") or l1_name).strip().upper(),
+            "l2_code": bps_desa[2:4],
+            "l2_name": str(direct_args.get("pln_nama_kab") or l2_name).strip().upper(),
+            "l2_fullcode": bps_desa[0:4],
+            "l3_code": bps_desa[4:7],
+            "l3_name": str(direct_args.get("pln_nama_kec") or l3_name).strip().upper(),
+            "l3_fullcode": bps_desa[0:7],
+            "l4_code": bps_desa[7:10],
+            "l4_name": str(direct_args.get("pln_nama_kel") or l4_name).strip().upper(),
+            "l4_fullcode": bps_desa[0:10],
+        }
+
     # Try name-based lookup resolution using the BPS lookups
     pln_nama_kec = str(direct_args.get("pln_nama_kec") or "").strip().upper()
     pln_nama_kel = str(direct_args.get("pln_nama_kel") or "").strip().upper()
