@@ -197,6 +197,17 @@ token = os.path.exists('fasih_token.json')
 print('📡 PLN API:', url or '❌ NOT SET')
 print('🔑 API Key:', ('✅ ' + key[:8] + '...') if key else '⚠️  kosong')
 print('🎫 BPS Token:', '✅ ada' if token else '❌ belum login')
+if token:
+    try:
+        from petugas_client.batch_submit import _account_email
+        import base64
+        td = json.load(open('fasih_token.json'))
+        acc = _account_email(td)
+        p = td['access_token'].split('.')[1]; p += '=' * (4 - len(p) % 4)
+        nm = json.loads(base64.urlsafe_b64decode(p.encode())).get('name', '')
+        print('👤 Login:', acc, ('— ' + nm) if nm and nm != acc else '')
+    except Exception:
+        print('👤 Login: (token tak terbaca)')
 if url:
     try:
         d = requests.get(url + '/health', timeout=5).json()
