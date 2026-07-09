@@ -575,6 +575,12 @@ def submit_single(
             return True, "Sukses (DRY RUN)"
 
     except Exception as e:
+        msg = str(e)
+        # Network hiccups (BPS slow/overloaded) are transient — log a clean line,
+        # not a full stack trace. Reserve the traceback for real/unexpected errors.
+        if any(t in msg.lower() for t in ("timed out", "timeout", "max retries", "connection")):
+            logger.error(f"Submit error for {val}: BPS lambat/timeout — {msg[:120]}")
+            return False, "BPS lambat/timeout — coba lagi (cek fasih-status). Item dilewati."
         logger.error(f"Submit error for {val}: {e}", exc_info=True)
         return False, f"Error: {str(e)}"
 
