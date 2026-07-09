@@ -39,7 +39,7 @@ from fasih_archive import create_7z_archive
 from fasih_api import (
     fetch_surveys, fetch_assignments, fetch_all_assignments, fetch_regions, request_presign_url, upload_to_s3,
     request_photo_presign_put, upload_photo_to_s3, request_photo_presign_get, confirm_submit,
-    fetch_template_mapping, map_answers_to_data_slots
+    fetch_template_mapping, map_answers_to_data_slots, check_idpln, check_nikpln
 )
 
 # Async wrappers for blocking functions using asyncio.to_thread
@@ -830,9 +830,31 @@ async def submit_fasih_safe(
                 except Exception as e:
                     logger.error(f"Error performing PLN lookup in submit_fasih_safe: {e}")
 
+        # CEK IDPel + NIK (pemadanan) — the FASIH app performs these before submit.
+        # BPS registers the verification per assignmentId; the NIK result feeds the
+        # pemadanan fields in the archive. Skipping => record counts as invalid.
+        aid = target.get("id")
+        idpel_for_cek = (idpel or direct_args.get("idpel") or "").strip()
+        nik_for_cek = (direct_args.get("nik") or "").strip()
+        nikpln_data = {}
+        if idpel_for_cek:
+            try:
+                await asyncio.to_thread(check_idpln, headers, aid, idpel_for_cek)
+            except Exception as e:
+                logger.warning(f"CEK IDPel gagal ({idpel_for_cek}): {e}")
+        if nik_for_cek:
+            try:
+                r_nikpln = await asyncio.to_thread(check_nikpln, headers, aid, nik_for_cek)
+                nikpln_data = r_nikpln.get("data") or {}
+                if not nikpln_data.get("exists"):
+                    logger.warning(f"CEK NIK {nik_for_cek}: exists=false (tidak padan) di BPS")
+            except Exception as e:
+                logger.warning(f"CEK NIK gagal: {e}")
+
         # Build answer dict using imported helper
         from submit_fasih import build_dynamic_answers
         answers = build_dynamic_answers(target, direct_args, template_mapping)
+        answers["_nikpln"] = nikpln_data  # real NIK pemadanan result -> archive
 
         # Photo upload handling
         if photo_path and os.path.exists(photo_path):
