@@ -20,7 +20,10 @@ import random
 import logging
 import argparse
 import tempfile
+import shutil
+import threading
 import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
@@ -210,6 +213,8 @@ def _find_template_for_region(open_assignments, pln_data):
 # working + registering, just without prelist routing / NIK-pemadanan display
 # (wilayah still correct — it comes from PLN kd_kel, not CEK).
 _cek_state = {"enabled": True}
+# Serialize token refreshes so parallel workers never write TOKEN_FILE concurrently.
+_token_lock = threading.Lock()
 
 def _cek(fn, *args) -> dict:
     if not _cek_state["enabled"]:
@@ -282,7 +287,8 @@ def submit_single(
 ) -> tuple[bool, str]:
     """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
     try:
-        token_data = refresh_token_if_needed(token_data, token_file=TOKEN_FILE, exit_on_failure=False)
+        with _token_lock:
+            token_data = refresh_token_if_needed(token_data, token_file=TOKEN_FILE, exit_on_failure=False)
         headers = get_headers(token_data)
 
         # Determine idpel vs nometer
@@ -318,6 +324,7 @@ def submit_single(
             "kelurahan": "001", "kdpm": "01", "kddk": "1", "status_dil": "1",
         }
 
+        local_submitted = False
         if target:
             sc = survey_caches[matched_key]
             tm = sc["template_mapping"]
@@ -325,24 +332,13 @@ def submit_single(
             n_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
             status_alias = target.get("assignmentStatusAlias") or ""
             if "SUBMITTED" in status_alias or "DONE" in status_alias or "APPROVED" in status_alias:
-                if not force and not resubmit_all:
-                    return True, f"Sudah terkirim (Status: {status_alias})."
-                import uuid as _uuid
+                # Already-submitted local record. Whether to skip (already tercatat)
+                # or re-register (belum) is decided by the ONE global fasih_exists
+                # guard below (single check-idpln) — drop the target so create_new runs.
                 chk_idpel = (target.get(i_slot) or idpel_val or "").strip()
-                if resubmit_all:
-                    # --resubmit-all: rebuild + submit again EVEN IF already
-                    # registered — fixes region/BLOK III of old records (creates a
-                    # fresh record with the corrected data).
-                    logger.info(f"Resubmit-all {chk_idpel}: submit ulang (perbaiki region/data)")
-                else:
-                    # --force re-register: skip if already in the FASIH frame, else
-                    # drop the match so create_new builds a fresh registered record.
-                    fe = _cek(check_idpln, headers, str(_uuid.uuid4()), chk_idpel).get("fasih_exists")
-                    if fe:
-                        return True, "Sudah TERCATAT di FASIH — skip."
-                    logger.info(f"Re-register {chk_idpel}: belum tercatat → create_new")
                 if chk_idpel:
                     idpel_val = chk_idpel
+                local_submitted = True
                 target = None
                 matched_key = None
             if target:
@@ -418,6 +414,19 @@ def submit_single(
         prelist = (d_idpln.get("prelist_source") or "").strip().upper()
         if d_idpln and not d_idpln.get("exists"):
             logger.warning(f"CEK IDPel {idpel_val}: exists=false di BPS")
+
+        # DEDUP GUARD (global, anti-dupe) — the single check-idpln above is the source
+        # of truth for "already registered in FASIH". Skip anything tercatat unless the
+        # user explicitly forces a rebuild (--resubmit-all, e.g. to fix region/BLOK III).
+        fasih_exists = d_idpln.get("fasih_exists")
+        if fasih_exists and not resubmit_all:
+            return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
+        # CEK unavailable (--no-cek / 429) AND a local SUBMITTED record exists, plain
+        # mode: don't blind-resubmit (would dupe). --force asserts it's belum → proceed.
+        if fasih_exists is None and local_submitted and not force and not resubmit_all:
+            return True, "Sudah terkirim (lokal, CEK off) — skip. Pakai --force untuk re-register."
+        if local_submitted:
+            logger.info(f"Re-register {idpel_val}: belum tercatat → create_new")
 
         if not target:
             # No existing assignment — route by BPS prelist_source, else PLN produk
@@ -638,7 +647,8 @@ def main():
     parser.add_argument("--no-cek", action="store_true", help="Skip CEK IDPel/NIK dari awal (hindari 429 rate-limit). Data tetap TERDATA di FASIH via paradata; kehilangan routing prelist + tampilan pemadanan NIK")
     parser.add_argument("--resubmit-all", action="store_true", help="Submit ULANG semua ID walau sudah TERCATAT (buat betulin region/BLOK III record lama). Bikin record baru; yang lama jadi dobel")
     parser.add_argument("--fast", action="store_true", help="Setup survei dari cache disk (run pertama ambil 1 halaman lalu di-cache; run berikutnya ZERO fetch, gak bisa timeout). Buat create_new/add-sample")
-    parser.add_argument("--delay", type=float, default=2.0, help="Rata-rata delay antar item (detik)")
+    parser.add_argument("--delay", type=float, default=0.5, help="Stagger acak per item (detik) untuk hindari thundering-herd; 0 = tanpa stagger")
+    parser.add_argument("--workers", type=int, default=4, help="Jumlah submit paralel (default 4). Item nunggu latency BPS ~8-10 dtk, jadi paralel = jauh lebih cepat. 1 = serial")
     args = parser.parse_args()
 
     if args.no_cek:
@@ -686,8 +696,11 @@ def main():
         print("♻️  Mode: RESUBMIT-ALL (submit ulang semua walau sudah tercatat — betulin region)")
     if args.no_cek:
         print("⏭️  Mode: NO-CEK (skip CEK IDPel/NIK — data tetap terdata via paradata)")
+        print("   ⚠️  Tanpa CEK, guard anti-dupe mati. Pakai list yang SUDAH difilter (belum saja).")
     if args.fast:
         print("⚡ Mode: FAST (ambil 1 halaman tugas — create_new only)")
+    if args.workers and args.workers > 1:
+        print(f"🚀 Paralel: {args.workers} worker")
     print()
 
     # Step 1: Login
@@ -764,9 +777,14 @@ def main():
         if args.fast:
             _save_survey_cache(email, survey_caches)
 
-    # Process items
+    # Process items — parallel pool. Each item is ~8-10s of BPS network latency
+    # (HAR: presign 2.5s + submit 1.6s + cek 1.5s + foto 1.5s), so running a few
+    # concurrently multiplies throughput. Each worker gets its OWN temp dir (no
+    # shared-dir cleanup race); results are collected in the main thread so the
+    # counters/report need no locks.
+    workers = max(1, args.workers)
     print(f"\n{'='*50}")
-    print(f"⚡ MEMULAI BATCH SUBMIT — {len(items)} item")
+    print(f"⚡ MEMULAI BATCH SUBMIT — {len(items)} item · {workers} paralel")
     print(f"{'='*50}\n")
 
     successes = 0
@@ -774,51 +792,47 @@ def main():
     report_rows = []
     start_time = time.time()
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        for idx, val in enumerate(items):
-            elapsed = time.time() - start_time
-            rate = (idx / (elapsed / 60)) if elapsed > 0 and idx > 0 else 0
-            remaining = len(items) - idx
-            eta = (remaining / rate * 60) if rate > 0 else 0
-
-            print(f"[{idx+1}/{len(items)}] {val}", end=" ... ", flush=True)
-
+    def _worker(idx: int, val: str):
+        if args.delay > 0:
+            time.sleep(random.uniform(0, args.delay))  # stagger, avoid thundering-herd
+        wdir = tempfile.mkdtemp(prefix="fasih_")
+        try:
             ok, message = submit_single(
                 token_data, val, survey_caches,
-                dry_run=args.dry_run, temp_dir=temp_dir, force=args.force,
-                resubmit_all=args.resubmit_all
+                dry_run=args.dry_run, temp_dir=wdir, force=args.force,
+                resubmit_all=args.resubmit_all,
             )
+        except Exception as e:  # never let one item kill the pool
+            ok, message = False, f"Error tak terduga: {str(e)[:120]}"
+        finally:
+            shutil.rmtree(wdir, ignore_errors=True)
+        return idx, val, ok, message
 
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = [ex.submit(_worker, i, v) for i, v in enumerate(items)]
+        done = 0
+        for fut in as_completed(futures):
+            idx, val, ok, message = fut.result()
+            done += 1
             if ok:
                 successes += 1
-                print(f"✅ {message}")
             else:
                 failures += 1
-                print(f"❌ {message}")
-
             report_rows.append({
                 "val": val, "status": "SUCCESS" if ok else "FAILED", "message": message
             })
 
-            # Cleanup temp files from this iteration
-            for f in os.listdir(temp_dir):
-                try:
-                    os.remove(os.path.join(temp_dir, f))
-                except OSError:
-                    pass
-
-            # Progress bar
-            pct = int((idx + 1) / len(items) * 100)
+            elapsed = time.time() - start_time
+            rate = done / (elapsed / 60) if elapsed > 0 else 0
+            eta = ((len(items) - done) / rate * 60) if rate > 0 else 0
+            icon = "✅" if ok else "❌"
+            print(f"[{done}/{len(items)}] {val} {icon} {message}")
+            pct = int(done / len(items) * 100)
             filled = pct // 5
             bar = "█" * filled + "░" * (20 - filled)
             elapsed_str = f"{int(elapsed//60)}m{int(elapsed%60)}s"
             eta_str = f"{int(eta//60)}m{int(eta%60)}s" if eta > 0 else "—"
             print(f"   [{bar}] {pct}% | ✅{successes} ❌{failures} | ⏱{elapsed_str} ETA:{eta_str} | {rate:.1f}/min")
-
-            # Human-like delay
-            if idx < len(items) - 1:
-                delay = max(1.0, min(5.0, random.gauss(args.delay, 1.0)))
-                time.sleep(delay)
 
     # Report
     elapsed_total = time.time() - start_time
