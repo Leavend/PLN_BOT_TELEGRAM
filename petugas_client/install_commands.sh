@@ -165,6 +165,37 @@ OUTER
 sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-reregister" 2>/dev/null || \
   sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-reregister"
 
+# fasih-cek: cek TERCATAT/BELUM berbasis cache (ID true gak dicek ulang)
+cat > "$BIN/fasih-cek" << 'OUTER'
+#!/bin/bash
+cd "REPO_PLACEHOLDER"
+python3 -c "
+import sys, re
+print('🔎 CEK TERCATAT (cache) — paste ID Pelanggan, ENTER 2x untuk mulai')
+print('   (ID yang sudah TERCATAT tersimpan di cache & tidak dicek ulang)')
+print('─' * 40)
+lines = []; empty = 0
+while True:
+    try: line = input()
+    except EOFError: break
+    s = line.strip()
+    if not s:
+        empty += 1
+        if empty >= 2: break
+        continue
+    empty = 0
+    lines += re.findall(r'\b\d{12}\b', s)
+seen=set(); uniq=[x for x in lines if not (x in seen or seen.add(x))]
+if not uniq:
+    print('❌ Tidak ada ID valid'); sys.exit(1)
+print(f'\n✅ {len(uniq)} ID dicek...')
+import subprocess
+subprocess.run([sys.executable, 'cek_cache.py'] + sys.argv[1:] + ['--list', ','.join(uniq)])
+" "$@"
+OUTER
+sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-cek" 2>/dev/null || \
+  sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-cek"
+
 # fasih-logout: hapus token, login ulang
 cat > "$BIN/fasih-logout" << EOF
 #!/bin/bash
@@ -253,6 +284,7 @@ echo "  fasih-submit data.txt     Batch submit dari file"
 echo "  fasih-submit -l 234..     Submit langsung"
 echo "  fasih-submit-batch        Paste ID, enter 2x, jalan"
 echo "  fasih-reregister          Submit ulang record lama yang belum tercatat"
+echo "  fasih-cek                 Cek TERCATAT/BELUM (cache — hemat kuota)"
 echo "  fasih-login               Login BPS SSO"
 echo "  fasih-logout              Logout & ganti akun"
 echo "  fasih-lookup 234000...    Cek data PLN"
