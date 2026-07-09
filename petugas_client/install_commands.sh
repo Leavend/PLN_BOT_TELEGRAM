@@ -99,8 +99,8 @@ if confirm not in ('y', 'yes', ''):
 
 import subprocess
 ids_str = ','.join(unique)
-subprocess.run([sys.executable, 'petugas_client/batch_submit.py', '--list', ids_str])
-"
+subprocess.run([sys.executable, 'petugas_client/batch_submit.py'] + sys.argv[1:] + ['--list', ids_str])
+" "$@"
 OUTER
 sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-submit-batch" 2>/dev/null || \
   sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-submit-batch"
@@ -159,8 +159,8 @@ if confirm not in ('y', 'yes', ''):
 
 import subprocess
 ids_str = ','.join(unique)
-subprocess.run([sys.executable, 'petugas_client/batch_submit.py', '--force', '--list', ids_str])
-"
+subprocess.run([sys.executable, 'petugas_client/batch_submit.py', '--force'] + sys.argv[1:] + ['--list', ids_str])
+" "$@"
 OUTER
 sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-reregister" 2>/dev/null || \
   sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-reregister"
