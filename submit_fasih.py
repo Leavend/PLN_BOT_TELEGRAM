@@ -900,9 +900,22 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         </table>
         </div>"""
         
-    # NIK Check HTML status
+    # NIK pemadanan — reflect the real check-nikpln result. flat_answers["_nikpln"]
+    # holds the connector's data dict (exists, nama, nomor_kartu_keluarga). Falls
+    # back to the "not found" card when absent (e.g. the bot path not yet wired).
     nik = flat_answers.get("r202") or ""
-    hasil_nik_html = f"""
+    nikpln = flat_answers.get("_nikpln") or {}
+    nik_exists = bool(nikpln.get("exists"))
+    no_kk_val = str(nikpln.get("nomor_kartu_keluarga") or "")
+    if nik_exists:
+        nik_nama = nikpln.get("nama") or ""
+        hasil_nik_html = f"""
+            <div class="font-normal border-2 text-center"
+            style="padding: 0.8em; color: rgb(21, 128, 61); border-color: rgb(21, 128, 61); font-size: 12.5px;">
+            <b>NIK : [ {nik} ]<br>DITEMUKAN<br>{nik_nama}</b>
+            </div>"""
+    else:
+        hasil_nik_html = f"""
             <div class="font-normal border-2 text-center"
             style="padding: 0.8em; color: rgb(122, 32, 64); border-color: rgb(122, 32, 64); font-size: 12.5px;">
             <b>NIK : [ {nik} ] <br>TIDAK DITEMUKAN</b>
@@ -935,7 +948,15 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         "httpStatus": "OK"
     }
     
-    result_callnik_str = '{"data":{"alamat":null,"exists":false,"nama":null,"nomor_kartu_keluarga":null,"success":true},"success":true,"message":"Successfully hit an API.","httpStatus":"OK"}'
+    if nik_exists:
+        result_callnik_str = json.dumps({
+            "data": {"alamat": nikpln.get("alamat"), "exists": True,
+                     "nama": nikpln.get("nama"), "nomor_kartu_keluarga": no_kk_val,
+                     "success": True},
+            "success": True, "message": "Successfully hit an API.", "httpStatus": "OK"
+        }, ensure_ascii=False)
+    else:
+        result_callnik_str = '{"data":{"alamat":null,"exists":false,"nama":null,"nomor_kartu_keluarga":null,"success":true},"success":true,"message":"Successfully hit an API.","httpStatus":"OK"}'
     
     # Parse r105 (coords)
     r105_val = flat_answers.get("r105")
@@ -1011,7 +1032,7 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         {"dataKey": "r202", "createdAt": now_ms, "answer": flat_answers.get("r202") or "", "updatedAt": now_ms},
         {"dataKey": "hasilPemadananNIK", "createdAt": now_ms, "answer": hasil_nik_html, "updatedAt": now_ms},
         {"dataKey": "hasilPemadananNIK2", "createdAt": now_ms, "answer": "2", "updatedAt": now_ms},
-        {"dataKey": "no_kk", "createdAt": now_ms, "answer": "", "updatedAt": now_ms},
+        {"dataKey": "no_kk", "createdAt": now_ms, "answer": no_kk_val, "updatedAt": now_ms},
         {"dataKey": "result_callnik", "createdAt": now_ms, "answer": result_callnik_str, "updatedAt": now_ms},
         {"dataKey": "r203", "createdAt": now_ms, "answer": flat_answers.get("r203") or "", "updatedAt": now_ms},
         {"dataKey": "r204", "createdAt": now_ms, "answer": r204_answer, "updatedAt": now_ms},

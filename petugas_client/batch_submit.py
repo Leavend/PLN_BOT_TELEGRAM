@@ -368,16 +368,21 @@ def submit_single(
 
         # CEK NIK (pemadanan) — companion verification before submit
         nik_val = direct_args.get("nik") or ""
+        nikpln_data = {}
         if nik_val:
             try:
                 r_nikpln = check_nikpln(headers, aid, nik_val)
-                if not (r_nikpln.get("data") or {}).get("exists"):
+                nikpln_data = r_nikpln.get("data") or {}
+                if not nikpln_data.get("exists"):
                     logger.warning(f"CEK NIK {nik_val}: exists=false (tidak padan) di BPS")
             except Exception as e:
                 logger.warning(f"CEK NIK gagal: {e}")
 
         # Step 6: Build answers
         answers = build_dynamic_answers(target, direct_args, cached_template_mapping)
+        # Feed the real NIK pemadanan result into the archive so BPS shows the NIK
+        # as matched (hasilPemadananNIK/no_kk/result_callnik) instead of "tidak ditemukan"
+        answers["_nikpln"] = nikpln_data
 
         # Step 7: Photo upload
         if photo_path and os.path.exists(photo_path):
