@@ -45,7 +45,7 @@ from fasih_archive import create_7z_archive
 from submit_fasih import (
     build_dynamic_answers, stage_and_encrypt, clean_pln_name,
     build_new_assignment_target, get_fallback_coordinate,
-    geocode_address,
+    geocode_address, build_paradata,
     STATIC_LEGACY_KEY,
 )
 
@@ -523,7 +523,11 @@ def submit_single(
             "copyFromId": str(target.get("copyFromId") or ""),
             "statusApproval": "false",
             "sourceFrom": "CAPI",
-            "paradata": "", "comment": '{"dataKey":"","notes":[]}', "note": ""
+            # Real paradata (interview action-log + device telemetry) like the app;
+            # empty paradata => record stored but not registered into the FASIH frame
+            # (check-idpln fasih_exists stays false).
+            "paradata": build_paradata(lat, lon, target.get("currentUserId") or "", user_name),
+            "comment": '{"dataKey":"","notes":[]}', "note": ""
         }
 
         if not dry_run:

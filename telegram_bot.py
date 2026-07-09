@@ -955,7 +955,7 @@ async def submit_fasih_safe(
             key_bytes = STATIC_LEGACY_KEY.encode("utf-8")
 
         # Encrypt answers using shared stage_and_encrypt
-        from submit_fasih import stage_and_encrypt
+        from submit_fasih import stage_and_encrypt, build_paradata
         
         user_name = "Nadif Firjatullah"
         try:
@@ -1055,11 +1055,14 @@ async def submit_fasih_safe(
             "copyFromId": str(target.get("copyFromId") or ""),
             "statusApproval": "false",
             "sourceFrom": "CAPI",
-            "paradata": "",
-            "comment": "",
+            # Match the app: real paradata (interview action-log + device telemetry)
+            # and comment. Empty paradata => record stored but not registered into
+            # the FASIH frame (check-idpln fasih_exists stays false).
+            "paradata": build_paradata(lat, lon, target.get("currentUserId") or "", user_name),
+            "comment": '{"dataKey":"","notes":[]}',
             "note": ""
         }
-        
+
         if not dry_run:
             submit_resp = await call_with_retry(async_confirm_submit, headers, params, is_edit=is_edit)
             logger.info(f"BPS submit confirmation response: {submit_resp}")

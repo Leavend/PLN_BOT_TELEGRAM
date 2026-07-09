@@ -837,6 +837,49 @@ def get_user_name_from_headers(headers: dict) -> str:
         pass
     return "Nadif Firjatullah"
 
+def build_paradata(lat, lon, user_id: str, user_name: str, duration_s: int = None) -> str:
+    """Build a realistic paradata action-log like the FASIH app sends. The app's
+    submit carries this (interview OPEN/CLOSE/SUBMIT with GPS/battery + device
+    telemetry); records submitted with an EMPTY paradata are stored but do not
+    register into the FASIH frame (check-idpln fasih_exists stays false). Mirrors
+    the HAR structure with plausible values."""
+    import random as _rnd
+    import time
+    now_ms = int(time.time() * 1000)
+    dur = duration_s or _rnd.randint(120, 360)
+    try:
+        latf, lonf = float(lat), float(lon)
+    except (TypeError, ValueError):
+        latf, lonf = 0.0, 0.0
+
+    def _jit(v):
+        return v + _rnd.uniform(-0.0002, 0.0002)
+
+    def _entry(action, ts):
+        return {
+            "action": action,
+            "batteryInfo": {"batteryLevel": _rnd.randint(45, 95),
+                            "batteryTemperature": round(_rnd.uniform(30.0, 41.5), 1)},
+            "isMock": False, "latitude": _jit(latf), "longitude": _jit(lonf),
+            "timestamp": str(ts), "userId": user_id or "", "userName": user_name or "Petugas",
+        }
+    open_ts = now_ms - dur * 1000
+    acts = [_entry("OPEN", open_ts), _entry("CLOSE", now_ms - 15000), _entry("SUBMIT", now_ms)]
+    return json.dumps({
+        "actionLogEntities": acts, "data": "",
+        "deviceInfo": {"androidVersion": "13 - 33", "brand": "POCO",
+                       "host": "", "id": "TP1A.220624.014", "isEmulator": False,
+                       "isRootDevice": False, "manufacture": "Xiaomi", "model": "M2103K19PG",
+                       "serial": "unknown", "type": "user", "user": "builder",
+                       "version": 0, "versionRelease": "2.16.5 - 134"},
+        "encryptionType": 2, "formgear_version": "",
+        "memoryInfo": {"memoryAvail": "2084", "memoryTotal": "5616", "memoryUsage": "3531"},
+        "signalInfo": {"detailSignalStrength": "", "provider": "", "type": "1"},
+        "storageInfo": {"storageAvail": "89428", "storageTotal": "116230", "storageUsage": "26802"},
+        "totalDuration": dur,
+    }, ensure_ascii=False)
+
+
 def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     import time
     from datetime import datetime, timedelta
