@@ -20,8 +20,16 @@ sys.path.insert(0, REPO)
 
 CACHE_FILE = os.path.join(REPO, ".fasih_tercatat_cache.json")
 ACCTS_FILE = os.path.join(REPO, ".fasih_accounts.txt")
+COOLDOWN_FILE = os.path.join(REPO, ".fasih_cooldown.json")
 TOKEN_FILE = os.path.join(REPO, "fasih_token.json")
 DEF_PW = "Pln@1234"
+
+# cooldown per jenis error (detik). 429 = kuota CEK habis (lama); 403 = WAF/permission;
+# timeout = jaringan sesaat. Akun kena cooldown di-skip run berikutnya sampai reset.
+CD_429 = 6 * 3600
+CD_403 = 30 * 60
+CD_TIMEOUT = 10 * 60
+CD_LOGINFAIL = 2 * 3600
 
 
 def load_cache() -> set:
@@ -33,6 +41,18 @@ def load_cache() -> set:
 
 def save_cache(s: set):
     json.dump(sorted(s), open(CACHE_FILE, "w"))
+
+
+def load_cooldown() -> dict:
+    try:
+        return json.load(open(COOLDOWN_FILE))
+    except Exception:
+        return {}
+
+
+def save_cooldown(cd: dict):
+    now = time.time()
+    json.dump({e: t for e, t in cd.items() if t > now}, open(COOLDOWN_FILE, "w"))  # buang yg udah lewat
 
 
 def load_accounts() -> list:
@@ -59,9 +79,19 @@ def parse_ids(raw: str) -> list:
 
 
 class Checker:
-    """Rotasi akun dari file, atau fallback ke token tunggal. Fast-fail 18s, 2 try."""
+    """Rotasi akun, sadar cooldown: akun yg 429/403 di-skip sampai reset (persist ke disk)."""
     def __init__(self, accounts):
-        self.accounts = accounts
+        self.cd = load_cooldown()
+        now = time.time()
+        # buang akun yg masih cooldown; kalau semua cooldown, coba yg paling deket reset
+        live = [a for a in accounts if self.cd.get(a[0], 0) <= now]
+        skipped = len(accounts) - len(live)
+        if not live and accounts:
+            live = [min(accounts, key=lambda a: self.cd.get(a[0], 0))]
+            print(f"  ⚠️  semua akun cooldown — coba yg paling deket reset: {live[0][0]}", flush=True)
+        elif skipped:
+            print(f"  ⏳ skip {skipped} akun cooldown (429/limit), {len(live)} akun siap", flush=True)
+        self.accounts = live
         self.i = 0
         self.headers = None
         self.cur = None
@@ -70,32 +100,52 @@ class Checker:
             self.headers = get_headers(json.load(open(TOKEN_FILE)))
             self.cur = "fasih_token.json"
 
+    def _mark(self, em, secs):
+        if em and em != "fasih_token.json":
+            self.cd[em] = time.time() + secs
+
     def _next(self) -> bool:
         from fasih_auth import perform_login, get_headers
         while self.i < len(self.accounts):
             em, pw = self.accounts[self.i]; self.i += 1
-            td = perform_login(em, pw, exit_on_failure=False)
+            try:
+                td = perform_login(em, pw, exit_on_failure=False)
+            except Exception:
+                td = None
             if td:
                 self.headers = get_headers(td); self.cur = em
                 print(f"  [akun {em}]", flush=True)
                 return True
+            self._mark(em, CD_LOGINFAIL)  # login gagal → cooldown biar gak dicoba lagi
         return False
 
     def cek(self, idpel):
-        """True/False/None (None = gak bisa dipastikan: akun habis / error)."""
+        """True/False/None (None = akun habis / error). Klasifikasi error → cooldown akun."""
         from fasih_api import check_idpln
         tries = len(self.accounts) + 1 if self.accounts else 1
         for _ in range(tries):
             if self.headers is None and not self._next():
                 return None
+            err = ""
             for _t in range(2):
                 try:
-                    return check_idpln(self.headers, str(uuid.uuid4()), idpel).get("data", {}).get("fasih_exists")
-                except Exception:
-                    pass
+                    fe = check_idpln(self.headers, str(uuid.uuid4()), idpel).get("data", {}).get("fasih_exists")
+                    self.cd.pop(self.cur, None)  # sukses → akun sehat, hapus cooldown
+                    return fe
+                except Exception as e:
+                    err = str(e)
+            if "429" in err:
+                self._mark(self.cur, CD_429)
+            elif "403" in err:
+                self._mark(self.cur, CD_403)
+            else:
+                self._mark(self.cur, CD_TIMEOUT)
             if not self.accounts or not self._next():
                 return None
         return None
+
+    def close(self):
+        save_cooldown(self.cd)
 
 
 def run(ids, refresh=False):
@@ -124,6 +174,10 @@ def run(ids, refresh=False):
                 print(f"  {n}/{len(tocheck)} | tercatat_baru={len(tercatat)-len(cached)} belum={len(belum)} err={len(err)} [{chk.cur}]", flush=True)
             time.sleep(0.05)
         save_cache(cache)
+        chk.close()  # persist cooldown akun (429/403) buat run berikutnya
+        n_cd = sum(1 for t in chk.cd.values() if t > time.time())
+        if n_cd:
+            print(f"  ⏳ {n_cd} akun ditandai cooldown (di-skip run berikutnya sampai reset)", flush=True)
 
     print(f"\n===== {len(ids)} ID =====")
     print(f"  ✅ TERCATAT : {len(tercatat)}  ({len(cached)} dari cache, {len(tercatat)-len(cached)} baru)")
@@ -147,6 +201,14 @@ def selftest():
     save_cache({"234201605398", "234201618648"})
     assert load_cache() == {"234201605398", "234201618648"}, "cache round-trip"
     assert load_cache() >= {"234201605398"}, "cache membership"
+    # cooldown: akun expired dibuang, yg aktif tetap; Checker skip yg cooldown
+    global COOLDOWN_FILE
+    COOLDOWN_FILE = os.path.join(os.path.dirname(CACHE_FILE), "cd.json")
+    save_cooldown({"a@gmail.com": time.time() + 9999, "b@gmail.com": time.time() - 10})
+    cd = load_cooldown()
+    assert "a@gmail.com" in cd and "b@gmail.com" not in cd, "cooldown buang yg expired"
+    chk = Checker([("a@gmail.com", "x"), ("c@gmail.com", "x")])
+    assert [e for e, _ in chk.accounts] == ["c@gmail.com"], "Checker skip akun cooldown"
     print("✅ selftest OK")
 
 
