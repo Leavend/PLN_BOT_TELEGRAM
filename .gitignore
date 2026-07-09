@@ -49,3 +49,5 @@ mitra_bps_results*.txt
 .fasih_accounts.txt
 aliases_emails.txt
 aliases_names.txt
+.gmail_config
+activation_links.txt
