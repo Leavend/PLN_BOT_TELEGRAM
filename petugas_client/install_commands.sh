@@ -105,6 +105,66 @@ OUTER
 sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-submit-batch" 2>/dev/null || \
   sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-submit-batch"
 
+# fasih-reregister: paste mode + --force (submit ulang record lama yang belum tercatat)
+cat > "$BIN/fasih-reregister" << 'OUTER'
+#!/bin/bash
+cd "REPO_PLACEHOLDER"
+python3 -c "
+import sys, re
+
+print('🔁 RE-REGISTER — submit ulang record yang BELUM tercatat di FASIH')
+print('   (yang sudah tercatat otomatis dilewati, tidak dobel)')
+print('📋 Paste ID Pelanggan (satu per baris), ENTER 2x untuk mulai')
+print('─' * 40)
+
+lines = []
+empty = 0
+while True:
+    try:
+        line = input()
+    except EOFError:
+        break
+    stripped = line.strip()
+    if not stripped:
+        empty += 1
+        if empty >= 2:
+            break
+        continue
+    empty = 0
+    ids = re.findall(r'\b\d{12}\b', stripped)
+    if ids:
+        lines.extend(ids)
+    elif stripped.isdigit() and len(stripped) >= 8:
+        lines.append(stripped)
+
+if not lines:
+    print('❌ Tidak ada ID valid')
+    sys.exit(1)
+
+seen = set()
+unique = []
+for x in lines:
+    if x not in seen:
+        seen.add(x)
+        unique.append(x)
+
+print(f'\n✅ {len(unique)} ID Pelanggan siap RE-REGISTER:')
+for i, x in enumerate(unique, 1):
+    print(f'   {i}. {x}')
+
+confirm = input(f'\nLanjut re-register {len(unique)} ID? (y/n): ').strip().lower()
+if confirm not in ('y', 'yes', ''):
+    print('❌ Dibatalkan')
+    sys.exit(0)
+
+import subprocess
+ids_str = ','.join(unique)
+subprocess.run([sys.executable, 'petugas_client/batch_submit.py', '--force', '--list', ids_str])
+"
+OUTER
+sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-reregister" 2>/dev/null || \
+  sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-reregister"
+
 # fasih-logout: hapus token, login ulang
 cat > "$BIN/fasih-logout" << EOF
 #!/bin/bash
@@ -181,6 +241,7 @@ echo ""
 echo "  fasih-submit data.txt     Batch submit dari file"
 echo "  fasih-submit -l 234..     Submit langsung"
 echo "  fasih-submit-batch        Paste ID, enter 2x, jalan"
+echo "  fasih-reregister          Submit ulang record lama yang belum tercatat"
 echo "  fasih-login               Login BPS SSO"
 echo "  fasih-logout              Logout & ganti akun"
 echo "  fasih-lookup 234000...    Cek data PLN"

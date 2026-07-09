@@ -208,6 +208,7 @@ def submit_single(
     survey_caches: dict,
     dry_run: bool = False,
     temp_dir: str = "",
+    force: bool = False,
 ) -> tuple[bool, str]:
     """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
     try:
@@ -254,13 +255,31 @@ def submit_single(
             n_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
             status_alias = target.get("assignmentStatusAlias") or ""
             if "SUBMITTED" in status_alias or "DONE" in status_alias or "APPROVED" in status_alias:
-                return True, f"Sudah terkirim (Status: {status_alias})."
-            direct_args["nama"] = target.get("data2", "") or "PELANGGAN"
-            direct_args["alamat"] = target.get("data4", target.get("data5", "")) or ""
-            idpel_val = target.get(i_slot) or idpel_val
-            nometer_val = target.get(n_slot) or nometer_val
-            direct_args["idpel"] = idpel_val
-            direct_args["nometer"] = nometer_val
+                if not force:
+                    return True, f"Sudah terkirim (Status: {status_alias})."
+                # --force re-register: skip if already in the FASIH frame, else
+                # drop the match so the create_new path builds a fresh, registered
+                # record (old empty-paradata records never registered).
+                import uuid as _uuid
+                chk_idpel = (target.get(i_slot) or idpel_val or "").strip()
+                try:
+                    fe = (check_idpln(headers, str(_uuid.uuid4()), chk_idpel).get("data") or {}).get("fasih_exists")
+                except Exception:
+                    fe = None
+                if fe:
+                    return True, "Sudah TERCATAT di FASIH — skip."
+                logger.info(f"Re-register {chk_idpel}: belum tercatat → create_new")
+                if chk_idpel:
+                    idpel_val = chk_idpel
+                target = None
+                matched_key = None
+            if target:
+                direct_args["nama"] = target.get("data2", "") or "PELANGGAN"
+                direct_args["alamat"] = target.get("data4", target.get("data5", "")) or ""
+                idpel_val = target.get(i_slot) or idpel_val
+                nometer_val = target.get(n_slot) or nometer_val
+                direct_args["idpel"] = idpel_val
+                direct_args["nometer"] = nometer_val
 
         # Step 5: PLN lookup via server API
         lat, lon = None, None
@@ -548,6 +567,7 @@ def main():
     parser.add_argument("input", nargs="?", help="File .txt berisi daftar IDPel/NoMeter (satu per baris)")
     parser.add_argument("--list", "-l", help="Daftar IDPel/NoMeter dipisah koma")
     parser.add_argument("--dry-run", action="store_true", help="Test tanpa submit ke BPS")
+    parser.add_argument("--force", action="store_true", help="Re-register: paksa submit ulang record lama yang BELUM tercatat di FASIH (fasih_exists=false); yang sudah tercatat dilewati")
     parser.add_argument("--delay", type=float, default=2.0, help="Rata-rata delay antar item (detik)")
     args = parser.parse_args()
 
@@ -587,6 +607,8 @@ def main():
     print(f"\n📋 Total item: {len(items)}")
     if args.dry_run:
         print("🧪 Mode: DRY RUN (tidak submit ke BPS)")
+    if args.force:
+        print("🔁 Mode: FORCE RE-REGISTER (submit ulang record yang belum tercatat di FASIH)")
     print()
 
     # Step 1: Login
@@ -668,7 +690,7 @@ def main():
 
             ok, message = submit_single(
                 token_data, val, survey_caches,
-                dry_run=args.dry_run, temp_dir=temp_dir
+                dry_run=args.dry_run, temp_dir=temp_dir, force=args.force
             )
 
             if ok:
