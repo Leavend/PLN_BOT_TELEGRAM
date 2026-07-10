@@ -370,6 +370,19 @@ def submit_single(
         if not pln_data:
             return False, "❌ Data PLN tidak ditemukan / server PLN tak terjangkau (cek fasih-status). Item dilewati agar tidak kirim data placeholder."
 
+        # BLOK III (r301) region cascade cocoknya lewat fullcode dari kd_kel. Kalau
+        # --workers tinggi, tunnel PLN bisa balikin baris PARSIAL (nama ada, kd_kel
+        # kosong) → fallback nama salah ambil kabupaten (6404 vs 6408) → r301 blank
+        # di app padahal r102 keisi. Retry sekali; kalau tetap kosong, skip (bisa
+        # diulang) — jangan submit region ngawur.
+        def _kel_ok(d):
+            k = str((d or {}).get("kd_kel") or "").strip()
+            return len(k) == 10 and k.isdigit()
+        if not _kel_ok(pln_data):
+            pln_data = pln_lookup(idpel=idpel_val, nometer=nometer_val) or pln_data
+        if not _kel_ok(pln_data):
+            return False, "❌ Region PLN tak lengkap (kd_kel kosong — BLOK III bakal blank) — dilewati, coba lagi. Kalau sering: turunkan --workers (tunnel PLN overload)."
+
         if pln_data:
             pln_nama = pln_data.get("nama") or ""
             if pln_nama and pln_nama.upper() != "NONAME":
