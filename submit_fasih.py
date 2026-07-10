@@ -383,25 +383,28 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
     bps_kec = str(direct_args.get("pln_kd_kec") or "").strip()
     bps_kab = str(direct_args.get("pln_kd_kab") or "").strip()
     bps_prov = str(direct_args.get("pln_kd_prov") or "").strip()
+    # PLN codes (kd_kel 2+2+2+4) as a FALLBACK ONLY. The app's r301 cascade validates
+    # against the BPS MFD lookup (verified from the app's own region lookup dataset):
+    # Kutai Timur = kab 6404 (not PLN 6408), Muara Ancalong = kec 6404010 (3-digit),
+    # Kelinjau Ulu = desa 6404010003. So raw PLN kd_kel (6408012003) is NOT in the app
+    # master → r301 blanks. Set PLN codes here but DON'T return — the name-based MFD
+    # lookup below overrides with the app codes when the kec/desa name is found (names
+    # still come from PLN so the label stays e.g. "KAB. KUTAI TIMUR").
     if len(bps_kel) == 10 and bps_kel.isdigit():
         l1fc = bps_prov if (len(bps_prov) == 2 and bps_prov.isdigit()) else bps_kel[0:2]
         l2fc = bps_kab if (len(bps_kab) == 4 and bps_kab.isdigit()) else bps_kel[0:4]
         l3fc = bps_kec if (len(bps_kec) == 6 and bps_kec.isdigit()) else bps_kel[0:6]
-        return {
-            "l1_code": l1fc,
-            "l1_name": str(direct_args.get("pln_nama_prov") or l1_name).strip().upper(),
-            "l2_code": l2fc[-2:],
-            "l2_name": str(direct_args.get("pln_nama_kab") or l2_name).strip().upper(),
-            "l2_fullcode": l2fc,
-            "l3_code": l3fc[-2:],
-            "l3_name": str(direct_args.get("pln_nama_kec") or l3_name).strip().upper(),
-            "l3_fullcode": l3fc,
-            "l4_code": bps_kel[6:10],
-            "l4_name": str(direct_args.get("pln_nama_kel") or l4_name).strip().upper(),
-            "l4_fullcode": bps_kel,
-        }
+        l1_code = l1fc
+        l1_name = str(direct_args.get("pln_nama_prov") or l1_name).strip().upper()
+        l2_code, l2_fullcode = l2fc[-2:], l2fc
+        l2_name = str(direct_args.get("pln_nama_kab") or l2_name).strip().upper()
+        l3_code, l3_fullcode = l3fc[-2:], l3fc
+        l3_name = str(direct_args.get("pln_nama_kec") or l3_name).strip().upper()
+        l4_code, l4_fullcode = bps_kel[6:10], bps_kel
+        l4_name = str(direct_args.get("pln_nama_kel") or l4_name).strip().upper()
 
-    # Try name-based lookup resolution using the BPS lookups
+    # PRIMARY: name-based lookup against the BPS MFD (== the app's r301 cascade master).
+    # Overrides the PLN fallback codes above with the exact codes the app expects.
     pln_nama_kec = str(direct_args.get("pln_nama_kec") or "").strip().upper()
     pln_nama_kel = str(direct_args.get("pln_nama_kel") or "").strip().upper()
     
@@ -421,17 +424,19 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
                 l2_name = str(direct_args.get("pln_nama_kab") or l2_name).strip().upper()
                 l2_fullcode = kec_info["l2_code"]
                 l3_code = kec_info["code"][-3:]
-                l3_name = kec_info["full_name"]
+                # clean PLN name (kec_info["full_name"] has a "[010] " prefix that would
+                # double up when the answer label re-adds "[code] ")
+                l3_name = str(direct_args.get("pln_nama_kec") or l3_name).strip().upper()
                 l3_fullcode = kec_info["code"]
-                
+
                 # Look up village using kec_code and kel_name
                 desa_info = desa_cache.get((kec_info["code"], target_kel))
                 if not desa_info:
                     desa_info = desa_cache.get(target_kel)
-                    
+
                 if desa_info:
                     l4_code = desa_info["full_code"][-3:]
-                    l4_name = desa_info["full_name"]
+                    l4_name = str(direct_args.get("pln_nama_kel") or l4_name).strip().upper()
                     l4_fullcode = desa_info["full_code"]
                     lookup_success = True
         except Exception as e:
