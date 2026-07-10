@@ -2,4 +2,4 @@
 # Tunnel quick trycloudflare.com ganti URL tiap restart — update baris di bawah
 # lalu commit + push. Petugas cukup `fasih-update` (git pull), TIDAK perlu edit .env.
 # Baris pertama non-komentar = URL aktif.
-https://tenant-drops-nearly-enjoyed.trycloudflare.com
+https://questions-thumbnail-wichita-classification.trycloudflare.com
