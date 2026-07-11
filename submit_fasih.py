@@ -283,71 +283,68 @@ def resolve_r204_from_keperluan(keperluan: str) -> str:
 _kec_lookup_cache = None
 _desa_lookup_cache = None
 
+def _norm_region(name_raw):
+    """Normalize a region name for matching: drop a leading '[code] ' prefix and all
+    non-alphanumerics/spaces (PLN vs BPS differ, e.g. 'NEHES LIAH BING' vs 'NEHESLIAH BING')."""
+    import re
+    n = str(name_raw)
+    n = n.split("]", 1)[1] if n.startswith("[") and "]" in n else n
+    return re.sub(r"[^A-Z0-9]", "", n.upper())
+
 def load_regional_lookups():
     global _kec_lookup_cache, _desa_lookup_cache
     if _kec_lookup_cache is not None and _desa_lookup_cache is not None:
         return _kec_lookup_cache, _desa_lookup_cache
         
+    import json
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    kec_path = os.path.join(script_dir, "lookups", "mfd25s1_kec_1_batch.json")
-    desa_path = os.path.join(script_dir, "lookups", "mfd25s1_desa_1_batch.json")
-    
+    # PRIMARY: FASIH app's own region lookup (complete: 7288 kec, 84156 desa; exact
+    # codes the r301 cascade validates against). Falls back to the older MFD batch
+    # file if the app files aren't present.
+    kec_path = os.path.join(script_dir, "lookups", "fasih_kec.json")
+    desa_path = os.path.join(script_dir, "lookups", "fasih_desa.json")
+    if not (os.path.exists(kec_path) and os.path.exists(desa_path)):
+        kec_path = os.path.join(script_dir, "lookups", "mfd25s1_kec_1_batch.json")
+        desa_path = os.path.join(script_dir, "lookups", "mfd25s1_desa_1_batch.json")
+
+    def _rows(path):
+        """Yield [code, name, ...] rows from either the plain-list app file or the
+        older ast-chunk MFD file."""
+        data = json.load(open(path, encoding="utf-8")).get("data", [])
+        for item in data:
+            if isinstance(item, (list, tuple)):
+                yield list(item)
+            else:  # MFD chunk = comma-joined tuples
+                import ast
+                for row in ast.literal_eval(f"[{item}]"):
+                    yield list(row)
+
+    _clean = _norm_region  # key by normalized name (no spaces/punct) — PLN & BPS spell
+                           # village names differently ("NEHES LIAH BING" vs "NEHESLIAH BING")
+
     kec_cache = {}
     desa_cache = {}
-    
     if os.path.exists(kec_path):
         try:
-            import json
-            import ast
-            with open(kec_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            for chunk in data.get("data", []):
-                parsed = ast.literal_eval(f"[{chunk}]")
-                for row in parsed:
-                    code = row[0]
-                    name_raw = row[1]
-                    if name_raw.startswith("[") and "]" in name_raw:
-                        name = name_raw.split("]", 1)[1].strip().upper()
-                    else:
-                        name = name_raw.strip().upper()
-                    kec_cache[name] = {
-                        "code": code,
-                        "full_name": name_raw,
-                        "l1_code": row[3],
-                        "l2_code": row[4]
-                    }
+            for row in _rows(kec_path):
+                # app: [kdprovkabkec, namakec, kdprov, kdprovkab]; MFD: [code, name, ?, l1, l2]
+                kec_cache[_clean(row[1])] = {
+                    "code": row[0], "full_name": row[1],
+                    "l1_code": row[2], "l2_code": row[3],
+                }
         except Exception as e:
             print(f"[!] Error loading kec lookup: {e}")
-            
     if os.path.exists(desa_path):
         try:
-            import json
-            import ast
-            with open(desa_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            for chunk in data.get("data", []):
-                parsed = ast.literal_eval(f"[{chunk}]")
-                for row in parsed:
-                    kec_code = row[0]
-                    name_raw = row[1]
-                    full_code = row[2]
-                    if name_raw.startswith("[") and "]" in name_raw:
-                        name = name_raw.split("]", 1)[1].strip().upper()
-                    else:
-                        name = name_raw.strip().upper()
-                    desa_cache[(kec_code, name)] = {
-                        "full_code": full_code,
-                        "full_name": name_raw
-                    }
-                    if name not in desa_cache:
-                        desa_cache[name] = {
-                            "full_code": full_code,
-                            "full_name": name_raw,
-                            "kec_code": kec_code
-                        }
+            for row in _rows(desa_path):
+                kec_code, name_raw, full_code = row[0], row[1], row[2]
+                name = _clean(name_raw)
+                desa_cache[(kec_code, name)] = {"full_code": full_code, "full_name": name_raw}
+                if name not in desa_cache:
+                    desa_cache[name] = {"full_code": full_code, "full_name": name_raw, "kec_code": kec_code}
         except Exception as e:
             print(f"[!] Error loading desa lookup: {e}")
-            
+
     _kec_lookup_cache = kec_cache
     _desa_lookup_cache = desa_cache
     return kec_cache, desa_cache
@@ -412,8 +409,8 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
     if pln_nama_kec and pln_nama_kel:
         try:
             kec_cache, desa_cache = load_regional_lookups()
-            target_kec = pln_nama_kec
-            target_kel = pln_nama_kel
+            target_kec = _norm_region(pln_nama_kec)
+            target_kel = _norm_region(pln_nama_kel)
             
             kec_info = kec_cache.get(target_kec)
             if kec_info:
