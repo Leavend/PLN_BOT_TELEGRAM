@@ -38,6 +38,7 @@ logs/
 
 # Service overrides (local machine configuration)
 services.local.json
+.region
 
 # BPS Mitra credentials and results
 mitra_bps_results*.txt

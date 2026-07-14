@@ -255,6 +255,8 @@ import os, json, requests
 # Resolve URL like submit does: pln_url.txt (git-tracked) wins, .env only fallback
 from petugas_client.batch_submit import PLN_API_URL as url, PLN_API_KEY as key
 token = os.path.exists('fasih_token.json')
+from region import get_region
+print('🌏 Wilayah:', get_region())
 print('📡 PLN API:', url or '❌ NOT SET')
 print('🔑 API Key:', ('✅ ' + key[:8] + '...') if key else '⚠️  kosong')
 print('🎫 BPS Token:', '✅ ada' if token else '❌ belum login')
