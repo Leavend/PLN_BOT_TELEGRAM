@@ -84,3 +84,45 @@ def test_git_revisions_returns_equal_hashes_in_this_repo():
     # boleh (None, None) kalau offline; kalau tidak, keduanya hash valid
     if local is not None and remote is not None:
         assert len(local) == 40 and len(remote) == 40
+
+
+def _dummy_service(name, restart=False):
+    return {"name": name, "cmd": _dummy_cmd(), "restart_on_update": restart, "lock_file": None}
+
+
+def test_start_all_then_stop_all():
+    s = sup.Supervisor([_dummy_service("a"), _dummy_service("b")], logdir=tempfile.mkdtemp())
+    s.start_all()
+    try:
+        assert sup.is_alive(s.procs["a"]) and sup.is_alive(s.procs["b"])
+    finally:
+        s.stop_all()
+    assert not sup.is_alive(s.procs["a"]) and not sup.is_alive(s.procs["b"])
+
+
+def test_recover_restarts_dead_process_with_new_pid():
+    s = sup.Supervisor([_dummy_service("a")], logdir=tempfile.mkdtemp())
+    s.start_all()
+    try:
+        pid1 = s.procs["a"].pid
+        sup.kill(s.procs["a"])            # simulasi crash
+        s.recover()
+        pid2 = s.procs["a"].pid
+        assert pid1 != pid2
+        assert sup.is_alive(s.procs["a"])
+    finally:
+        s.stop_all()
+
+
+def test_apply_update_only_restarts_flagged_services():
+    s = sup.Supervisor([_dummy_service("keep", restart=False),
+                        _dummy_service("roll", restart=True)], logdir=tempfile.mkdtemp())
+    s.start_all()
+    try:
+        keep_pid = s.procs["keep"].pid
+        roll_pid = s.procs["roll"].pid
+        s.apply_update()
+        assert s.procs["keep"].pid == keep_pid   # tidak di-restart
+        assert s.procs["roll"].pid != roll_pid    # di-restart
+    finally:
+        s.stop_all()

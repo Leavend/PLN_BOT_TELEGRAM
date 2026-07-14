@@ -134,3 +134,69 @@ def git_pull(branch=BRANCH):
     except Exception as e:
         log(f"git pull gagal: {e}")
         return False
+
+
+class Supervisor:
+    def __init__(self, services, branch=BRANCH, logdir=None):
+        self.services = services
+        self.branch = branch
+        self.logdir = logdir or os.path.join(REPO_ROOT, "logs")
+        os.makedirs(self.logdir, exist_ok=True)
+        self.procs = {}
+
+    def _logpath(self, name):
+        return os.path.join(self.logdir, f"{name}.log")
+
+    def start(self, svc):
+        name = svc["name"]
+        try:
+            self.procs[name] = spawn(svc["cmd"], self._logpath(name))
+            log(f"start {name} pid={self.procs[name].pid}")
+        except Exception as e:
+            log(f"gagal start {name}: {e}")
+            self.procs[name] = None
+
+    def stop(self, name):
+        kill(self.procs.get(name))
+        self.procs[name] = None
+
+    def start_all(self):
+        for s in self.services:
+            self.start(s)
+
+    def stop_all(self):
+        for s in self.services:
+            self.stop(s["name"])
+
+    def apply_update(self):
+        for s in self.services:
+            if s.get("restart_on_update"):
+                log(f"restart {s['name']} (update)")
+                self.stop(s["name"])
+                self.start(s)
+
+    def recover(self):
+        for s in self.services:
+            p = self.procs.get(s["name"])
+            if p is not None and p.poll() is not None:
+                log(f"auto-recover {s['name']} (mati)")
+                self.start(s)
+
+    def tick(self):
+        local, remote = git_revisions(self.branch)
+        action = decide(local, remote, active_lock(self.services))
+        if action == "defer":
+            log("update tertunda — service ber-lock lagi aktif (batch)")
+        elif action == "update":
+            log("kode baru di remote — pull + restart")
+            if git_pull(self.branch):
+                self.apply_update()
+        self.recover()
+
+    def run(self):
+        _install_signal_handlers(self)
+        log(f"supervisor mulai — {len(self.services)} service, poll {INTERVAL}s")
+        self.start_all()
+        while True:
+            time.sleep(INTERVAL)
+            self.tick()
