@@ -733,66 +733,129 @@ def _clean_address_for_geocoding(addr: str) -> str:
     return s
 
 
+COORD_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".fasih_coord_cache.json")
+
+
+def _clean_admin(name):
+    """Strip 'KAB./KABUPATEN/KOTA ' prefix + [code] noise so geocoders match cleanly."""
+    import re
+    s = re.sub(r"^\[.*?\]\s*", "", str(name or "").strip())
+    s = re.sub(r"^(KAB\.?|KABUPATEN|KOTA)\s+", "", s, flags=re.IGNORECASE).strip()
+    return s
+
+
+def _geo_ladder(alamat, kel, kec, kab, prov):
+    """Ordered geocode queries, most-specific first. Desa-present rungs come BEFORE
+    kec-only rungs — dropping the desa is what made the pin jump ~45km to the kec town."""
+    kelc, kecc, kabc, provc = (_clean_admin(x) for x in (kel, kec, kab, prov))
+    street = expand_indonesian_address_abbreviations(_clean_address_for_geocoding(alamat))
+    ladder = []
+    if street and kelc:
+        ladder.append([street, kelc, kecc, kabc, provc])   # street + full admin
+    if kelc and kecc:
+        ladder.append([kelc, kecc, kabc, provc])           # desa centroid (deterministic)
+    if kecc:
+        ladder.append([kecc, kabc, provc])                 # kec town
+    if kabc:
+        ladder.append([kabc, provc])                       # kabupaten
+    # dedup, keep order, drop empty parts
+    seen, out = set(), []
+    for parts in ladder:
+        q = ", ".join(p for p in parts if p) + ", Indonesia"
+        if q not in seen:
+            seen.add(q); out.append(q)
+    return out
+
+
 def geocode_address(alamat, kel="", kec="", kab="", prov=""):
-    """Geocode address via Mapbox (primary) → Nominatim (fallback) → None."""
+    """Geocode via admin hierarchy (Mapbox primary → Nominatim). Always lands in the
+    correct wilayah; the PLN street is only the most-specific rung, never the sole query.
+    No jitter here — determinism is handled by the per-idpel cache in resolve_coordinate()."""
     import requests as _req
-    import random
+    import urllib.parse
+    queries = _geo_ladder(alamat, kel, kec, kab, prov)
+    if not queries:
+        return None, None
 
     mapbox_token = os.getenv("MAPBOX_ACCESS_TOKEN")
     if mapbox_token:
-        import urllib.parse
-        alamat_clean = expand_indonesian_address_abbreviations(_clean_address_for_geocoding(alamat))
-        if alamat_clean:
-            q = alamat_clean
-            for part in (kel, kec, kab, prov):
-                if part:
-                    q += f", {part}"
-            q += ", Indonesia"
+        for q in queries:
             try:
-                quoted_q = urllib.parse.quote(q)
-                url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{quoted_q}.json"
-                r = _req.get(url, params={"access_token": mapbox_token, "limit": 1, "country": "id"}, timeout=5)
-                res = r.json()
-                if res.get("features"):
-                    center = res["features"][0]["geometry"]["coordinates"]
-                    return float(center[1]), float(center[0])
+                url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{urllib.parse.quote(q)}.json"
+                r = _req.get(url, params={"access_token": mapbox_token, "limit": 1, "country": "id"}, timeout=6)
+                feats = (r.json() or {}).get("features") or []
+                if feats:
+                    c = feats[0]["geometry"]["coordinates"]
+                    return float(c[1]), float(c[0])
             except Exception:
                 pass
 
-    queries = []
-    alamat_clean = expand_indonesian_address_abbreviations(_clean_address_for_geocoding(alamat))
-    alamat_clean = alamat_clean.replace("JL.", "Jalan ").strip() if alamat_clean else ""
-    if alamat_clean:
-        if kab and prov:
-            queries.append(f"{alamat_clean}, {kab}, {prov}, Indonesia")
-        if kab:
-            queries.append(f"{alamat_clean}, {kab}, Indonesia")
-        if kel and kec and kab and prov:
-            queries.append(f"{alamat_clean}, {kel}, {kec}, {kab}, {prov}, Indonesia")
-    if kel and kec and kab and prov:
-        queries.append(f"{kel}, {kec}, {kab}, {prov}, Indonesia")
-    if kec and kab and prov:
-        queries.append(f"{kec}, {kab}, {prov}, Indonesia")
-    if kab and prov:
-        queries.append(f"{kab}, {prov}, Indonesia")
     for q in queries:
         try:
             r = _req.get(
                 "https://nominatim.openstreetmap.org/search",
                 params={"q": q, "format": "json", "limit": 1},
-                headers={"User-Agent": "FasihBPSBot/1.0"}, timeout=5
+                headers={"User-Agent": "FasihBPSBot/1.0"}, timeout=6
             )
             res = r.json()
             if res:
-                lat = float(res[0]["lat"])
-                lon = float(res[0]["lon"])
-                if q != queries[0] if queries else False:
-                    lat += random.uniform(-0.0008, 0.0008)
-                    lon += random.uniform(-0.0008, 0.0008)
-                return lat, lon
+                return float(res[0]["lat"]), float(res[0]["lon"])
         except Exception:
             pass
     return None, None
+
+
+def _load_coord_cache():
+    try:
+        with open(COORD_CACHE_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_coord_cache(cache):
+    try:
+        with open(COORD_CACHE_FILE, "w") as f:
+            json.dump(cache, f)
+    except Exception:
+        pass
+
+
+def _idpel_offset(idpel, span=0.0003):
+    """Deterministic ±span offset seeded by idpel (~±33m). Same idpel → same nudge,
+    so houses in one desa aren't pixel-identical yet the pin never wanders between runs."""
+    h = int(hashlib.md5(str(idpel).encode()).hexdigest(), 16)
+    dlat = ((h & 0xFFFF) / 0xFFFF * 2 - 1) * span
+    dlon = (((h >> 16) & 0xFFFF) / 0xFFFF * 2 - 1) * span
+    return dlat, dlon
+
+
+def resolve_coordinate(idpel, alamat, kel, kec, kab, prov, pln_lat=None, pln_lon=None):
+    """Deterministic coordinate for an idpel. Priority: valid PLN coord → cache →
+    Mapbox admin geocode (frozen in cache) → province fallback. Once resolved it is
+    cached per idpel, so re-register/re-submit produces the exact same pin — no 'lari'."""
+    try:
+        if pln_lat and pln_lon and float(pln_lat) != 0.0 and float(pln_lon) != 0.0:
+            return float(pln_lat), float(pln_lon)
+    except (ValueError, TypeError):
+        pass
+
+    cache = _load_coord_cache() if idpel else {}
+    if idpel and idpel in cache:
+        c = cache[idpel]
+        return c[0], c[1]
+
+    lat, lon = geocode_address(alamat, kel, kec, kab, prov)
+    if lat is not None and lon is not None and idpel:
+        dlat, dlon = _idpel_offset(idpel)
+        lat, lon = lat + dlat, lon + dlon
+    if lat is None or lon is None:
+        lat, lon = get_fallback_coordinate(prov, kab, kec, alamat)
+
+    if idpel and lat is not None and lon is not None:
+        cache[idpel] = [lat, lon]
+        _save_coord_cache(cache)
+    return lat, lon
 
 
 def get_fallback_coordinate(prov_str, kab_str, kec_str, alamat_str):
@@ -815,8 +878,10 @@ def get_fallback_coordinate(prov_str, kab_str, kec_str, alamat_str):
         matched_coords = (-5.1476, 119.4327)
         
     lat, lon = matched_coords
-    lat += random.uniform(-0.06, 0.06)
-    lon += random.uniform(-0.06, 0.06)
+    # ponytail: ±0.01° ≈ ±1.1km — a last-resort centroid nudge, NOT the old ±0.06°
+    # (~6.6km) that flung rural pins far outside their kabupaten.
+    lat += random.uniform(-0.01, 0.01)
+    lon += random.uniform(-0.01, 0.01)
     return lat, lon
 
 def handle_coords(answers: dict, lat: Optional[float], lon: Optional[float], target: dict) -> tuple:

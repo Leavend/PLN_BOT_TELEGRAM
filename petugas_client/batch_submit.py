@@ -47,8 +47,7 @@ from fasih_crypto import compute_md5, compute_md5_base64
 from fasih_archive import create_7z_archive
 from submit_fasih import (
     build_dynamic_answers, stage_and_encrypt, clean_pln_name,
-    build_new_assignment_target, get_fallback_coordinate,
-    geocode_address, build_paradata,
+    build_new_assignment_target, resolve_coordinate, build_paradata,
     STATIC_LEGACY_KEY,
 )
 
@@ -524,7 +523,9 @@ def submit_single(
             except Exception as e:
                 logger.warning(f"Photo upload failed: {e}")
 
-        # Coordinates — PLN coords → target coords → Mapbox geocoding → fallback
+        # Coordinates — PLN coords → target coords → Mapbox admin geocode (cached per
+        # idpel so re-submits never move the pin). resolve_coordinate handles the whole
+        # ladder + freezes the result; no ngawur province-centroid fling anymore.
         if lat is None or lon is None:
             t_lat, t_lon = target.get("latitude"), target.get("longitude")
             try:
@@ -536,17 +537,15 @@ def submit_single(
                 pass
 
         if lat is None or lon is None:
-            alamat_geo = direct_args.get("alamat", "")
-            nama_kel = direct_args.get("pln_nama_kel", "") or pln_data.get("nama_kel", "") if pln_data else ""
-            nama_kec = direct_args.get("pln_nama_kec", "") or pln_data.get("nama_kec", "") if pln_data else ""
-            nama_kab = direct_args.get("pln_nama_kab", "") or pln_data.get("nama_kab", "") if pln_data else ""
-            nama_prov = direct_args.get("pln_nama_prov", "") or pln_data.get("nama_prov", "") if pln_data else ""
-            lat, lon = geocode_address(alamat_geo, nama_kel, nama_kec, nama_kab, nama_prov)
-
-        if lat is None or lon is None:
-            region_name = (target.get("region") or {}).get("name", "")
-            addr = direct_args.get("alamat", "")
-            lat, lon = get_fallback_coordinate(region_name, "", "", addr)
+            _pd = pln_data or {}
+            nama_kel = direct_args.get("pln_nama_kel", "") or _pd.get("nama_kel", "")
+            nama_kec = direct_args.get("pln_nama_kec", "") or _pd.get("nama_kec", "")
+            nama_kab = direct_args.get("pln_nama_kab", "") or _pd.get("nama_kab", "")
+            nama_prov = direct_args.get("pln_nama_prov", "") or _pd.get("nama_prov", "")
+            lat, lon = resolve_coordinate(
+                idpel_val, direct_args.get("alamat", ""),
+                nama_kel, nama_kec, nama_kab, nama_prov,
+            )
 
         answers["r105"] = {
             "coordinat": {"latitude": lat, "longitude": lon},
