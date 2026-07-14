@@ -144,6 +144,7 @@ class Supervisor:
         self.logdir = logdir or os.path.join(REPO_ROOT, "logs")
         os.makedirs(self.logdir, exist_ok=True)
         self.procs = {}
+        self._pull_fails = 0
 
     def _logpath(self, name):
         return os.path.join(self.logdir, f"{name}.log")
@@ -179,8 +180,8 @@ class Supervisor:
     def recover(self):
         for s in self.services:
             p = self.procs.get(s["name"])
-            if p is not None and p.poll() is not None:
-                log(f"auto-recover {s['name']} (mati)")
+            if p is None or p.poll() is not None:
+                log(f"auto-recover {s['name']} (mati/gagal-start)")
                 self.start(s)
 
     def tick(self):
@@ -191,7 +192,12 @@ class Supervisor:
         elif action == "update":
             log("kode baru di remote — pull + restart")
             if git_pull(self.branch):
+                self._pull_fails = 0
                 self.apply_update()
+            else:
+                self._pull_fails += 1
+                log(f"⚠️  git pull GAGAL {self._pull_fails}x — stack ketinggalan versi, "
+                    f"cek manual (uncommitted/conflict/detached HEAD?)")
         self.recover()
 
     def run(self):
@@ -200,7 +206,10 @@ class Supervisor:
         self.start_all()
         while True:
             time.sleep(INTERVAL)
-            self.tick()
+            try:
+                self.tick()
+            except Exception as e:
+                log(f"tick error (lanjut): {e}")
 
 
 def _install_signal_handlers(sup_obj):

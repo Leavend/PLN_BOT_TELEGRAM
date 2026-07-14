@@ -139,3 +139,36 @@ def test_once_cli_exits_zero_and_prints_ok():
                 capture_output=True, text=True, timeout=60)
     assert r.returncode == 0
     assert "✅" in r.stdout
+
+
+def test_recover_retries_service_that_failed_to_start():
+    s = sup.Supervisor([_dummy_service("a")], logdir=tempfile.mkdtemp())
+    s.procs["a"] = None  # simulasi start() gagal sebelumnya
+    try:
+        s.recover()
+        assert sup.is_alive(s.procs["a"])  # sekarang ke-retry & hidup
+    finally:
+        s.stop_all()
+
+
+def test_tick_defers_when_locked(monkeypatch):
+    d = tempfile.mkdtemp()
+    svc = {"name": "bot", "cmd": _dummy_cmd(), "restart_on_update": True,
+           "lock_file": "bot_active_runs.lock"}
+    s = sup.Supervisor([svc], logdir=d)
+    # remote beda dari local → "update" kalau tak terkunci
+    monkeypatch.setattr(sup, "git_revisions", lambda branch=sup.BRANCH: ("aaa", "bbb"))
+    pulled = {"called": False}
+    monkeypatch.setattr(sup, "git_pull", lambda branch=sup.BRANCH: pulled.__setitem__("called", True) or True)
+    # lock aktif di repo root (active_lock cek REPO_ROOT secara default lewat service)
+    lockpath = os.path.join(sup.REPO_ROOT, "bot_active_runs.lock")
+    open(lockpath, "w").close()
+    s.start_all()
+    try:
+        pid1 = s.procs["bot"].pid
+        s.tick()
+        assert pulled["called"] is False           # defer → tidak pull
+        assert s.procs["bot"].pid == pid1           # tidak di-restart
+    finally:
+        s.stop_all()
+        os.remove(lockpath)
