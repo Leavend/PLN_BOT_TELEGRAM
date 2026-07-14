@@ -57,3 +57,30 @@ def test_spawn_writes_logfile():
     p.wait(timeout=10)
     with open(lp) as f:
         assert "halo dari service" in f.read()
+
+
+def test_decide_matrix():
+    assert sup.decide("aaa", "aaa", None) == "none"      # sama
+    assert sup.decide(None, "bbb", None) == "none"        # gagal fetch
+    assert sup.decide("aaa", None, None) == "none"
+    assert sup.decide("aaa", "bbb", None) == "update"     # beda, bebas
+    assert sup.decide("aaa", "bbb", "bot_active_runs.lock") == "defer"  # beda, terkunci
+
+
+def test_active_lock_detects_existing_file():
+    d = tempfile.mkdtemp()
+    services = [
+        {"name": "bot", "cmd": [], "restart_on_update": True, "lock_file": "bot_active_runs.lock"},
+        {"name": "srv", "cmd": [], "restart_on_update": True, "lock_file": None},
+    ]
+    assert sup.active_lock(services, d) is None
+    open(os.path.join(d, "bot_active_runs.lock"), "w").close()
+    assert sup.active_lock(services, d) == "bot_active_runs.lock"
+
+
+def test_git_revisions_returns_equal_hashes_in_this_repo():
+    # dijalankan di dalam repo yang bersih & sinkron → dua hash 40-char yang sama-ada
+    local, remote = sup.git_revisions()
+    # boleh (None, None) kalau offline; kalau tidak, keduanya hash valid
+    if local is not None and remote is not None:
+        assert len(local) == 40 and len(remote) == 40

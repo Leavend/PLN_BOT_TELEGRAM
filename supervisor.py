@@ -96,3 +96,41 @@ def kill(proc, timeout=5):
         proc.wait(timeout=timeout)
     except Exception:
         pass
+
+
+def active_lock(services, repo_root=REPO_ROOT):
+    for s in services:
+        lf = s.get("lock_file")
+        if lf and os.path.exists(os.path.join(repo_root, lf)):
+            return lf
+    return None
+
+
+def decide(local, remote, lock):
+    """Pure: apa yang harus dilakukan siklus ini."""
+    if not local or not remote or local == remote:
+        return "none"
+    return "defer" if lock else "update"
+
+
+def git_revisions(branch=BRANCH):
+    try:
+        subprocess.run(["git", "fetch", "origin", branch], cwd=REPO_ROOT,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+        local = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT).decode().strip()
+        remote = subprocess.check_output(["git", "rev-parse", f"origin/{branch}"], cwd=REPO_ROOT).decode().strip()
+        return local, remote
+    except Exception as e:
+        log(f"git check gagal (offline?): {e}")
+        return None, None
+
+
+def git_pull(branch=BRANCH):
+    try:
+        r = subprocess.run(["git", "pull", "origin", branch], cwd=REPO_ROOT,
+                           capture_output=True, text=True, timeout=120)
+        log((r.stdout or r.stderr).strip())
+        return r.returncode == 0
+    except Exception as e:
+        log(f"git pull gagal: {e}")
+        return False
