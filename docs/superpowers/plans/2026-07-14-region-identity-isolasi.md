@@ -332,7 +332,7 @@ git commit -m "feat(petugas): resolve pln_url_<region>.txt (fallback pln_url.txt
 **Files:**
 - Move: `house_photos/*.webp` + `FOTORUMAH_PAK_ANWAR/*` → `house_photos/bontang/`
 - Create: `pln_url_bontang.txt`, `.region.example`
-- Modify: `.gitignore`, `petugas_client/install_commands.sh` (fasih-status block ~250-299)
+- Modify: `.gitignore`, `petugas_client/install_commands.sh` (fasih-status block ~250-299), `telegram_bot.py` (`get_random_house_photo` ~314)
 
 **Interfaces:**
 - Consumes: `region.py`, server (Task 2), petugas (Task 3).
@@ -392,15 +392,40 @@ and insert immediately before it:
     print('🌏 Wilayah:', get_region())
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Make telegram_bot photo lookup region-aware**
 
-```bash
-git add house_photos/bontang pln_url_bontang.txt .region.example .gitignore petugas_client/install_commands.sh
-git add -A house_photos FOTORUMAH_PAK_ANWAR
-git commit -m "chore(region): migrate Bontang photos to house_photos/bontang, per-region url, fasih-status region"
+`telegram_bot.py`'s `get_random_house_photo()` reads from the flat dirs that Step 1 just emptied, so it must point at the region subdir too. `telegram_bot.py` is at repo root, so `from region import get_region` resolves directly. Add the import near the top of `telegram_bot.py` (with the other stdlib imports, after `import os`):
+
+```python
+from region import get_region
 ```
 
-- [ ] **Step 7: Full test run**
+Then, inside `get_random_house_photo()`, replace:
+
+```python
+    dirs_to_check = ["house_photos", "FOTORUMAH_PAK_ANWAR"]
+```
+
+with:
+
+```python
+    dirs_to_check = [os.path.join("house_photos", get_region())]
+```
+
+Verify it resolves to a non-empty photo path after migration:
+
+Run: `python3 -c "import telegram_bot; p = telegram_bot.get_random_house_photo(); print(p)"`
+Expected: a path under `house_photos/bontang/` (not `None`, since the migrated photos live there).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add house_photos/bontang pln_url_bontang.txt .region.example .gitignore petugas_client/install_commands.sh telegram_bot.py
+git add -A house_photos FOTORUMAH_PAK_ANWAR
+git commit -m "chore(region): migrate Bontang photos to house_photos/bontang, per-region url, telegram_bot + fasih-status region"
+```
+
+- [ ] **Step 8: Full test run**
 
 Run: `python3 -m pytest test_region.py test_server_region.py test_petugas_url.py -v`
 Expected: PASS (10 tests: 4 + 3 + 3)
