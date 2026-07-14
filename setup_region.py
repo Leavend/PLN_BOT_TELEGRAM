@@ -6,6 +6,7 @@ Prasyarat: cloudflared terpasang + `cloudflared tunnel login` sudah dilakukan.
 """
 import os
 import sys
+import json
 import shutil
 import subprocess
 
@@ -14,9 +15,11 @@ PORT = int(os.getenv("PLN_API_PORT", "8900"))
 CLOUDFLARED_DIR = os.path.expanduser("~/.cloudflared")
 
 
-def _config_yml(region, hostname, port):
+def _config_yml(region, hostname, port, credentials_file=None):
+    cred_line = f"credentials-file: {credentials_file}\n" if credentials_file else ""
     return (
         f"tunnel: {region}\n"
+        f"{cred_line}"
         f"ingress:\n"
         f"  - hostname: {hostname}\n"
         f"    service: http://localhost:{port}\n"
@@ -24,7 +27,7 @@ def _config_yml(region, hostname, port):
     )
 
 
-def write_region_config(region, domain, repo_root, cloudflared_dir, named_ok, port=PORT):
+def write_region_config(region, domain, repo_root, cloudflared_dir, named_ok, port=PORT, credentials_uuid=None):
     hostname = f"{region}.{domain}"
     written = {}
 
@@ -44,8 +47,9 @@ def write_region_config(region, domain, repo_root, cloudflared_dir, named_ok, po
 
     os.makedirs(cloudflared_dir, exist_ok=True)
     cp = os.path.join(cloudflared_dir, "config.yml")
+    credentials_file = os.path.join(cloudflared_dir, credentials_uuid + ".json") if credentials_uuid else None
     with open(cp, "w") as f:
-        f.write(_config_yml(region, hostname, port))
+        f.write(_config_yml(region, hostname, port, credentials_file))
     written["config"] = cp
 
     if named_ok:
@@ -56,29 +60,44 @@ def write_region_config(region, domain, repo_root, cloudflared_dir, named_ok, po
     return written
 
 
+def _tunnel_uuid(region):
+    """UUID of the named tunnel, or None. Reads `cloudflared tunnel list`."""
+    try:
+        r = subprocess.run(["cloudflared", "tunnel", "list", "--output", "json"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            return None
+        for t in json.loads(r.stdout or "[]"):
+            if t.get("name") == region:
+                return t.get("id")
+    except Exception:
+        pass
+    return None
+
+
 def run_cloudflared(region, hostname):
-    """Create named tunnel + route DNS. False bila cloudflared tak ada / gagal (tidak raise)."""
+    """Create named tunnel + route DNS. Returns UUID string on success, None bila cloudflared tak ada / gagal (tidak raise)."""
     if not shutil.which("cloudflared"):
         print("⚠️  cloudflared tidak terpasang / tidak di PATH.")
         print("   Install cloudflared + jalankan `cloudflared tunnel login`, lalu jalankan ulang.")
-        return False
+        return None
     try:
         r = subprocess.run(["cloudflared", "tunnel", "create", region],
                            capture_output=True, text=True)
         out = (r.stdout + r.stderr).lower()
         if r.returncode != 0 and "already exists" not in out:
             print(f"⚠️  gagal create tunnel: {(r.stderr or r.stdout).strip()[:200]}")
-            return False
+            return None
         r2 = subprocess.run(["cloudflared", "tunnel", "route", "dns", region, hostname],
                             capture_output=True, text=True)
         out2 = (r2.stdout + r2.stderr).lower()
         if r2.returncode != 0 and "already exists" not in out2:
             print(f"⚠️  gagal route dns: {(r2.stderr or r2.stdout).strip()[:200]}")
-            return False
-        return True
+            return None
+        return _tunnel_uuid(region)
     except Exception as e:
         print(f"⚠️  cloudflared error: {e}")
-        return False
+        return None
 
 
 def main(argv=None):
@@ -89,8 +108,9 @@ def main(argv=None):
     region = argv[0].strip().lower()
     domain = argv[1].strip().lower()
     hostname = f"{region}.{domain}"
-    named_ok = run_cloudflared(region, hostname)
-    written = write_region_config(region, domain, REPO_ROOT, CLOUDFLARED_DIR, named_ok)
+    uuid = run_cloudflared(region, hostname)
+    named_ok = uuid is not None
+    written = write_region_config(region, domain, REPO_ROOT, CLOUDFLARED_DIR, named_ok, credentials_uuid=uuid)
     print(f"✅ Region '{region}' dikonfigurasi:")
     for k, v in written.items():
         print(f"   {k}: {v}")

@@ -29,6 +29,15 @@ Onboard satu wilayah (mis. `balikpapan`) sebagai server penuh dengan hostname st
    > TIDAK membuat `.tunnel_named` → server jalan pakai quick tunnel dulu.
    > Login lalu jalankan ulang script untuk mengaktifkan named tunnel.
 
+   > **Pemulihan:** bila `cloudflared tunnel run` gagal berulang (loop restart
+   > di `logs/tunnel.log`), perbaikan yang benar adalah memperbaiki named
+   > tunnel / login / credentials — **BUKAN** `rm .tunnel_named`. Begitu
+   > `pln_url_<region>.txt` sudah di-commit, petugas sudah menarik
+   > `https://<region>.<domain>` dan akan terus menembak hostname named itu;
+   > menghapus `.tunnel_named` (balik ke quick tunnel URL acak) tidak akan
+   > menyelamatkan wilayah yang URL-nya sudah tersebar. Quick-tunnel fallback
+   > hanya berarti sebelum URL di-commit (dan untuk Bontang).
+
 3. **Set API key wilayah** di `.env`:
 
        PLN_API_KEYS=<key-balikpapan>

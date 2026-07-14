@@ -24,6 +24,15 @@ def test_write_region_config_not_named_skips_marker():
     assert "marker" not in w
 
 
-def test_run_cloudflared_absent_returns_false(monkeypatch):
+def test_run_cloudflared_absent_returns_none(monkeypatch):
     monkeypatch.setattr("shutil.which", lambda name: None)
-    assert sr.run_cloudflared("balikpapan", "balikpapan.contoh.com") is False
+    assert sr.run_cloudflared("balikpapan", "balikpapan.contoh.com") is None
+
+
+def test_config_includes_credentials_file_when_uuid_given():
+    repo = tempfile.mkdtemp(); cfd = tempfile.mkdtemp()
+    sr.write_region_config("balikpapan", "contoh.com", repo, cfd, named_ok=True,
+                           port=8900, credentials_uuid="abc-123")
+    cfg = open(os.path.join(cfd, "config.yml")).read()
+    assert "credentials-file:" in cfg
+    assert os.path.join(cfd, "abc-123.json") in cfg
