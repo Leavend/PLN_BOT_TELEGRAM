@@ -1,4 +1,5 @@
 #!/bin/bash
+# DEPRECATED (2026-07-14): diganti supervisor.py — jalankan `python3 supervisor.py`.
 # auto_updater.sh
 # Menjalankan pengecekan Git repository secara berkala untuk melakukan auto-update bot.
 

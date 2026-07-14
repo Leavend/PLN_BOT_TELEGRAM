@@ -26,6 +26,9 @@ PLN_API_HOST=0.0.0.0
 python3 pln_api_server/server.py
 ```
 
+> Produksi: jangan jalankan manual — `python3 supervisor.py` dari repo root akan
+> menjalankan server ini + auto-update. Lihat README_WORKFLOW.md.
+
 ## Endpoints
 
 ### `GET /health`

@@ -34,6 +34,10 @@ temp.zip
 fasih_downloaded/
 outputs/
 lookups/
+logs/
+
+# Service overrides (local machine configuration)
+services.local.json
 
 # BPS Mitra credentials and results
 mitra_bps_results*.txt
@@ -53,3 +57,4 @@ aliases_names.txt
 activation_links.txt
 .fasih_cooldown.json
 .fasih_coord_cache.json
+.mapbox_spare_tokens.txt
