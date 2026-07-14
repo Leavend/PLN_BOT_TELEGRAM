@@ -12,15 +12,25 @@ import time
 import signal
 import subprocess
 import tempfile
+from region import get_region
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 BRANCH = "main"
 INTERVAL = 15
 PORT = int(os.getenv("PLN_API_PORT", "8900"))
+REGION = get_region()
 
 
 def log(msg):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
+
+
+def tunnel_cmd(region, repo_root=REPO_ROOT):
+    """Named tunnel (hostname stabil) bila wilayah sudah dikonfigurasi (penanda
+    .tunnel_named ada), selain itu quick tunnel (Bontang legacy, URL berputar)."""
+    if os.path.exists(os.path.join(repo_root, ".tunnel_named")):
+        return ["cloudflared", "tunnel", "run", region]
+    return ["cloudflared", "tunnel", "--url", f"http://localhost:{PORT}"]
 
 
 DEFAULT_SERVICES = [
@@ -28,7 +38,7 @@ DEFAULT_SERVICES = [
      "restart_on_update": True, "lock_file": None},
     {"name": "telegram_bot", "cmd": [sys.executable, "telegram_bot.py"],
      "restart_on_update": True, "lock_file": "bot_active_runs.lock"},
-    {"name": "tunnel", "cmd": ["cloudflared", "tunnel", "--url", f"http://localhost:{PORT}"],
+    {"name": "tunnel", "cmd": tunnel_cmd(REGION),
      "restart_on_update": False, "lock_file": None},
 ]
 

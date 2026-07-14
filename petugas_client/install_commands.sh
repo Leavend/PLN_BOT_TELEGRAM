@@ -300,6 +300,13 @@ else:
 "
 EOF
 
+# fasih-setup-region: onboard wilayah baru (named tunnel)
+cat > "$BIN/fasih-setup-region" << EOF
+#!/bin/bash
+cd "$REPO"
+python3 setup_region.py "\$@"
+EOF
+
 chmod +x "$BIN"/fasih-*
 
 # Add to PATH if not already
@@ -323,4 +330,5 @@ echo "  fasih-logout              Logout & ganti akun"
 echo "  fasih-lookup 234000...    Cek data PLN"
 echo "  fasih-update              Update script"
 echo "  fasih-status              Cek koneksi & config"
+echo "  fasih-setup-region bpp domain.com  Onboard wilayah baru (named tunnel)"
 echo ""
