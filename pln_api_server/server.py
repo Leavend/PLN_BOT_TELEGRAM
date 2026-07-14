@@ -25,6 +25,7 @@ from functools import wraps
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, request, jsonify, send_file, abort
+from region import get_region
 
 app = Flask(__name__)
 
@@ -38,10 +39,15 @@ logger = logging.getLogger("pln_api")
 
 API_KEYS = {k.strip() for k in os.getenv("PLN_API_KEYS", "").split(",") if k.strip()}
 
-PHOTO_DIRS = [
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "house_photos"),
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "FOTORUMAH_PAK_ANWAR"),
-]
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REGION = get_region()
+
+
+def get_photo_dirs(region):
+    return [os.path.join(REPO, "house_photos", region)]
+
+
+PHOTO_DIRS = get_photo_dirs(REGION)
 VALID_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 
 # --- PLN Lookup singleton ---
@@ -177,6 +183,7 @@ def extract_profile_data(raw_data: dict) -> dict:
 def health():
     return jsonify({
         "status": "ok",
+        "region": REGION,
         "photos": len(_photo_list),
         "time": datetime.now().isoformat()
     })

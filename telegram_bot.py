@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+from region import get_region
 import csv
 import json
 import base64
@@ -310,7 +311,7 @@ if admin_str:
 LOG_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot.log")
 
 def get_random_house_photo() -> Optional[str]:
-    dirs_to_check = ["house_photos", "FOTORUMAH_PAK_ANWAR"]
+    dirs_to_check = [os.path.join("house_photos", get_region())]
     import random
     valid_extensions = (".jpg", ".jpeg", ".png", ".webp")
     all_photos = []
