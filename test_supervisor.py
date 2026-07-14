@@ -1,4 +1,5 @@
 import json, os, tempfile, sys as _sys
+import subprocess as _sp
 import supervisor as sup
 
 
@@ -126,3 +127,15 @@ def test_apply_update_only_restarts_flagged_services():
         assert s.procs["roll"].pid != roll_pid    # di-restart
     finally:
         s.stop_all()
+
+
+def test_self_check_returns_zero():
+    assert sup.self_check() == 0
+
+
+def test_once_cli_exits_zero_and_prints_ok():
+    r = _sp.run([_sys.executable, "supervisor.py", "--once"],
+                cwd=os.path.dirname(os.path.abspath(sup.__file__)),
+                capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0
+    assert "✅" in r.stdout

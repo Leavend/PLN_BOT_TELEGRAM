@@ -11,6 +11,7 @@ import json
 import time
 import signal
 import subprocess
+import tempfile
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 BRANCH = "main"
@@ -200,3 +201,48 @@ class Supervisor:
         while True:
             time.sleep(INTERVAL)
             self.tick()
+
+
+def _install_signal_handlers(sup_obj):
+    def handler(signum, frame):
+        log(f"sinyal {signum} — matikan semua service")
+        sup_obj.stop_all()
+        sys.exit(0)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(sig, handler)
+        except Exception:
+            pass  # SIGTERM tidak selalu ada di Windows
+
+
+def self_check():
+    """Start dummy → bunuh → recover → pastikan PID berganti & stop bersih."""
+    dummy = {"name": "dummy",
+             "cmd": [sys.executable, "-c", "import time; time.sleep(60)"],
+             "restart_on_update": False, "lock_file": None}
+    s = Supervisor([dummy], logdir=tempfile.mkdtemp())
+    s.start_all()
+    pid1 = s.procs["dummy"].pid
+    kill(s.procs["dummy"])
+    s.recover()
+    pid2 = s.procs["dummy"].pid
+    ok = (pid1 != pid2) and is_alive(s.procs["dummy"])
+    s.stop_all()
+    ok = ok and not is_alive(s.procs["dummy"])
+    if ok:
+        log("✅ self-check OK: recovery jalan + stop bersih")
+        return 0
+    log("❌ self-check GAGAL")
+    return 1
+
+
+def main(argv=None):
+    argv = argv if argv is not None else sys.argv[1:]
+    if "--once" in argv:
+        return self_check()
+    Supervisor(load_services()).run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
