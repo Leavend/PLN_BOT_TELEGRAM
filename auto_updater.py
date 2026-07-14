@@ -1,3 +1,6 @@
+# DEPRECATED (2026-07-14): diganti supervisor.py — jalankan `python3 supervisor.py`.
+# supervisor.py mengawasi seluruh stack (pln_server + telegram_bot + tunnel), bukan hanya bot ini.
+
 import os
 import sys
 import time

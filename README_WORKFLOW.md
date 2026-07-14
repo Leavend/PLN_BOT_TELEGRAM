@@ -60,7 +60,26 @@ Format struktur arsip `.7z` sangat ketat dan divalidasi oleh parser backend BPS 
 
 ---
 
-## 3. Skema Endpoint BPS yang Digunakan
+## 3. Menjalankan stack (auto-update)
+
+Satu perintah mengawasi PLN server + Telegram bot + cloudflared tunnel, dan
+otomatis `git pull` + restart service saat ada update di GitHub (tunnel tidak
+di-restart supaya URL-nya tetap):
+
+    python3 supervisor.py
+
+Cek sehat cepat (recovery + shutdown bersih), tanpa loop:
+
+    python3 supervisor.py --once
+
+Mesin yang tidak perlu semua service: salin `services.local.json.example` ke
+`services.local.json` (gitignored) dan hapus baris yang tidak dipakai.
+
+> `auto_updater.py` / `auto_updater.sh` sudah deprecated — pakai `supervisor.py`.
+
+---
+
+## 4. Skema Endpoint BPS yang Digunakan
 
 | Aksi | Status Penugasan `OPEN` (Submit Baru) | Status Penugasan Lainnya (Edit/Update) |
 |---|---|---|

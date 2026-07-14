@@ -1,0 +1,4 @@
+[
+  {"_comment": "Copy ke services.local.json (gitignored). Contoh: mesin tanpa bot.", "name": "pln_server", "cmd": ["python3", "pln_api_server/server.py"], "restart_on_update": true, "lock_file": null},
+  {"name": "tunnel", "cmd": ["cloudflared", "tunnel", "--url", "http://localhost:8900"], "restart_on_update": false, "lock_file": null}
+]
