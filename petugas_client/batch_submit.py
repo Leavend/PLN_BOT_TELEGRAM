@@ -50,7 +50,7 @@ from submit_fasih import (
     build_new_assignment_target, resolve_coordinate, build_paradata,
     STATIC_LEGACY_KEY,
 )
-from region import get_region
+from region import get_region, DEFAULT_REGION
 
 import requests as req_lib
 import base64
@@ -68,10 +68,15 @@ logger = logging.getLogger("petugas")
 
 def _resolve_pln_url(repo_root=REPO_ROOT, region=None) -> str:
     """PLN API URL source of truth = git-tracked pln_url_<region>.txt (propagated via
-    `fasih-update`). Per-wilayah: tiap server punya tunnel URL sendiri. Fallback ke
-    pln_url.txt (legacy, satu URL) lalu env PLN_API_URL. Region default = get_region()."""
+    `fasih-update`). Per-wilayah: tiap server punya tunnel URL sendiri. Legacy
+    pln_url.txt (single URL, historically Bontang's) is only consulted for the
+    default region — any other region without its own file must fail loud to env
+    PLN_API_URL instead of silently impersonating Bontang. Region default = get_region()."""
     region = region or get_region()
-    for fname in (f"pln_url_{region}.txt", "pln_url.txt"):
+    candidates = [f"pln_url_{region}.txt"]
+    if region == DEFAULT_REGION:
+        candidates.append("pln_url.txt")  # legacy fallback only for the default region
+    for fname in candidates:
         try:
             with open(os.path.join(repo_root, fname)) as f:
                 for line in f:

@@ -274,7 +274,7 @@ if token:
 if url:
     try:
         d = requests.get(url + '/health', timeout=5).json()
-        print('🏥 PLN Server:', '✅ online —', d.get('photos',0), 'foto')
+        print('🏥 PLN Server:', '✅ online —', d.get('photos',0), 'foto · wilayah', d.get('region','?'))
     except:
         print('🏥 PLN Server: ❌ offline')
 # BPS readiness: probe the SAME python path submit uses. A curl probe would
