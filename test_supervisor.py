@@ -172,3 +172,17 @@ def test_tick_defers_when_locked(monkeypatch):
     finally:
         s.stop_all()
         os.remove(lockpath)
+
+
+def test_tunnel_cmd_quick_when_no_marker():
+    d = tempfile.mkdtemp()
+    cmd = sup.tunnel_cmd("balikpapan", repo_root=d)
+    assert cmd[0] == "cloudflared" and cmd[1] == "tunnel" and cmd[2] == "--url"
+    assert "run" not in cmd
+
+
+def test_tunnel_cmd_named_when_marker_present():
+    d = tempfile.mkdtemp()
+    open(os.path.join(d, ".tunnel_named"), "w").close()
+    cmd = sup.tunnel_cmd("balikpapan", repo_root=d)
+    assert cmd == ["cloudflared", "tunnel", "run", "balikpapan"]
