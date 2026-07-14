@@ -46,3 +46,53 @@ def load_services(repo_root=REPO_ROOT):
     except Exception as e:
         log(f"services.local.json invalid ({e}) — pakai default")
     return DEFAULT_SERVICES
+
+
+def spawn(cmd, logpath):
+    """Start proses dalam process-group sendiri; output → logpath (append)."""
+    logf = open(logpath, "ab")
+    kw = {"stdout": logf, "stderr": subprocess.STDOUT, "cwd": REPO_ROOT}
+    if os.name == "nt":
+        kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kw["start_new_session"] = True  # setsid → bisa killpg anak-cucu
+    return subprocess.Popen(cmd, **kw)
+
+
+def is_alive(proc):
+    return proc is not None and proc.poll() is None
+
+
+def kill(proc, timeout=5):
+    """SIGTERM ke process-group → tunggu → SIGKILL. No-op kalau sudah mati/None."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            proc.terminate()
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except Exception:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    try:
+        proc.wait(timeout=timeout)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        if os.name == "nt":
+            proc.kill()
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        proc.wait(timeout=timeout)
+    except Exception:
+        pass
