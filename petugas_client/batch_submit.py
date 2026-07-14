@@ -771,15 +771,22 @@ def main():
                 tl = template_lookup[0]
                 template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
 
-            if args.fast:
-                # --fast: only the first page (enough templates for create_new) —
-                # skips slow full pagination that times out on big accounts.
-                print(f"📋 Mengambil template {skey} (fast)...")
-                fp = fetch_assignments(headers, pid, 0)
-                assignments = (fp.get("data") or {}).get("content", []) or []
-            else:
-                print(f"📋 Mengambil tugas {skey}...")
-                assignments = fetch_all_assignments(headers, pid)
+            # Full pagination of ALL assignments (50+ pages on big accounts, and it
+            # GROWS every --resubmit-all run) is the main thing that times out / crashes
+            # under BPS load. It's only needed for the local-scan dedup of a plain
+            # submit. --force / --resubmit-all create_new and dedup via fasih_exists, so
+            # page-0 (a handful of templates to clone) is enough — skip the slow fetch.
+            try:
+                if args.fast or args.force or args.resubmit_all:
+                    print(f"📋 Mengambil template {skey} (fast)...")
+                    fp = fetch_assignments(headers, pid, 0)
+                    assignments = (fp.get("data") or {}).get("content", []) or []
+                else:
+                    print(f"📋 Mengambil tugas {skey}...")
+                    assignments = fetch_all_assignments(headers, pid)
+            except Exception as e:
+                print(f"   ⚠️  {skey}: gagal ambil tugas (BPS lambat) — {str(e)[:60]}. Coba lagi / kurangi --workers.")
+                continue
             regions = fetch_regions(headers, pid)
 
             survey_caches[skey] = {

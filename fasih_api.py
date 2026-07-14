@@ -342,7 +342,10 @@ def fetch_all_assignments(headers: dict, survey_period_id: str) -> list:
     import math
     from concurrent.futures import ThreadPoolExecutor
     
-    first_page = fetch_assignments(headers, survey_period_id, page=0)
+    try:
+        first_page = fetch_assignments(headers, survey_period_id, page=0)
+    except Exception:
+        return []  # BPS lambat — biar caller fallback, jangan crash
     data_wrapper = first_page.get("data") or {}
     content_p0 = data_wrapper.get("content", [])
     total_server = data_wrapper.get("total", 0)
@@ -366,13 +369,16 @@ def fetch_all_assignments(headers: dict, survey_period_id: str) -> list:
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(fetch_page_worker, p): p for p in pages_to_fetch}
         for future in futures:
-            p, page_content = future.result()
+            try:
+                p, page_content = future.result()
+            except Exception:
+                continue  # 1 halaman gagal (BPS lambat) → lewati, jangan bikin crash total
             start_idx = p * page_size
             for offset, item in enumerate(page_content):
                 idx = start_idx + offset
                 if idx < len(all_content):
                     all_content[idx] = item
-                    
+
     return [x for x in all_content if x is not None]
 
 def fetch_regions(headers: dict, survey_period_id: str) -> list:
@@ -435,7 +441,7 @@ def request_photo_presign_put(headers: dict, assignment_id: str, copy_from_id: s
     }]
     resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/image/v2/presigned-url-put",
-        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=30
+        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=12
     )
     resp.raise_for_status()
     res_json = resp.json()
@@ -454,7 +460,7 @@ def upload_photo_to_s3(presigned_url: str, file_path: str, md5_base64: str) -> b
     resp = session.put(
         presigned_url, data=file_data,
         headers={"Content-Type": "image/png", "Content-MD5": md5_base64, "Content-Length": str(size), "User-Agent": USER_AGENT},
-        timeout=60
+        timeout=20
     )
     if resp.status_code not in (200, 201):
         resp.raise_for_status()
@@ -465,7 +471,7 @@ def request_photo_presign_get(headers: dict, assignment_id: str, copy_from_id: s
     body = [{"assignmentId": assignment_id, "copyFromId": copy_from_id or "", "fileNames": [filename]}]
     resp = session.post(
         f"{BASE_URL}/mobile/assignment-submit-2/api/image/presigned-url-get",
-        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=30
+        headers=headers, json=body, params={"surveyPeriodId": survey_period_id}, timeout=12
     )
     resp.raise_for_status()
     res_json = resp.json()
