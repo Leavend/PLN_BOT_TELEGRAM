@@ -59,3 +59,50 @@ def test_load_and_verify_corrupt_sig_bytes_does_not_raise():
     with open(os.path.join(d, "control.sig"), "wb") as f:
         f.write(b"\xff\xfe\x80not-hex")
     assert fleet.load_and_verify(d, pubkey_hex="ab" * 32) is None
+
+
+def _manifest(**region_over):
+    base = {"enabled": True, "pin": None, "machines": ["fp-me"]}
+    base.update(region_over)
+    return {"not_after": "2099-01-01T00:00:00Z", "regions": {"bontang": base}}
+
+
+def test_authorize_ok():
+    ok, reason, ctl = fleet.authorize(_manifest(), "bontang", "fp-me")
+    assert ok is True and reason == "ok"
+    assert ctl == {"enabled": True, "pin": None}
+
+
+def test_authorize_unlisted_fingerprint():
+    ok, reason, ctl = fleet.authorize(_manifest(), "bontang", "fp-stranger")
+    assert ok is False and reason == "mesin tak terotorisasi" and ctl == {}
+
+
+def test_authorize_missing_region():
+    ok, reason, ctl = fleet.authorize(_manifest(), "balikpapan", "fp-me")
+    assert ok is False and "region" in reason and ctl == {}
+
+
+def test_authorize_expired():
+    m = _manifest()
+    m["not_after"] = "2000-01-01T00:00:00Z"
+    ok, reason, ctl = fleet.authorize(m, "bontang", "fp-me")
+    assert ok is False and reason == "expired"
+
+
+def test_authorize_returns_enabled_pin():
+    m = _manifest(enabled=False, pin="abc123")
+    ok, reason, ctl = fleet.authorize(m, "bontang", "fp-me")
+    assert ok is True and ctl == {"enabled": False, "pin": "abc123"}
+
+
+def test_authorize_bad_not_after():
+    m = _manifest()
+    m["not_after"] = "garbage"
+    ok, reason, ctl = fleet.authorize(m, "bontang", "fp-me")
+    assert ok is False and reason == "not_after invalid"
+
+
+def test_authorize_non_dict_manifest():
+    ok, reason, ctl = fleet.authorize(None, "bontang", "fp-me")
+    assert ok is False and ctl == {}

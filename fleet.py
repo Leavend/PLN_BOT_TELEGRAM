@@ -46,3 +46,40 @@ def load_and_verify(repo_root, pubkey_hex=None):
         return json.loads(data)
     except Exception:
         return None
+
+
+def _parse_iso(s):
+    """ISO-8601 -> aware UTC datetime, atau None."""
+    try:
+        s = s.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def authorize(manifest, region, fingerprint, now=None):
+    """(ok, reason, region_ctl). Fail-closed. region_ctl = {enabled, pin} saat ok, else {}."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if not isinstance(manifest, dict):
+        return False, "manifest invalid", {}
+    na = _parse_iso(str(manifest.get("not_after", "")))
+    if na is None:
+        return False, "not_after invalid", {}
+    if now > na:
+        return False, "expired", {}
+    regions = manifest.get("regions") or {}
+    rc = regions.get(region)
+    if not isinstance(rc, dict):
+        return False, "region tak terdaftar", {}
+    machines = rc.get("machines") or []
+    if fingerprint not in machines:
+        return False, "mesin tak terotorisasi", {}
+    return True, "ok", {"enabled": bool(rc.get("enabled", False)), "pin": rc.get("pin")}
