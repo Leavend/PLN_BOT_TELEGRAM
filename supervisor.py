@@ -15,6 +15,15 @@ import tempfile
 from region import get_region
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+# .env dimuat di sini supaya PORT benar dan anak proses (server/bot) mewarisi env.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(REPO_ROOT, ".env"))
+except ImportError:
+    print("[!] python-dotenv tidak terpasang — .env TIDAK dimuat. "
+          "PLN_API_KEYS bisa kosong (auth server terbuka). Jalankan: pip install -r requirements.txt")
+
 BRANCH = "main"
 INTERVAL = 15
 PORT = int(os.getenv("PLN_API_PORT", "8900"))

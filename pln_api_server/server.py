@@ -35,6 +35,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("pln_api")
 
+# .env harus dimuat SEBELUM baca API_KEYS. Tanpa ini PLN_API_KEYS kosong dan
+# require_api_key jatuh ke jalur "tanpa key" (auth terbuka) padahal server
+# diekspos ke publik lewat tunnel.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+except ImportError:
+    logger.warning("python-dotenv tidak terpasang — .env TIDAK dimuat, PLN_API_KEYS bisa kosong. "
+                   "Jalankan: pip install -r requirements.txt")
+
 # --- Config ---
 
 API_KEYS = {k.strip() for k in os.getenv("PLN_API_KEYS", "").split(",") if k.strip()}
