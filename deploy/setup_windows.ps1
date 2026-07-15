@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Bootstrap komputer PLN (Windows) menjadi server wilayah FASIH.
 .DESCRIPTION

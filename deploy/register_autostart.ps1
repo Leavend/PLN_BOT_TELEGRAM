@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Daftarkan supervisor FASIH agar jalan otomatis saat komputer boot.
 .DESCRIPTION
