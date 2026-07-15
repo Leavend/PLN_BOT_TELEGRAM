@@ -26,8 +26,17 @@ if (-not (Test-Path (Join-Path $RepoPath "supervisor.py"))) {
     Die "supervisor.py tidak ditemukan di $RepoPath. Jalankan deploy\setup_windows.ps1 dulu."
 }
 
-$python = (Get-Command python -ErrorAction SilentlyContinue).Source
-if (-not $python) { Die "python tidak ada di PATH. Jalankan deploy\setup_windows.ps1 dulu." }
+$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+if (-not $pythonCmd) { Die "python tidak ada di PATH. Jalankan deploy\setup_windows.ps1 dulu." }
+$python = $pythonCmd.Source
+if ($python -like "*\WindowsApps\*") {
+    Die @"
+python yang kebaca adalah stub Microsoft Store ($python) — bukan install asli.
+Task bakal terdaftar dan keliatan normal, tapi supervisor TIDAK akan jalan setelah reboot.
+Matikan alias-nya: Settings > Apps > Advanced app settings > App execution aliases >
+matikan python.exe & python3.exe. Lalu jalankan deploy\setup_windows.ps1 lagi.
+"@
+}
 
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Info "Task '$TaskName' sudah ada — daftar ulang"
