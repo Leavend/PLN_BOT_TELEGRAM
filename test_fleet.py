@@ -49,3 +49,13 @@ def test_load_and_verify_ok_and_tamper():
 def test_load_and_verify_missing_files():
     d = tempfile.mkdtemp()
     assert fleet.load_and_verify(d, pubkey_hex="ab" * 32) is None
+
+
+def test_load_and_verify_corrupt_sig_bytes_does_not_raise():
+    d = tempfile.mkdtemp()
+    with open(os.path.join(d, "control.json"), "wb") as f:
+        f.write(b'{"regions":{}}')
+    # control.sig with invalid UTF-8 bytes — must be rejected cleanly, not raise
+    with open(os.path.join(d, "control.sig"), "wb") as f:
+        f.write(b"\xff\xfe\x80not-hex")
+    assert fleet.load_and_verify(d, pubkey_hex="ab" * 32) is None

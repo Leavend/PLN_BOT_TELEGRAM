@@ -38,7 +38,7 @@ def load_and_verify(repo_root, pubkey_hex=None):
             data = f.read()
         with open(os.path.join(repo_root, "control.sig")) as f:
             sig_hex = f.read().strip()
-    except OSError:
+    except (OSError, ValueError):
         return None
     if not verify_signature(data, sig_hex, pubkey_hex):
         return None
