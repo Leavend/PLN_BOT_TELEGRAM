@@ -1,0 +1,2 @@
+val,nama,status,message
+234000143501,H.COLLI,FAILED,"Gagal mendapatkan presigned URL foto: HTTPSConnectionPool(host='fasih-survey.bps.go.id', port=443): Read timed out. (read timeout=15)"

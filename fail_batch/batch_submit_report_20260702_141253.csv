@@ -1,0 +1,19 @@
+val,nama,status,message
+234000261821,SEWAYA HALI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000147696,IMRAN,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000276786,SUKMA ABDUL,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000420546,SITI SULAEHA,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000261171,INDAH WINARTI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000419285,YULIANA,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000419116,SUSI PRIHATINI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000419904,SUNARDI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000419920,WARSITO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000432508,LASTRI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000124920,MH.TANG,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000150542,M.TANG BIN KALI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000150864,M.TANG BIN KALI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000143501,H.COLLI,FAILED,"Gagal mendapatkan presigned URL foto: HTTPSConnectionPool(host='fasih-survey.bps.go.id', port=443): Read timed out. (read timeout=15)"
+234000144643,H.COLLY,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000135943,ABDUL LATIEF,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000268198,ARHAM,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000290614,HAEDAR  SE,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!

@@ -1,0 +1,11 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+URL:https://academy.openai.com/home/events/codex-for-everyday-use-ha8ne9kz6s
+DTSTART:20260707T150000Z
+DTEND:20260707T153041Z
+SUMMARY:[OpenAI Academy] Codex for Everyday Use
+DESCRIPTION:For more information about this event - https://academy.openai.com/public/events/codex-for-everyday-use-ha8ne9kz6s
+LOCATION:https://academy.openai.com/events/codex-for-everyday-use-ha8ne9kz6s
+END:VEVENT
+END:VCALENDAR

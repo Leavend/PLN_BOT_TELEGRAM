@@ -38,14 +38,15 @@ def load_and_verify(repo_root, pubkey_hex=None):
             data = f.read()
         with open(os.path.join(repo_root, "control.sig")) as f:
             sig_hex = f.read().strip()
-    except (OSError, ValueError):
+    except (OSError, ValueError, TypeError):
         return None
     if not verify_signature(data, sig_hex, pubkey_hex):
         return None
     try:
-        return json.loads(data)
+        obj = json.loads(data)
     except Exception:
         return None
+    return obj if isinstance(obj, dict) else None
 
 
 def _parse_iso(s):
@@ -64,7 +65,7 @@ def _parse_iso(s):
 
 def authorize(manifest, region, fingerprint, now=None):
     """(ok, reason, region_ctl). Fail-closed. region_ctl = {enabled, pin} saat ok, else {}."""
-    if now is None:
+    if not isinstance(now, datetime):
         now = datetime.now(timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)

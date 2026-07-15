@@ -1,0 +1,10 @@
+val,status,message
+234201931731,SUCCESS,Sukses: Data berhasil dikirimkan ke BPS!
+234201961330,SUCCESS,Sukses: Data berhasil dikirimkan ke BPS!
+234201896483,SUCCESS,Sukses: Data berhasil dikirimkan ke BPS!
+234201872764,SUCCESS,Sukses: Data berhasil dikirimkan ke BPS!
+234201947853,FAILED,BPS lambat/timeout — coba lagi (cek fasih-status). Item dilewati.
+234201953206,SUCCESS,Sukses: Data berhasil dikirimkan ke BPS!
+234201240184,SUCCESS,Sukses: Data berhasil dikirimkan ke BPS!
+234201480543,SUCCESS,Sukses: Data berhasil dikirimkan ke BPS!
+234201541268,SUCCESS,Sukses: Data berhasil dikirimkan ke BPS!

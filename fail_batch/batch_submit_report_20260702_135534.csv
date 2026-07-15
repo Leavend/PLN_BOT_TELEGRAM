@@ -1,0 +1,54 @@
+val,nama,status,message
+234000204371,IRFAN AFANDI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000418831,LAMIYO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000419597,SLAMET JUARIAH,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000423081,TARMINTO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000293892,H. HAMZAH,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000427941,JONI SUPRIYANTO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000278213,HALIMAH ST,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000412940,ARIES HANAFI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000413066,M SALIM,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000428777,MUDASSIR,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000427791,SAHIR,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000428233,DJUWITO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000716585,LEGIMIN,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000264938,HANNASE MASTUAN,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000261821,SEWAYA HALI,FAILED,"Gagal mendapatkan presigned URL foto: HTTPSConnectionPool(host='fasih-survey.bps.go.id', port=443): Read timed out. (read timeout=15)"
+234000147696,IMRAN,FAILED,"Gagal mendapatkan presigned URL foto: HTTPSConnectionPool(host='fasih-survey.bps.go.id', port=443): Read timed out. (read timeout=15)"
+234000276786,SUKMA ABDUL,FAILED,"Gagal mendapatkan presigned URL foto: HTTPSConnectionPool(host='fasih-survey.bps.go.id', port=443): Read timed out. (read timeout=15)"
+234000420546,SITI SULAEHA,FAILED,"Presigned PUT URL untuk berkas arsip kosong.
+Detail: HTTP 405: {""timestamp"":""2026-07-02T05:53:22.859+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/presign-url"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""6104fe44-2, L:/172.29.8.196:9072 - R:/172.28.4.2:32956""}"
+234000261171,INDAH WINARTI,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000419285,YULIANA,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000419116,SUSI PRIHATINI,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000419904,SUNARDI,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000419920,WARSITO,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000432508,LASTRI,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000124920,MH.TANG,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000150542,M.TANG BIN KALI,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000150864,M.TANG BIN KALI,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000143501,H.COLLI,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000144643,H.COLLY,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000135943,ABDUL LATIEF,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000268198,ARHAM,FAILED,"Presigned PUT URL untuk berkas arsip kosong.
+Detail: HTTP 405: {""timestamp"":""2026-07-02T05:54:07.312+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/presign-url"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""0bb82a38-3, L:/172.31.6.77:9072 - R:/172.28.4.2:51552""}"
+234000290614,HAEDAR  SE,FAILED,"Presigned PUT URL untuk berkas arsip kosong.
+Detail: HTTP 405: {""timestamp"":""2026-07-02T05:54:10.702+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/presign-url"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""ba032aee-1, L:/172.30.8.199:9072 - R:/172.29.4.2:46536""}"
+234000092484,MIDI PALIWENG,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000102330,ABD RASYID HAS 5,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000265040,RONI SUDARMAJI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000035693,H.SUPU HT,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000035707,H.SUPU HT,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000251065,SLAMET BASUKI I,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000251073,SLAMET BASUKI II,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000257914,SUTIKNO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000287019,FATKUR ROZZI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000419762,JARNO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000422893,MISIRAH,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000428338,BAMBANG PUJI PURWIYONO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000086631,ACHMAD,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000263740,MAT DJULI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000262921,SUWANTO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000074116,KALIM.HS,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000047708,H AHMAD,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000418561,NUHLA,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!

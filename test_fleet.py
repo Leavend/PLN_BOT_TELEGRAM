@@ -130,3 +130,26 @@ def test_authorize_machines_non_list_failclosed():
         m["regions"]["bontang"]["machines"] = bad
         ok, reason, ctl = fleet.authorize(m, "bontang", "fp-me")
         assert ok is False and ctl == {}
+
+
+def test_load_and_verify_non_str_repo_root_no_raise():
+    assert fleet.load_and_verify(None, pubkey_hex="ab" * 32) is None
+    assert fleet.load_and_verify(123, pubkey_hex="ab" * 32) is None
+
+
+def test_load_and_verify_signed_non_dict_json_is_none():
+    priv, pub_hex = _keypair()
+    d = tempfile.mkdtemp()
+    data = b"[1, 2, 3]"                       # valid JSON, but not an object
+    with open(os.path.join(d, "control.json"), "wb") as f:
+        f.write(data)
+    with open(os.path.join(d, "control.sig"), "w") as f:
+        f.write(_sign(priv, data))
+    assert fleet.load_and_verify(d, pubkey_hex=pub_hex) is None   # signature valid, shape wrong -> None
+
+
+def test_authorize_non_datetime_now_no_raise():
+    ok, reason, ctl = fleet.authorize(_manifest(), "bontang", "fp-me", now="garbage")
+    assert ok is True          # coerced to real now(); manifest not_after is 2099 -> still valid
+    ok2, _, _ = fleet.authorize(_manifest(), "bontang", "fp-me", now=12345)
+    assert ok2 is True
