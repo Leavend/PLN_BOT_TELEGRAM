@@ -8,11 +8,18 @@ Butuh: hak **Administrator** + internet (GitHub, Cloudflare, ap2t.pln.co.id).
 Buka **PowerShell as Administrator**, lalu:
 
     cd $HOME
-    git clone https://github.com/Leavend/PLN_BOT_TELEGRAM.git Fasih-Python-Script
-    cd Fasih-Python-Script
-    .\deploy\setup_windows.ps1 -Region bontang
+    curl.exe -fLO https://raw.githubusercontent.com/Leavend/PLN_BOT_TELEGRAM/main/deploy/setup_windows.ps1
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+    .\setup_windows.ps1 -Region bontang
 
-Ganti `bontang` dengan wilayah mesin ini (`samarinda`, `balikpapan`, `wahau`).
+> Ganti `bontang` dengan wilayah mesin ini (`samarinda`, `balikpapan`, `wahau`).
+> `Set-ExecutionPolicy -Scope Process` cuma berlaku untuk sesi PowerShell ini saja —
+> tidak mengubah setting mesin permanen. Mesin belum punya Git di titik ini, jadi
+> script diambil berdiri sendiri dulu (`curl.exe` ikut Windows 10 1803+); script ini
+> akan meng-install Git lalu clone repo sendiri ke `$HOME\Fasih-Python-Script`.
+> Langkah berikutnya dijalankan dari dalam folder itu:
+>
+>     cd $HOME\Fasih-Python-Script
 
 Script akan: install Python/Git/cloudflared (winget) → pull repo → install dependency →
 tulis `.region` + `house_photos\<region>\` → tanya `PLN_API_KEYS` & `PLN_API_PORT` (bikin `.env`) →

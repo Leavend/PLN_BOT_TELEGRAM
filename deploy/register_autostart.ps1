@@ -54,10 +54,15 @@ $settings  = New-ScheduledTaskSettingsSet `
                 -DontStopIfGoingOnBatteries `
                 -ExecutionTimeLimit ([TimeSpan]::Zero)
 
+# Belt-and-braces: -ExecutionTimeLimit kadang tidak ikut ter-set; paksa PT0S supaya
+# supervisor (yang memang jalan selamanya) tidak dibunuh Task Scheduler tiap 72 jam.
+$settings.ExecutionTimeLimit = 'PT0S'
+
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
                        -Principal $principal -Settings $settings | Out-Null
 
 Ok "Task '$TaskName' terdaftar (At startup, SYSTEM, restart 3x)."
 Write-Host "    Test sekarang : Start-ScheduledTask -TaskName $TaskName"
 Write-Host "    Lihat status  : Get-ScheduledTask -TaskName $TaskName | Get-ScheduledTaskInfo"
+Write-Host "    Cek limit     : (Get-ScheduledTask -TaskName $TaskName).Settings.ExecutionTimeLimit  # harus PT0S"
 Write-Host "    Hapus         : Unregister-ScheduledTask -TaskName $TaskName -Confirm:`$false"

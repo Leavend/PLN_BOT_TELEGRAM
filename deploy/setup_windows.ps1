@@ -92,6 +92,14 @@ if (Test-Path $RepoPath) {
 Set-Location $RepoPath
 Ok "Repo siap di $RepoPath"
 
+# Task Scheduler menjalankan supervisor sebagai SYSTEM, sedangkan repo ada di profil user.
+# Tanpa ini git menolak repo milik SID lain ("detected dubious ownership") — auto-update
+# sub-proyek A mati diam-diam dan cuma kelihatan sebagai "git check gagal (offline?)".
+$repoForGit = $RepoPath -replace '\\', '/'
+git config --system --add safe.directory "$repoForGit"
+Assert-LastExit "git config safe.directory"
+Ok "safe.directory diset untuk SYSTEM ($repoForGit)"
+
 # --- 4. dependency Python ---
 Info "Install Python packages ..."
 python -m pip install --upgrade pip
