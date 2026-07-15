@@ -23,18 +23,37 @@ function Ok($m)   { Write-Host "[+] $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "[!] $m" -ForegroundColor Yellow }
 function Die($m)  { Write-Host "[-] $m" -ForegroundColor Red; exit 1 }
 
+function Assert-LastExit($what) {
+    if ($LASTEXITCODE -ne 0) { Die "$what GAGAL (exit $LASTEXITCODE). Perbaiki dulu lalu jalankan ulang." }
+}
+
 function Refresh-Path {
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
                 [System.Environment]::GetEnvironmentVariable("Path", "User")
 }
 
-function Ensure-Tool($cmd, $wingetId, $label) {
-    if (Get-Command $cmd -ErrorAction SilentlyContinue) { Ok "$label sudah ada"; return }
+function Test-RealCommand($cmd) {
+    $c = Get-Command $cmd -ErrorAction SilentlyContinue
+    if (-not $c) { return $false }
+    # Stub "App Execution Alias" Windows Store — kebaca Get-Command tapi bukan install beneran
+    if ($c.Source -like "*\WindowsApps\*") { return $false }
+    return $true
+}
+
+function Ensure-Tool($cmd, $wingetId, $label, $manualUrl) {
+    if (Test-RealCommand $cmd) { Ok "$label sudah ada"; return }
     Info "Install $label ..."
     winget install --id $wingetId -e --silent --accept-package-agreements --accept-source-agreements
     Refresh-Path
-    if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
-        Die "$label terpasang tapi belum masuk PATH. Tutup PowerShell, buka lagi sebagai Administrator, jalankan ulang script ini."
+    if (-not (Test-RealCommand $cmd)) {
+        Die @"
+$label belum terdeteksi sebagai install asli.
+  - Kalau baru terpasang: tutup PowerShell, buka lagi sebagai Administrator, jalankan ulang script ini.
+  - Kalau yang kebaca stub Microsoft Store (path ...\WindowsApps\): matikan alias-nya di
+    Settings > Apps > Advanced app settings > App execution aliases > matikan python.exe & python3.exe,
+    lalu jalankan ulang.
+  - Install manual: $manualUrl
+"@
     }
     Ok "$label terpasang"
 }
@@ -51,9 +70,9 @@ Install manual lalu jalankan ulang script ini:
 }
 
 # --- 2. prasyarat ---
-Ensure-Tool "python"      "Python.Python.3.12"     "Python 3"
-Ensure-Tool "git"         "Git.Git"                "Git"
-Ensure-Tool "cloudflared" "Cloudflare.cloudflared" "cloudflared"
+Ensure-Tool "python"      "Python.Python.3.12"     "Python 3"    "https://www.python.org/downloads/windows/"
+Ensure-Tool "git"         "Git.Git"                "Git"         "https://git-scm.com/download/win"
+Ensure-Tool "cloudflared" "Cloudflare.cloudflared" "cloudflared" "https://github.com/cloudflare/cloudflared/releases"
 
 # --- 3. repo ---
 if (Test-Path $RepoPath) {
@@ -63,10 +82,12 @@ if (Test-Path $RepoPath) {
     Info "Repo sudah ada — git pull ..."
     Push-Location $RepoPath
     git pull
+    Assert-LastExit "git pull"
     Pop-Location
 } else {
     Info "Clone repo ke $RepoPath ..."
     git clone $RepoUrl $RepoPath
+    Assert-LastExit "git clone"
 }
 Set-Location $RepoPath
 Ok "Repo siap di $RepoPath"
@@ -74,8 +95,11 @@ Ok "Repo siap di $RepoPath"
 # --- 4. dependency Python ---
 Info "Install Python packages ..."
 python -m pip install --upgrade pip
+Assert-LastExit "pip upgrade"
 python -m pip install -r requirements.txt
+Assert-LastExit "pip install requirements.txt"
 python -m pip install flask py7zr
+Assert-LastExit "pip install flask py7zr"
 Ok "Dependency terpasang"
 
 # --- 5. config region ---
