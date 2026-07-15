@@ -1,0 +1,3 @@
+val,nama,status,message
+234000316093,SUPARDI,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000849579,ANDI SORAYA,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66

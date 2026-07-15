@@ -1,0 +1,202 @@
+val,nama,status,message
+234000286972,ANDY ADJIS,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000274826,SUPARMAN,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000279419,NUR ALAM,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000288989,MARTINUS TARA,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000250979,DIDIK WAHYONO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000136472,HASBI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000274625,BUSTANG,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234200044290,S.JUHRIANSYAH,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000258170,SADDU,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000133278,SULASTRI SIMAH,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234100003401,ISMAIL BIN KANI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234200039073,KAREI KAMBUNA,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000289766,ABDUL GHONI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000521512,ELIS TUMBA,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234201926110,YUNUS,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000333109,SRI HANDAYANI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000110881,MUCHLIS,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000156549,IDEHAM IBRAHIM,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000287404,TURIMAN,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000151562,MUKAJI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234200036962,NYOTO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000093158,ANDI AMBA,FAILED,"Kesalahan submit: HTTP 405: {""timestamp"":""2026-07-03T05:32:37.407+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/submit"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""089ca1a0-7, L:/172.30.8.86:9072 - R:/172.28.4.2:57892""}"
+234200100028,SALDI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000098062,SUPARDI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000041077,TAHANG MIDEK,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000073798,ASMAWI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234200075660,SUYAMI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000090017,SAPRI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000151338,BASANG,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000216092,NURLINA,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000215570,SYAHRANI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234200091482,SYAMSUDDIN,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000268662,NYOTO PRAYITNO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000278953,AMMASE,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000208338,SUARDI D,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000221928,ANDARAM DANI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000143003,SAPTO WIDYANTO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234201965856,PUTRA RANGGA WIJAYA,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000187364,SAHAT PANE,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234201966912,PUTRA RANGGA WIJAYA,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234201981623,RAKA RIZKI PRATAMAN,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000091206,CHOIRUL ABIDIN,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000186135,IBRAHIM,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000196099,STEVANUS LIMBU,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000271784,USMAN GENO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234200060745,BLASIUS SIMONE,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000176527,MOH. FADIL,FAILED,"Kesalahan submit: HTTP 405: {""timestamp"":""2026-07-03T05:42:33.881+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/submit"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""fd5d8af5-11, L:/172.30.5.236:9072 - R:/172.31.0.2:50292""}"
+234000301007,MASKUR,FAILED,"Kesalahan submit: HTTP 405: {""timestamp"":""2026-07-03T05:47:12.341+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/submit"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""ff188287-2, L:/172.30.5.236:9072 - R:/172.31.0.2:44656""}"
+234000860065,LASIM AJAN,FAILED,"Presigned PUT URL untuk berkas arsip kosong.
+Detail: HTTP 405: {""timestamp"":""2026-07-03T05:47:23.279+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/presign-url"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""f8826d55-1, L:/172.30.8.86:9072 - R:/172.31.0.2:60128""}"
+234000858535,TRISUKARDI 2,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234201908316,PURWANTO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000460965,JUMADIL,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000487306,IKE TRIBUDIARTI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000577457,AMRAN MANIKA,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000262970,ABDUL MALIK,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000419003,SAMSIAH,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234200090928,ARAS AMIR,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000352142,ABDUL RAHMAN 02,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000289758,MUNHARI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000353774,ABDUL ROHMAN 03,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000382355,AGUS ZUDIANTO 02,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000382348,AGUS ZUDIANTO 01,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000356913,SUGIANTI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000314221,H. GURIANTO AHMAD,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000477285,HASPIANUDDIN,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000168130,SAHIRIN DIRJA,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234200112327,SYAHRANI,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000295818,HAIRUDIN,FAILED,"Presigned PUT URL untuk berkas arsip kosong.
+Detail: HTTP 405: {""timestamp"":""2026-07-03T05:55:35.538+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/presign-url"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""738ebd76-1, L:/172.30.8.86:9072 - R:/172.28.4.2:35368""}"
+234200090897,ARAS AMIR,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234201146418,HIDAYAT 2,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234201092623,ZAINAL ELMI,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234201113958,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201123496,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201079501,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234200117233,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201089758,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000359409,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000334802,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000083604,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234100000699,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201167356,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201195183,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234213017695,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201180046,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234022001217,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234011002947,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234122000530,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201190060,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201227914,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201174062,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201418523,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000400754,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000413407,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000307100,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000736064,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000738363,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000809723,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000682212,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201600234,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201820723,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201820731,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201842430,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201823521,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000843392,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201807444,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000750122,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000811851,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201757339,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201741137,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201586303,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201586311,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201586329,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201710759,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201786287,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201484249,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201450155,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201849190,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000808037,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201821550,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201863057,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201454711,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201746551,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201792780,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201379389,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201786088,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201811498,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201444929,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201487723,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201668962,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000807595,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201581592,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201638301,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201708489,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201962730,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201962748,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000895733,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000605631,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000663577,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201185391,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201234015,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201620813,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000711925,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201731719,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201177562,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201217063,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201305432,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000877755,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201945269,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201897325,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000871511,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000847924,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201897930,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201948432,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201961397,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201944339,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201960805,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000876339,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201939086,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201956469,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201787734,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234202005312,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000426159,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234232002308,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234254001478,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201751080,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000575884,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201959699,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234200112343,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201256896,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000246668,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201812218,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000163845,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000298514,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000019518,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000764992,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000765201,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000630167,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201828818,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000735602,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201774521,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201702748,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201905007,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234202008080,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201093371,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201150023,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201416112,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201211085,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201365905,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000874405,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234200038288,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000624184,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201995152,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234202000688,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234201995081,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000046376,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000214199,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000028355,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000213780,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.
+234000033243,PELANGGAN,FAILED,Dibatalkan karena sesi login kedaluwarsa.

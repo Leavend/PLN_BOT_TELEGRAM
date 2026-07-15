@@ -5,3 +5,4 @@ pycryptodome
 pandas
 openpyxl
 apscheduler
+cryptography

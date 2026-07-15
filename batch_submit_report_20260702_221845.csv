@@ -1,0 +1,19 @@
+val,nama,status,message
+234000424458,HADRIATI,FAILED,"Presigned PUT URL untuk berkas arsip kosong.
+Detail: HTTP 405: {""timestamp"":""2026-07-02T14:07:22.847+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/presign-url"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""1771b275-8, L:/172.30.5.236:9072 - R:/172.29.4.2:57756""}"
+234000424441,DARWIS,FAILED,"Presigned PUT URL untuk berkas arsip kosong.
+Detail: HTTP 405: {""timestamp"":""2026-07-02T14:07:28.646+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/presign-url"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""d22177ba-41, L:/172.28.9.106:9072 - R:/172.28.4.2:35168""}"
+234000428258,JOKO PURNOMO,FAILED,"Kesalahan submit: HTTP 405: {""timestamp"":""2026-07-02T14:08:40.670+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/submit"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""a436d2fe-1, L:/172.31.6.7:9072 - R:/172.31.0.2:58354""}"
+234000718332,HELDAWATI,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000717937,AZER MANGGI,FAILED,"Presigned PUT URL untuk berkas arsip kosong.
+Detail: HTTPSConnectionPool(host='fasih-survey.bps.go.id', port=443): Read timed out. (read timeout=30)"
+234000419858,RUSDAN SUDARMAJI,FAILED,"Kesalahan submit: HTTP 405: {""timestamp"":""2026-07-02T14:13:35.948+00:00"",""path"":""/assignment-submit-2/api/assignment/s3/submit"",""status"":405,""error"":""Method Not Allowed"",""requestId"":""2116b58b-12, L:/172.31.6.7:9072 - R:/172.29.4.2:58854""}"
+234000287509,YOHANIS PARAMMANGAN,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000420425,AGUS,FAILED,Gagal mendapatkan presigned URL foto: 405 Client Error: Method Not Allowed for url: https://fasih-survey.bps.go.id/mobile/assignment-submit-2/api/image/v2/presigned-url-put?surveyPeriodId=16acea4e-4710-43d1-8b00-eeee589c8b66
+234000718095,ABDUL MUIN,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000484651,SUPRIYANTO,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000487400,NURUL FIRDAUS,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000484287,KAHARUDDIN 2,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000487426,NURUL FIRDAUS 3,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000310704,DODY AKBAR,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!
+234000461992,BEDU KADIR,SUCCESS,Sukses: Data berhasil dikirimkan ke server BPS!

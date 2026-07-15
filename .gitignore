@@ -60,3 +60,8 @@ activation_links.txt
 .fasih_cooldown.json
 .fasih_coord_cache.json
 .mapbox_spare_tokens.txt
+
+# Private keys (fleet signing)
+.fasih_fleet_key
+.fasih_fleet_key*
+*.fleetkey
