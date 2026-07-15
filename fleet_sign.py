@@ -18,12 +18,11 @@ def gen_key(priv_path):
         serialization.PrivateFormat.PKCS8,
         serialization.NoEncryption(),
     )
-    with open(priv_path, "wb") as f:
+    # O_EXCL: tolak menimpa kunci yang sudah ada (menimpa = kehilangan kontrol fleet).
+    # mode 0o600 saat create: tidak ada jendela di mana kunci bisa dibaca akun lain.
+    fd = os.open(priv_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
         f.write(pem)
-    try:
-        os.chmod(priv_path, 0o600)
-    except OSError:
-        pass
     return priv.public_key().public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex()
 
@@ -47,7 +46,12 @@ def sign(control_path, priv_path):
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     if len(argv) >= 2 and argv[0] == "gen-key":
-        pub_hex = gen_key(argv[1])
+        try:
+            pub_hex = gen_key(argv[1])
+        except FileExistsError:
+            print(f"❌ Kunci sudah ada di {argv[1]}. Hapus manual dulu kalau memang mau bikin baru "
+                  f"(ingat: ganti kunci = harus update PUBLIC_KEY_HEX di fleet.py + tanda-tangani ulang).")
+            return 1
         print(f"✅ Keypair dibuat. Kunci privat: {argv[1]} (RAHASIA — jangan commit).")
         print(f'Tempel ke fleet.py:\n  PUBLIC_KEY_HEX = "{pub_hex}"')
         return 0

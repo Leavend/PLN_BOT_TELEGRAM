@@ -32,3 +32,24 @@ def test_sign_then_tamper_fails_verify():
     with open(control_path, "a") as f:
         f.write("  ")                                  # tamper after signing
     assert fleet.load_and_verify(d, pubkey_hex=pub_hex) is None
+
+
+import os as _os
+import pytest
+
+
+def test_gen_key_refuses_overwrite():
+    d = tempfile.mkdtemp()
+    priv_path = os.path.join(d, ".fasih_fleet_key")
+    fleet_sign.gen_key(priv_path)              # first time OK
+    with pytest.raises(FileExistsError):       # second time must refuse
+        fleet_sign.gen_key(priv_path)
+
+
+@pytest.mark.skipif(_os.name == "nt", reason="POSIX file mode only")
+def test_gen_key_file_is_0600():
+    d = tempfile.mkdtemp()
+    priv_path = os.path.join(d, ".fasih_fleet_key")
+    fleet_sign.gen_key(priv_path)
+    mode = _os.stat(priv_path).st_mode & 0o777
+    assert mode == 0o600, oct(mode)
