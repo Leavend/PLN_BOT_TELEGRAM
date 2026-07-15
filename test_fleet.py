@@ -106,3 +106,27 @@ def test_authorize_bad_not_after():
 def test_authorize_non_dict_manifest():
     ok, reason, ctl = fleet.authorize(None, "bontang", "fp-me")
     assert ok is False and ctl == {}
+
+
+def test_authorize_regions_not_dict_failclosed():
+    for bad in ("not-a-dict", ["x"], 1, True):
+        m = {"not_after": "2099-01-01T00:00:00Z", "regions": bad}
+        ok, reason, ctl = fleet.authorize(m, "bontang", "fp-me")
+        assert ok is False and ctl == {}
+
+
+def test_authorize_machines_as_string_no_substring_bypass():
+    m = _manifest()
+    m["regions"]["bontang"]["machines"] = "fp-legit"   # string, not list
+    # empty fingerprint or a substring must NOT authorize
+    assert fleet.authorize(m, "bontang", "")[0] is False
+    assert fleet.authorize(m, "bontang", "fp-leg")[0] is False
+    assert fleet.authorize(m, "bontang", "fp-legit")[0] is False   # even exact string content
+
+
+def test_authorize_machines_non_list_failclosed():
+    for bad in (1, True, {"fp-me": 1}):
+        m = _manifest()
+        m["regions"]["bontang"]["machines"] = bad
+        ok, reason, ctl = fleet.authorize(m, "bontang", "fp-me")
+        assert ok is False and ctl == {}

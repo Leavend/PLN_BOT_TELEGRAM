@@ -75,11 +75,13 @@ def authorize(manifest, region, fingerprint, now=None):
         return False, "not_after invalid", {}
     if now > na:
         return False, "expired", {}
-    regions = manifest.get("regions") or {}
+    regions = manifest.get("regions")
+    if not isinstance(regions, dict):
+        return False, "region tak terdaftar", {}
     rc = regions.get(region)
     if not isinstance(rc, dict):
         return False, "region tak terdaftar", {}
-    machines = rc.get("machines") or []
-    if fingerprint not in machines:
+    machines = rc.get("machines")
+    if not isinstance(machines, list) or fingerprint not in machines:
         return False, "mesin tak terotorisasi", {}
     return True, "ok", {"enabled": bool(rc.get("enabled", False)), "pin": rc.get("pin")}
