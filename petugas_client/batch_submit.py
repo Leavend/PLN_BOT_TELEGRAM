@@ -873,6 +873,15 @@ def main():
     print(f"\n{'='*50}")
     print(f"🏁 BATCH SELESAI")
     print(f"   ✅ Sukses: {successes}")
+    # Rincian sukses: "Sukses: ..." = record baru dikirim (tercatat async 10-30mnt);
+    # "Sudah TERCATAT/terkirim" = di-skip anti-dupe (sudah ada di FASIH).
+    _succ = [r for r in report_rows if r["status"] == "SUCCESS"]
+    _sent = [r for r in _succ if r["message"].startswith("Sukses")]
+    _terc = [r for r in _succ if r["message"].startswith("Sudah")]
+    if _sent:
+        print(f"      📤 Baru dikirim ke BPS  : {len(_sent)}  →  {', '.join(r['val'] for r in _sent)}")
+    if _terc:
+        print(f"      🟢 Sudah tercatat (skip): {len(_terc)}  →  {', '.join(r['val'] for r in _terc)}")
     print(f"   ❌ Gagal:  {failures}")
     print(f"   ⏱  Waktu:  {int(elapsed_total//60)}m {int(elapsed_total%60)}s")
     print(f"{'='*50}")
