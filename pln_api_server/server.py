@@ -9,6 +9,7 @@ Usage:
     python3 server.py                     # default port 8900
     PLN_API_PORT=9000 python3 server.py   # custom port
 """
+from __future__ import annotations  # `str | None` annotations lazy → import-safe di Python 3.9
 
 import os
 import sys

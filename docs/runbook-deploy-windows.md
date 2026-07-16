@@ -94,7 +94,7 @@ Petugas dapat URL baru lewat `fasih-update`.
 | `python` tidak dikenal, adanya `py` | Pastikan saat install Python dicentang "Add python.exe to PATH". Cek `python --version`. |
 | `supervisor.py --once` gagal | Jalur Windows bermasalah — JANGAN lanjut. Kirim output + `logs\` ke tim. |
 | `/health` jalan tapi petugas tidak bisa akses | URL tunnel berubah (lihat langkah 5) atau `PLN_API_KEYS` di `.env` beda dengan key petugas. |
-| Task `FasihSupervisor` tidak jalan | `Get-ScheduledTask -TaskName FasihSupervisor \| Get-ScheduledTaskInfo` → lihat `LastTaskResult`. |
+| Task `FasihSupervisor` tidak jalan | `(Get-ScheduledTask -TaskName FasihSupervisor).State` harus `Running`. (Catatan: `Get-ScheduledTaskInfo` → `LastTaskResult` = `267009`/`0x41301` = SCHED_S_TASK_RUNNING itu NORMAL untuk task yang jalan selamanya; nilai `0` justru berarti supervisor sudah KELUAR.) |
 
 ## Catatan
 
