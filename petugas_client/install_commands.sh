@@ -307,6 +307,30 @@ cd "$REPO"
 python3 setup_region.py "\$@"
 EOF
 
+# fasih-region: set/lihat wilayah petugas (routing server, TERPISAH dari PLN_API_KEY)
+cat > "$BIN/fasih-region" << 'OUTER'
+#!/bin/bash
+cd "REPO_PLACEHOLDER"
+VALID="bontang samarinda balikpapan berau"
+if [ -z "$1" ]; then
+    cur=$(python3 -c "from region import get_region; print(get_region())" 2>/dev/null)
+    echo "🌏 Wilayah sekarang: ${cur:-?}"
+    echo "   Ganti: fasih-region <wilayah>   (pilihan: $VALID)"
+    exit 0
+fi
+reg=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+case " $VALID " in
+    *" $reg "*) ;;
+    *) echo "❌ '$reg' bukan wilayah valid. Pilihan: $VALID"; exit 1 ;;
+esac
+echo "$reg" > .region
+echo "✅ Wilayah diset: $reg"
+python3 -c "from petugas_client.batch_submit import _resolve_pln_url as r; u=r(); print('   URL server:', u or '(belum ada pln_url_'+open('.region').read().strip()+'.txt — jalankan: fasih-update)')" 2>/dev/null
+echo "   ⚠️  Pastikan PLN_API_KEY di .env = kunci wilayah $reg (kalau beda -> 401), lalu: fasih-update"
+OUTER
+sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-region" 2>/dev/null || \
+  sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-region"
+
 chmod +x "$BIN"/fasih-*
 
 # Add to PATH if not already
@@ -330,5 +354,6 @@ echo "  fasih-logout              Logout & ganti akun"
 echo "  fasih-lookup 234000...    Cek data PLN"
 echo "  fasih-update              Update script"
 echo "  fasih-status              Cek koneksi & config"
+echo "  fasih-region balikpapan   Set wilayah petugas (routing server)"
 echo "  fasih-setup-region bpp domain.com  Onboard wilayah baru (named tunnel)"
 echo ""
