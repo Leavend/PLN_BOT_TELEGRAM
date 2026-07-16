@@ -74,6 +74,11 @@ Ensure-Tool "python"      "Python.Python.3.12"     "Python 3"    "https://www.py
 Ensure-Tool "git"         "Git.Git"                "Git"         "https://git-scm.com/download/win"
 Ensure-Tool "cloudflared" "Cloudflare.cloudflared" "cloudflared" "https://github.com/cloudflare/cloudflared/releases"
 
+# Jaringan PLN sering blokir cek revokasi sertifikat (CRYPT_E_NO_REVOCATION_CHECK) -> git
+# via schannel gagal saat clone/pull/fetch. Matikan cek revokasi git (validasi rantai
+# sertifikat tetap jalan; hanya lookup CRL/OCSP yang di-skip). global = kepakai supervisor juga.
+git config --system http.schannelCheckRevoke false 2>$null
+
 # --- 3. repo ---
 if (Test-Path $RepoPath) {
     if (-not (Test-Path (Join-Path $RepoPath ".git"))) {
