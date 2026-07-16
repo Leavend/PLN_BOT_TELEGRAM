@@ -58,6 +58,12 @@ $label belum terdeteksi sebagai install asli.
     Ok "$label terpasang"
 }
 
+# --- 0. wajib Administrator ---
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Die "Script WAJIB dijalankan sebagai Administrator (butuh git --system + Task Scheduler). Tutup PowerShell, klik kanan ikon PowerShell > Run as Administrator, jalankan ulang."
+}
+
 # --- 1. winget ---
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
     Die @"
@@ -77,7 +83,7 @@ Ensure-Tool "cloudflared" "Cloudflare.cloudflared" "cloudflared" "https://github
 # Jaringan PLN sering blokir cek revokasi sertifikat (CRYPT_E_NO_REVOCATION_CHECK) -> git
 # via schannel gagal saat clone/pull/fetch. Matikan cek revokasi git (validasi rantai
 # sertifikat tetap jalan; hanya lookup CRL/OCSP yang di-skip). global = kepakai supervisor juga.
-git config --system http.schannelCheckRevoke false 2>$null
+try { git config --system http.schannelCheckRevoke false 2>&1 | Out-Null } catch { }
 
 # --- 3. repo ---
 if (Test-Path $RepoPath) {
