@@ -59,7 +59,10 @@ def get_photo_dirs(region):
 
 
 PHOTO_DIRS = get_photo_dirs(REGION)
-VALID_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+# Database foto server WAJIB webp. Sengaja webp-only: file selain webp yang nyasar ke
+# folder wilayah akan DIABAIKAN (tidak disajikan), bukan diam-diam ikut terpakai.
+# Konversi dulu ke webp sebelum ditaruh (lihat docs/runbook-foto-wilayah.md).
+VALID_EXTENSIONS = (".webp",)
 
 # --- PLN Lookup singleton ---
 
