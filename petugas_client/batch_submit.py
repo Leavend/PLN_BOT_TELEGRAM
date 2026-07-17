@@ -93,6 +93,39 @@ TOKEN_FILE = os.path.join(REPO_ROOT, "fasih_token.json")
 
 # --- PLN API Client ---
 
+def apply_region_config() -> str:
+    """Tarik config dari server wilayah (lihat .region) lalu terapkan ke env proses.
+
+    Token Mapbox SENGAJA diambil dari server dan MENANG atas .env lokal: HP petugas
+    yang sudah terlanjur di-setup dengan token wilayah lain (mis. Bontang) otomatis
+    pindah ke token wilayahnya cukup dengan `fasih-update` — tanpa edit .env per HP.
+    Kalau server tak punya token / tak bisa dihubungi, .env lokal tetap dipakai.
+    Return: nama akun token yang akhirnya dipakai (buat log), atau "" bila tak ada."""
+    if not PLN_API_URL:
+        return ""
+    try:
+        headers = {"X-API-Key": PLN_API_KEY} if PLN_API_KEY else {}
+        resp = req_lib.get(f"{PLN_API_URL}/api/config", headers=headers, timeout=8)
+        if resp.status_code == 200:
+            tok = ((resp.json() or {}).get("mapbox_token") or "").strip()
+            if tok:
+                os.environ["MAPBOX_ACCESS_TOKEN"] = tok  # server menang
+                return _mapbox_account(tok)
+    except Exception as e:
+        logger.info(f"Config wilayah tak terambil ({str(e)[:40]}) — pakai .env lokal")
+    return _mapbox_account(os.getenv("MAPBOX_ACCESS_TOKEN", ""))
+
+
+def _mapbox_account(token: str) -> str:
+    """Nama akun di dalam token Mapbox (buat log — jangan pernah cetak tokennya)."""
+    try:
+        p = token.split(".")[1]
+        p += "=" * (4 - len(p) % 4)
+        return json.loads(base64.urlsafe_b64decode(p.encode())).get("u", "?")
+    except Exception:
+        return "" if not token else "?"
+
+
 def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
     """Fetch PLN data from server API."""
     if not PLN_API_URL:
@@ -726,6 +759,11 @@ def main():
         print("⚡ Mode: FAST (ambil 1 halaman tugas — create_new only)")
     if args.workers and args.workers > 1:
         print(f"🚀 Paralel: {args.workers} worker")
+
+    # Config wilayah dari server (token Mapbox per-wilayah). Server menang atas .env
+    # lokal → HP yang sudah ter-setup token wilayah lain otomatis ikut wilayahnya.
+    _mb = apply_region_config()
+    print(f"🌏 Wilayah: {get_region()}" + (f" · 🗺️  Mapbox: {_mb}" if _mb else " · 🗺️  Mapbox: (tidak ada)"))
     print()
 
     # Step 1: Login

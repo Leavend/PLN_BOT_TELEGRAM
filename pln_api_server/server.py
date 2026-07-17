@@ -288,6 +288,21 @@ def get_photo(photo_id):
     abort(404)
 
 
+@app.route("/api/config")
+@require_api_key
+def region_config():
+    """Config wilayah untuk klien petugas (auth-gated → hanya petugas wilayah ini).
+
+    Server yang membagikan MAPBOX_ACCESS_TOKEN wilayahnya, supaya HP petugas otomatis
+    memakai token wilayahnya sendiri cukup dengan `fasih-region <wilayah>` + fasih-update
+    — tanpa menyetel .env di tiap HP, dan token tidak pernah masuk git (repo publik).
+    Kosong = klien pakai .env lokalnya sendiri (fallback)."""
+    return jsonify({
+        "region": REGION,
+        "mapbox_token": os.getenv("MAPBOX_ACCESS_TOKEN", ""),
+    })
+
+
 @app.route("/api/photos/count")
 @require_api_key
 def photo_count():

@@ -26,3 +26,25 @@ def test_load_photos_only_reads_configured_dirs(monkeypatch):
     server.load_photos()
     assert len(server._photo_list) == 1
     assert server._photo_list[0].endswith("x.webp")
+
+
+def _auth_headers():
+    """Kirim key kalau server memang mengunci (tergantung .env mesin yang menjalankan test)."""
+    return {"X-API-Key": next(iter(server.API_KEYS))} if server.API_KEYS else {}
+
+
+def test_config_endpoint_returns_region_and_mapbox():
+    c = server.app.test_client()
+    r = c.get("/api/config", headers=_auth_headers())
+    assert r.status_code == 200
+    j = r.get_json()
+    assert j["region"] == server.REGION
+    assert "mapbox_token" in j          # kosong pun tak apa — klien fallback ke .env lokal
+
+
+def test_config_endpoint_is_auth_gated_when_keys_configured():
+    if not server.API_KEYS:
+        return                          # server tanpa key = terbuka by design; tak ada yang diuji
+    c = server.app.test_client()
+    assert c.get("/api/config").status_code == 401           # tanpa key -> ditolak
+    assert c.get("/api/config", headers={"X-API-Key": "salah"}).status_code == 401

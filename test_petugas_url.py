@@ -43,3 +43,38 @@ def test_default_region_still_uses_legacy_fallback(monkeypatch):
     monkeypatch.delenv("PLN_API_URL", raising=False)
     # bontang (default) still honors the legacy pln_url.txt (backward-compat)
     assert bs._resolve_pln_url(repo_root=d, region="bontang") == "https://bontang.example"
+
+
+class _FakeResp:
+    status_code = 200
+    def __init__(self, tok): self._tok = tok
+    def json(self): return {"region": "samarinda", "mapbox_token": self._tok}
+
+
+def test_apply_region_config_server_token_wins_over_local_env(monkeypatch):
+    # HP petugas yang sudah ter-setup dengan token wilayah LAIN (Bontang)
+    monkeypatch.setenv("MAPBOX_ACCESS_TOKEN", "pk.eyJ1IjoibGVhdmVuZCJ9.x")
+    monkeypatch.setattr(bs, "PLN_API_URL", "http://fake")
+    monkeypatch.setattr(bs, "PLN_API_KEY", "k")
+    monkeypatch.setattr(bs.req_lib, "get", lambda *a, **k: _FakeResp("pk.eyJ1IjoidmVuZHNhbWFyaW5kYSJ9.y"))
+    acct = bs.apply_region_config()
+    # server MENANG -> HP lama otomatis pindah ke token wilayahnya cuma dgn fasih-update
+    assert acct == "vendsamarinda"
+    assert bs._mapbox_account(os.environ["MAPBOX_ACCESS_TOKEN"]) == "vendsamarinda"
+
+
+def test_apply_region_config_falls_back_to_local_when_server_has_none(monkeypatch):
+    monkeypatch.setenv("MAPBOX_ACCESS_TOKEN", "pk.eyJ1IjoibGVhdmVuZCJ9.x")
+    monkeypatch.setattr(bs, "PLN_API_URL", "http://fake")
+    monkeypatch.setattr(bs, "PLN_API_KEY", "k")
+    monkeypatch.setattr(bs.req_lib, "get", lambda *a, **k: _FakeResp(""))   # server tanpa token
+    assert bs.apply_region_config() == "leavend"
+
+
+def test_apply_region_config_survives_server_down(monkeypatch):
+    monkeypatch.setenv("MAPBOX_ACCESS_TOKEN", "pk.eyJ1IjoibGVhdmVuZCJ9.x")
+    monkeypatch.setattr(bs, "PLN_API_URL", "http://fake")
+    monkeypatch.setattr(bs, "PLN_API_KEY", "k")
+    def boom(*a, **k): raise OSError("server mati")
+    monkeypatch.setattr(bs.req_lib, "get", boom)
+    assert bs.apply_region_config() == "leavend"       # tidak raise, fallback lokal
