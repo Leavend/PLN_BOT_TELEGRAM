@@ -259,6 +259,19 @@ from region import get_region
 print('🌏 Wilayah:', get_region())
 print('📡 PLN API:', url or '❌ NOT SET')
 print('🔑 API Key:', ('✅ ' + key[:8] + '...') if key else '⚠️  kosong')
+# Token Mapbox: server wilayah yang menentukan (menang atas .env lokal).
+try:
+    from petugas_client.batch_submit import apply_region_config, _mapbox_account
+    _local = _mapbox_account(os.getenv('MAPBOX_ACCESS_TOKEN', ''))
+    _used = apply_region_config()
+    if not _used:
+        print('🗺️  Mapbox: ❌ tidak ada (server & .env kosong) — koordinat pakai fallback')
+    elif _used != _local:
+        print('🗺️  Mapbox:', _used, '(dari server wilayah — .env lokal:', (_local or 'kosong') + ')')
+    else:
+        print('🗺️  Mapbox:', _used, '(.env lokal)')
+except Exception as _e:
+    print('🗺️  Mapbox: (gagal cek —', str(_e)[:40] + ')')
 print('🎫 BPS Token:', '✅ ada' if token else '❌ belum login')
 if token:
     try:
