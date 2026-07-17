@@ -103,16 +103,26 @@ def apply_region_config() -> str:
     Return: nama akun token yang akhirnya dipakai (buat log), atau "" bila tak ada."""
     if not PLN_API_URL:
         return ""
-    try:
-        headers = {"X-API-Key": PLN_API_KEY} if PLN_API_KEY else {}
-        resp = req_lib.get(f"{PLN_API_URL}/api/config", headers=headers, timeout=8)
-        if resp.status_code == 200:
-            tok = ((resp.json() or {}).get("mapbox_token") or "").strip()
-            if tok:
-                os.environ["MAPBOX_ACCESS_TOKEN"] = tok  # server menang
-                return _mapbox_account(tok)
-    except Exception as e:
-        logger.info(f"Config wilayah tak terambil ({str(e)[:40]}) — pakai .env lokal")
+    headers = {"X-API-Key": PLN_API_KEY} if PLN_API_KEY else {}
+    # 2x percobaan, timeout longgar: ini request PERTAMA ke tunnel (DNS+TLS+routing
+    # dingin) dan di jaringan HP sering >8s — kalau gagal, token wilayah tak terpakai.
+    last = ""
+    for attempt in (1, 2):
+        try:
+            resp = req_lib.get(f"{PLN_API_URL}/api/config", headers=headers, timeout=25)
+            if resp.status_code == 200:
+                tok = ((resp.json() or {}).get("mapbox_token") or "").strip()
+                if tok:
+                    os.environ["MAPBOX_ACCESS_TOKEN"] = tok  # server menang atas .env lokal
+                    return _mapbox_account(tok)
+                break                       # server jawab tapi tak punya token → fallback
+            last = f"HTTP {resp.status_code}"
+            if resp.status_code in (401, 403):
+                break                       # key salah — retry tak menolong
+        except Exception as e:
+            last = f"{type(e).__name__}: {str(e)[:120]}"
+    if last:
+        logger.warning(f"Config wilayah tak terambil ({last}) — pakai .env lokal")
     return _mapbox_account(os.getenv("MAPBOX_ACCESS_TOKEN", ""))
 
 
