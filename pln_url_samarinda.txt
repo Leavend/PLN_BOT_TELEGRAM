@@ -3,4 +3,3 @@
 # lalu commit + push. Petugas cukup `fasih-update` (git pull), TIDAK perlu edit .env.
 # Baris pertama non-komentar = URL aktif.
 https://tigers-adjacent-amplifier-deaths.trycloudflare.com
-https://tigers-adjacent-amplifier-deaths.trycloudflare.com
