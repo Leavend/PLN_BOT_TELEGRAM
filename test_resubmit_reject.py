@@ -72,6 +72,29 @@ def test_edit_path_unchanged_for_non_reject_submitted():
     assert _is_edit(sub, resubmit_reject=False) is True
 
 
+# --- Reject resubmit must carry the survey's CURRENT template version, not the stale
+# "0.5.9" fallback (datatable records have no templateVersion → BPS "Versi data tidak
+# valid" on update). Mirrors the stamp + wrap_answers fallback expressions. ---
+
+def _stamped_template_version(sc, target):
+    tv = ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
+    if tv:
+        target["templateVersion"] = tv
+    return target.get("templateVersion") or "0.5.9"  # wrap_answers fallback
+
+
+def test_reject_stamps_current_template_version():
+    sc = {"survey": {"templateLookup": [{"templateVersion": "0.6.7"}]}}
+    reject = {"id": "x", "assignmentStatusAlias": "REJECTED BY Admin Kabupaten"}  # no templateVersion
+    assert _stamped_template_version(sc, reject) == "0.6.7"
+
+
+def test_missing_survey_version_keeps_fallback():
+    sc = {"survey": {"templateLookup": [{}]}}  # no templateVersion in survey either
+    reject = {"id": "x", "assignmentStatusAlias": "REJECTED x"}
+    assert _stamped_template_version(sc, reject) == "0.5.9"
+
+
 if __name__ == "__main__":
     import sys
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

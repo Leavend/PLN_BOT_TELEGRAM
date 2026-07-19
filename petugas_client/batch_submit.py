@@ -539,6 +539,16 @@ def submit_single(
         cached_regions = sc["regions"]
         pid = sc["periode"]["id"]
 
+        # RESUBMIT-REJECT: a datatable record carries NO templateVersion, so wrap_answers
+        # falls back to a stale "0.5.9" and BPS rejects the update ("Versi data tidak
+        # valid!"). createStatus=false (resubmit) is version-validated where createStatus
+        # =true (create_new) is not — so only the reject path needs this. Stamp the
+        # survey's CURRENT template version onto the target before encrypt/submit.
+        if resubmit_reject:
+            tv = ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
+            if tv:
+                target["templateVersion"] = tv
+
         # CEK NIK (pemadanan) — companion verification, best-effort (see _cek)
         nik_val = direct_args.get("nik") or ""
         nikpln_data = _cek(check_nikpln, headers, aid, nik_val) if nik_val else {}
