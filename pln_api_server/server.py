@@ -80,18 +80,18 @@ def get_pln_tool():
 
 _photo_list = []          # SEMUA foto (buat resolve /api/photo/<id>)
 _pools = {}               # nama_pool -> [path]  (foto langsung di folder wilayah = "default")
-_pool_keywords = {}       # nama_pool -> [keyword nama_kec]  (routing, dari pools.json)
+_pool_prefixes = {}       # nama_pool -> [prefix idpel]  (routing, dari pools.json)
 DEFAULT_POOL = "default"
 
 
 def load_photos():
     """Index foto per POOL. Foto langsung di house_photos/<region>/ = pool 'default';
     tiap SUBFOLDER = pool bernama (mis. melak_kotabangun/). pools.json memetakan
-    pool -> keyword kecamatan untuk routing (lihat _route_pool)."""
-    global _photo_list, _pools, _pool_keywords
+    pool -> daftar prefix idpel untuk routing (lihat _route_pool)."""
+    global _photo_list, _pools, _pool_prefixes
     _photo_list = []
     _pools = {DEFAULT_POOL: []}
-    _pool_keywords = {}
+    _pool_prefixes = {}
     for d in PHOTO_DIRS:
         if not os.path.isdir(d):
             continue
@@ -109,21 +109,21 @@ def load_photos():
         if os.path.exists(cfg):
             try:
                 with open(cfg) as fh:
-                    _pool_keywords = {k: [str(x).upper() for x in v]
+                    _pool_prefixes = {k: [str(x) for x in v]
                                       for k, v in json.load(fh).items()}
             except Exception as e:
                 logger.warning(f"pools.json tak terbaca ({e}) — routing pool dilewati")
     summary = ", ".join(f"{k}:{len(v)}" for k, v in _pools.items())
-    logger.info(f"Loaded {len(_photo_list)} foto | pool[{summary}] | routing:{list(_pool_keywords)}")
+    logger.info(f"Loaded {len(_photo_list)} foto | pool[{summary}] | routing:{list(_pool_prefixes)}")
 
 
-def _route_pool(nama_kec: str) -> str:
-    """Pilih pool dari kecamatan pelanggan. Cocok keyword -> pool itu (walau kosong,
-    supaya pelanggan Melak/Kota Bangun TIDAK dapat foto Kota Samarinda — hindari foto
-    salah-area). Tidak cocok -> pool default."""
-    kec = (nama_kec or "").upper()
-    for pool, kws in _pool_keywords.items():
-        if any(k in kec for k in kws):
+def _route_pool(idpel: str) -> str:
+    """Pilih pool dari PREFIX idpel (mis. 5 digit pertama). Cocok prefix -> pool itu
+    (walau kosong, supaya pelanggan Melak/Kota Bangun TIDAK dapat foto Kota Samarinda
+    — hindari foto salah-area). Tidak cocok -> pool default."""
+    idp = str(idpel or "")
+    for pool, prefixes in _pool_prefixes.items():
+        if any(idp.startswith(p) for p in prefixes):
             return pool
     return DEFAULT_POOL
 
@@ -296,7 +296,7 @@ def lookup():
             pass
 
     # Attach photo URL
-    photo_id = _pick_photo_id(profile.get("nama_kec", ""))
+    photo_id = _pick_photo_id(profile.get("idpel", ""))
     if photo_id:
         profile["photo_url"] = f"/api/photo/{photo_id}"
     else:
@@ -353,10 +353,10 @@ def _hash_path(path: str) -> str:
     return hashlib.md5(os.path.basename(path).encode()).hexdigest()[:12]
 
 
-def _pick_photo_id(nama_kec: str = "") -> str | None:
-    """Foto acak dari pool sesuai area pelanggan. Pool kosong -> None (bukan foto
+def _pick_photo_id(idpel: str = "") -> str | None:
+    """Foto acak dari pool sesuai prefix idpel. Pool kosong -> None (bukan foto
     area lain)."""
-    pics = _pools.get(_route_pool(nama_kec)) or []
+    pics = _pools.get(_route_pool(idpel)) or []
     return _hash_path(random.choice(pics)) if pics else None
 
 
