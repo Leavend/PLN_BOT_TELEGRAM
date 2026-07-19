@@ -66,3 +66,6 @@ activation_links.txt
 .fasih_fleet_key*
 *.fleetkey
 Samarinda_Photos/
+
+# runtime submit reports (berisi PII pelanggan) — jangan commit ke repo publik
+batch_report_*.csv

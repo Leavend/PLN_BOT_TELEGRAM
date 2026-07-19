@@ -332,6 +332,7 @@ def submit_single(
     temp_dir: str = "",
     force: bool = False,
     resubmit_all: bool = False,
+    resubmit_reject: bool = False,
 ) -> tuple[bool, str]:
     """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
     try:
@@ -397,6 +398,15 @@ def submit_single(
                 direct_args["idpel"] = idpel_val
                 direct_args["nometer"] = nometer_val
 
+        # RESUBMIT-REJECT: only ever touch a record that is currently REJECTED, and
+        # bind to ITS OWN existing assignment id (target kept above — a REJECTED alias
+        # is not dropped by the SUBMITTED/DONE/APPROVED guard). Anything else (already
+        # OPEN/SUBMITTED, or not found) is left alone — never create a new/duplicate row.
+        if resubmit_reject:
+            status_alias = (target or {}).get("assignmentStatusAlias") or ""
+            if not target or "REJECT" not in status_alias.upper():
+                return True, "Bukan data REJECT (status berubah / tak ketemu) — dilewati."
+
         # Anti-dupe FIRST (before PLN lookup): for a known idpel a single check-idpln
         # says if it's already registered — skip tercatat without wasting a PLN lookup
         # (also lowers CEK/PLN load, which feeds the 429 that would disable CEK).
@@ -404,7 +414,7 @@ def submit_single(
         import uuid
         aid = target.get("id") if target else str(uuid.uuid4())
         d_idpln = _cek(check_idpln, headers, aid, idpel_val) if idpel_val else {}
-        if d_idpln.get("fasih_exists") and not resubmit_all:
+        if d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject:
             return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
 
         # Step 5: PLN lookup via server API
@@ -487,7 +497,7 @@ def submit_single(
         # of truth for "already registered in FASIH". Skip anything tercatat unless the
         # user explicitly forces a rebuild (--resubmit-all, e.g. to fix region/BLOK III).
         fasih_exists = d_idpln.get("fasih_exists")
-        if fasih_exists and not resubmit_all:
+        if fasih_exists and not resubmit_all and not resubmit_reject:
             return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
         # CEK unavailable (--no-cek / 429) AND a local SUBMITTED record exists, plain
         # mode: don't blind-resubmit (would dupe). --force asserts it's belum → proceed.
@@ -629,7 +639,11 @@ def submit_single(
         # Step 9: Archive + upload
         archive_path = create_7z_archive(encrypted, target["id"], temp_dir)
 
-        is_edit = target.get("assignmentStatusAlias") != "OPEN"
+        # ponytail: reject-resubmit uses the plain submit path (presign-url + s3/submit),
+        # matching the real app's HAR of a reject fix — NOT s3/edit. createStatus stays
+        # "false" (target.isNew unset) so the EXISTING id is reused, no duplicate.
+        # Upgrade path: if BPS ever 4xxs a reject here, revisit whether it wants s3/edit.
+        is_edit = (target.get("assignmentStatusAlias") != "OPEN") and not resubmit_reject
         copy_from_id = target.get("copyFromId")
         # Match the FASIH app exactly: archive filename carries a submit-time epoch
         # ms suffix ({id}_{epochms}.7z). BPS's registration pipeline keys off this
@@ -706,6 +720,24 @@ def submit_single(
 
 # --- Main ---
 
+def _reject_idpels(survey_caches: dict) -> list[str]:
+    """IDPel dari semua assignment berstatus REJECTED di seluruh survey cache.
+    Kunci resubmit-reject: cuma record REJECT (alias mengandung 'REJECT') yang
+    diambil, di-dedup, urut stabil — dipakai sebagai daftar item bila user tak
+    memberi input."""
+    out, seen = [], set()
+    for sc in survey_caches.values():
+        tm = sc.get("template_mapping") or {}
+        idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
+        for a in sc.get("assignments") or []:
+            if "REJECT" in ((a.get("assignmentStatusAlias") or "").upper()):
+                idp = (a.get(idpel_slot) or "").strip()
+                if idp and idp not in seen:
+                    seen.add(idp)
+                    out.append(idp)
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description="Batch Submit Petugas")
     parser.add_argument("input", nargs="?", help="File .txt berisi daftar IDPel/NoMeter (satu per baris)")
@@ -714,6 +746,7 @@ def main():
     parser.add_argument("--force", action="store_true", help="Re-register: paksa submit ulang record lama yang BELUM tercatat di FASIH (fasih_exists=false); yang sudah tercatat dilewati")
     parser.add_argument("--no-cek", action="store_true", help="Skip CEK IDPel/NIK dari awal (hindari 429 rate-limit). Data tetap TERDATA di FASIH via paradata; kehilangan routing prelist + tampilan pemadanan NIK")
     parser.add_argument("--resubmit-all", action="store_true", help="Submit ULANG semua ID walau sudah TERCATAT (buat betulin region/BLOK III record lama). Bikin record baru; yang lama jadi dobel")
+    parser.add_argument("--resubmit-reject", action="store_true", help="Perbaiki data REJECT: buka ulang assignment yang statusnya REJECTED lalu resubmit ke ID yang SAMA (createStatus=false) — TIDAK bikin record baru, tidak dobel. Tanpa input = auto-cari semua reject; dengan input = hanya reject di daftar itu")
     parser.add_argument("--fast", action="store_true", help="Setup survei dari cache disk (run pertama ambil 1 halaman lalu di-cache; run berikutnya ZERO fetch, gak bisa timeout). Buat create_new/add-sample")
     parser.add_argument("--delay", type=float, default=0.5, help="Stagger acak per item (detik) untuk hindari thundering-herd; 0 = tanpa stagger")
     parser.add_argument("--workers", type=int, default=4, help="Jumlah submit paralel (default 4). Item nunggu latency BPS ~8-10 dtk, jadi paralel = jauh lebih cepat. 1 = serial")
@@ -735,11 +768,13 @@ def main():
                 v = line.strip().replace("*", "").strip()
                 if v and not v.startswith("#"):
                     items.append(v)
+    elif args.resubmit_reject:
+        pass  # no input needed — reject idpels auto-derived after survey setup
     else:
         parser.print_help()
         sys.exit(1)
 
-    if not items:
+    if not items and not args.resubmit_reject:
         print("❌ Tidak ada item untuk diproses.")
         sys.exit(1)
 
@@ -755,13 +790,16 @@ def main():
 
     if not PLN_API_URL:
         print("⚠️  PLN_API_URL belum diset di .env — PLN enrichment dilewati")
-    print(f"\n📋 Total item: {len(items)}")
+    if items or not args.resubmit_reject:
+        print(f"\n📋 Total item: {len(items)}")
     if args.dry_run:
         print("🧪 Mode: DRY RUN (tidak submit ke BPS)")
     if args.force:
         print("🔁 Mode: FORCE RE-REGISTER (submit ulang record yang belum tercatat di FASIH)")
     if args.resubmit_all:
         print("♻️  Mode: RESUBMIT-ALL (submit ulang semua walau sudah tercatat — betulin region)")
+    if args.resubmit_reject:
+        print("🩹 Mode: RESUBMIT-REJECT (perbaiki data REJECT ke assignment yang SAMA — tidak dobel)")
     if args.no_cek:
         print("⏭️  Mode: NO-CEK (skip CEK IDPel/NIK — data tetap terdata via paradata)")
         print("   ⚠️  Tanpa CEK, guard anti-dupe mati. Pakai list yang SUDAH difilter (belum saja).")
@@ -783,7 +821,9 @@ def main():
     # Step 2-3: survey/periode/template/region setup. With --fast, reuse a disk
     # cache (per account) so repeat runs do ZERO BPS fetch and can't time out.
     email = _account_email(token_data)
-    survey_caches = _load_survey_cache(email) if args.fast else None
+    # --fast reuses a page-0 disk cache (templates only, no reject rows). Reject mode
+    # MUST see the full list, so it never uses that cache even if --fast is also passed.
+    survey_caches = _load_survey_cache(email) if (args.fast and not args.resubmit_reject) else None
     if survey_caches:
         n = sum(len(sc.get("assignments", [])) for sc in survey_caches.values())
         print(f"📊 Pakai cache survei (skip fetch BPS) — {', '.join(survey_caches)} · {n} template")
@@ -830,7 +870,12 @@ def main():
             # submit. --force / --resubmit-all create_new and dedup via fasih_exists, so
             # page-0 (a handful of templates to clone) is enough — skip the slow fetch.
             try:
-                if args.fast or args.force or args.resubmit_all:
+                if args.resubmit_reject:
+                    # Reject records live anywhere in the full list (never on page-0
+                    # templates) — must page through everything to find them.
+                    print(f"📋 Mengambil SEMUA tugas {skey} (cari reject)...")
+                    assignments = fetch_all_assignments(headers, pid)
+                elif args.fast or args.force or args.resubmit_all:
                     print(f"📋 Mengambil template {skey} (fast)...")
                     fp = fetch_assignments(headers, pid, 0)
                     assignments = (fp.get("data") or {}).get("content", []) or []
@@ -854,8 +899,19 @@ def main():
         if not survey_caches:
             print("❌ Tidak ada survei dengan periode aktif.")
             sys.exit(1)
-        if args.fast:
-            _save_survey_cache(email, survey_caches)
+        if args.fast and not args.resubmit_reject:
+            _save_survey_cache(email, survey_caches)  # never persist reject full-list as the fast cache
+
+    # RESUBMIT-REJECT: the item list IS the set of REJECTED records discovered in the
+    # freshly-fetched assignments. If the user also passed IDs, keep only those that are
+    # actually reject (never accidentally resubmit a non-reject in this mode).
+    if args.resubmit_reject:
+        rejects = _reject_idpels(survey_caches)
+        items = [x for x in items if x in set(rejects)] if items else rejects
+        if not items:
+            print("✅ Tidak ada data REJECT untuk diperbaiki. Selesai.")
+            sys.exit(0)
+        print(f"\n🩹 {len(items)} data REJECT ditemukan → resubmit ke assignment yang SAMA (tidak dobel)")
 
     # Process items — parallel pool. Each item is ~8-10s of BPS network latency
     # (HAR: presign 2.5s + submit 1.6s + cek 1.5s + foto 1.5s), so running a few
@@ -881,6 +937,7 @@ def main():
                 token_data, val, survey_caches,
                 dry_run=args.dry_run, temp_dir=wdir, force=args.force,
                 resubmit_all=args.resubmit_all,
+                resubmit_reject=args.resubmit_reject,
             )
         except Exception as e:  # never let one item kill the pool
             ok, message = False, f"Error tak terduga: {str(e)[:120]}"
