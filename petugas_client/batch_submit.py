@@ -724,6 +724,19 @@ def submit_single(
         if any(t in msg.lower() for t in ("timed out", "timeout", "max retries", "connection")):
             logger.error(f"Submit error for {val}: BPS lambat/timeout — {msg[:120]}")
             return False, "BPS lambat/timeout — coba lagi (cek fasih-status). Item dilewati."
+        # KNOWN LIMITATION (reject resubmit): BPS validates the encrypted answer payload
+        # of an UPDATE against the record's original FormGear structure (survey template
+        # 0.6.7). This tool rebuilds a synthetic payload whose `answers` array differs, so
+        # BPS rejects it with "Versi data tidak valid" — every observable submit field
+        # (params/envelope/paradata/encryption/X-Device-Id) already matches the app.
+        # Fix needs the app's exact answer structure (capture one via tools/capture_7z.py,
+        # decrypt with tools/decrypt_app_7z.py, then align wrap_answers). Until then a
+        # reject can only be fixed inside the FASIH app itself.
+        if resubmit_reject and "versi data tidak valid" in msg.lower():
+            logger.error(f"Reject resubmit {val}: BPS tolak versi payload (limitasi diketahui).")
+            return False, ("❌ BPS tolak update ('Versi data tidak valid') — struktur payload "
+                           "reject belum disamakan ke app (butuh 1 sampel 7z app). Sementara: "
+                           "perbaiki reject ini lewat app FASIH. Lihat memory reject-resubmit-flow.")
         logger.error(f"Submit error for {val}: {e}", exc_info=True)
         return False, f"Error: {str(e)}"
 
