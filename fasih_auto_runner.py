@@ -403,7 +403,8 @@ class AutonomousRunner:
             dry_run=dry_run,
             resubmit_reject=resubmit_reject,
             resubmit_open=resubmit_open,
-            resubmit_reopen=resubmit_reopen
+            resubmit_reopen=resubmit_reopen,
+            skip_cek_idpln=self.mode_args.get("skip_cek_idpln", False)
         )
 
         if ok:
@@ -553,6 +554,7 @@ def main():
     parser.add_argument("--resubmit-reject", action="store_true", help="Mode perbaiki data REJECTED")
     parser.add_argument("--resubmit-open", action="store_true", help="Mode submit data OPEN")
     parser.add_argument("--resubmit-reopen", action="store_true", help="Mode submit data REOPEN")
+    parser.add_argument("--skip-cek-idpln", action="store_true", help="Memaksa submit data ke BPS FASIH meskipun CEK IDPel terkena limit (HTTP 429)")
     parser.add_argument("--dry-run", action="store_true", help="Simulasi tanpa upload nyata")
 
     args = parser.parse_args()
@@ -561,6 +563,7 @@ def main():
         "resubmit_reject": args.resubmit_reject,
         "resubmit_open": args.resubmit_open,
         "resubmit_reopen": args.resubmit_reopen,
+        "skip_cek_idpln": args.skip_cek_idpln,
         "dry_run": args.dry_run
     }
 

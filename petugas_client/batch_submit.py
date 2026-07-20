@@ -293,19 +293,20 @@ _cek_state = {"enabled": True}
 # Serialize token refreshes so parallel workers never write TOKEN_FILE concurrently.
 _token_lock = threading.Lock()
 
-def _cek(fn, *args) -> dict:
-    if not _cek_state["enabled"]:
+def _cek(fn, *args, skip_cek_idpln: bool = False) -> dict:
+    if skip_cek_idpln or not _cek_state["enabled"]:
         return {}
     try:
         return fn(*args).get("data") or {}
     except Exception as e:
-        msg = str(e).lower()
-        # Disable CEK for the rest of the run on a persistent failure (429 quota,
-        # or read/connect timeout when BPS is slow) — it would only waste ~30s per
-        # item. The submit itself still registers the record via paradata.
-        if any(t in msg for t in ("429", "timed out", "timeout", "max retries", "connection")):
+        msg = str(e)
+        if "429" in msg or "RATE_LIMIT_EXCEEDED" in msg or "terlampaui" in msg:
+            # Re-raise rate limit error so batch submission aborts cleanly with BPS reset message
+            raise e
+        msg_lower = msg.lower()
+        if any(t in msg_lower for t in ("timed out", "timeout", "max retries", "connection")):
             _cek_state["enabled"] = False
-            logger.warning("⏭️  CEK dinonaktifkan (BPS 429/timeout) — submit tetap jalan & TERDATA lewat paradata")
+            logger.warning("⏭️  CEK dinonaktifkan (BPS timeout/koneksi) — submit tetap jalan & TERDATA lewat paradata")
         else:
             logger.warning(f"CEK gagal: {e}")
         return {}
@@ -464,7 +465,7 @@ def fetch_and_decrypt_original(headers: dict, assignment_id: str, survey_period_
             return json.loads(decrypted)
         except Exception:
             pass
-            
+
         raise ValueError("Gagal mendeskripsi data original (GCM & CBC fail)")
     finally:
         if os.path.exists(temp_dir):
@@ -482,6 +483,7 @@ def submit_single(
     resubmit_reject: bool = False,
     resubmit_open: bool = False,
     resubmit_reopen: bool = False,
+    skip_cek_idpln: bool = False,
 ) -> tuple[bool, str]:
     """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
     try:
@@ -649,7 +651,14 @@ def submit_single(
         # just resolved via PLN (nometer input). prelist_source (BPS's authoritative
         # Prabayar/Pascabayar) routes create_new; PLN produk is the fallback.
         if not d_idpln and idpel_val:
-            d_idpln = _cek(check_idpln, headers, aid, idpel_val)
+            try:
+                d_idpln = _cek(check_idpln, headers, aid, idpel_val, skip_cek_idpln=skip_cek_idpln)
+            except Exception as e:
+                err_msg = str(e)
+                if any(k in err_msg.lower() for k in ("429", "rate_limit_exceeded", "terlampaui")):
+                    return False, f"❌ BPS Limit 429: {err_msg}"
+                logger.warning(f"CEK IDPel error: {e}")
+                d_idpln = {}
         prelist = (d_idpln.get("prelist_source") or "").strip().upper()
         if d_idpln and not d_idpln.get("exists"):
             logger.warning(f"CEK IDPel {idpel_val}: exists=false di BPS")
@@ -981,11 +990,12 @@ def main():
     parser.add_argument("--resubmit-open", action="store_true", help="Submit data OPEN yang belum pernah dibuka (tanpa basePath): isi dan submit ke assignment ID yang SAMA — tidak bikin record baru. Tanpa input = auto-cari semua OPEN belum dibuka")
     parser.add_argument("--resubmit-reopen", action="store_true", help="Submit data OPEN pernah dibuka (ada basePath): isi dan submit ke assignment ID yang SAMA — tidak bikin record baru. Tanpa input = auto-cari semua OPEN pernah dibuka")
     parser.add_argument("--fast", action="store_true", help="Setup survei dari cache disk (run pertama ambil 1 halaman lalu di-cache; run berikutnya ZERO fetch, gak bisa timeout). Buat create_new/add-sample")
+    parser.add_argument("--skip-cek-idpln", action="store_true", help="Memaksa submit data ke BPS FASIH meskipun CEK IDPel terkena limit (HTTP 429)")
     parser.add_argument("--delay", type=float, default=0.5, help="Stagger acak per item (detik) untuk hindari thundering-herd; 0 = tanpa stagger")
     parser.add_argument("--workers", type=int, default=4, help="Jumlah submit paralel (default 4). Item nunggu latency BPS ~8-10 dtk, jadi paralel = jauh lebih cepat. 1 = serial")
     args = parser.parse_args()
 
-    if args.no_cek:
+    if args.no_cek or args.skip_cek_idpln:
         _cek_state["enabled"] = False
 
     # Parse item list
@@ -1195,6 +1205,7 @@ def main():
                 resubmit_reject=args.resubmit_reject,
                 resubmit_open=args.resubmit_open,
                 resubmit_reopen=args.resubmit_reopen,
+                skip_cek_idpln=args.skip_cek_idpln,
             )
         except Exception as e:  # never let one item kill the pool
             ok, message = False, f"Error tak terduga: {str(e)[:120]}"
