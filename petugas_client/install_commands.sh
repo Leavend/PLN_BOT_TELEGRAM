@@ -341,8 +341,14 @@ echo "✅ Wilayah diset: $reg"
 python3 -c "from petugas_client.batch_submit import _resolve_pln_url as r; u=r(); print('   URL server:', u or '(belum ada pln_url_'+open('.region').read().strip()+'.txt — jalankan: fasih-update)')" 2>/dev/null
 echo "   ⚠️  Pastikan PLN_API_KEY di .env = kunci wilayah $reg (kalau beda -> 401), lalu: fasih-update"
 OUTER
-sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-region" 2>/dev/null || \
-  sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-region"
+# fasih-auto-runner: shortcut command for autonomous runner
+cat > "$BIN/fasih-auto-runner" << 'OUTER'
+#!/bin/bash
+cd "REPO_PLACEHOLDER"
+python3 fasih_auto_runner.py "$@"
+OUTER
+sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-auto-runner" 2>/dev/null || \
+  sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-auto-runner"
 
 chmod +x "$BIN"/fasih-*
 
