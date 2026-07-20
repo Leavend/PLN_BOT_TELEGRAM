@@ -597,6 +597,11 @@ def submit_single(
         if not _kel_ok(pln_data):
             return False, "❌ Region PLN tak lengkap (kd_kel kosong — BLOK III bakal blank) — dilewati, coba lagi. Kalau sering: turunkan --workers (tunnel PLN overload)."
 
+        # Check tarif filter: BPS FASIH is exclusively for Residential / Rumah Tangga (Tarif type "R")
+        tarif_val = str(pln_data.get("tarif") or "").strip().upper()
+        if tarif_val and "R" not in tarif_val:
+            return False, f"❌ Tarif Non-Rumah Tangga ({tarif_val}) — dilarang di-input ke BPS FASIH (hanya tarif tipe R)"
+
         if pln_data:
             pln_nama = pln_data.get("nama") or ""
             if pln_nama and pln_nama.upper() != "NONAME":
