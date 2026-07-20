@@ -136,9 +136,35 @@ def _mapbox_account(token: str) -> str:
         return "" if not token else "?"
 
 
+def _resolve_all_pln_urls() -> list[str]:
+    urls = []
+    if PLN_API_URL:
+        urls.append(PLN_API_URL)
+    # Check for regional url files
+    for fname in ["pln_url_samarinda.txt", "pln_url_bontang.txt", "pln_url_tarakan.txt", "pln_url.txt"]:
+        p = os.path.join(REPO_ROOT, fname)
+        if os.path.exists(p):
+            try:
+                with open(p) as f:
+                    u = f.read().strip().rstrip("/")
+                    if u and u not in urls:
+                        urls.append(u)
+            except Exception:
+                pass
+    # Additional default AP2T fallback servers
+    defaults = ["http://103.126.226.155:8000", "http://103.126.226.156:8000", "http://103.126.226.157:8000"]
+    for d in defaults:
+        if d not in urls:
+            urls.append(d)
+    return urls
+
+PLN_API_URLS = _resolve_all_pln_urls()
+
+
 def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
-    """Fetch PLN data from server API."""
-    if not PLN_API_URL:
+    """Fetch PLN data from server API with multi-server AP2T failover."""
+    urls_to_try = PLN_API_URLS if PLN_API_URLS else ([PLN_API_URL] if PLN_API_URL else [])
+    if not urls_to_try:
         logger.warning("PLN_API_URL not set — skipping PLN enrichment")
         return None
 
@@ -152,46 +178,49 @@ def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
     if PLN_API_KEY:
         headers["X-API-Key"] = PLN_API_KEY
 
-    try:
-        resp = req_lib.get(f"{PLN_API_URL}/api/lookup", params=params, headers=headers, timeout=30)
-        if resp.status_code == 200:
-            return resp.json()
-        elif resp.status_code == 404:
-            logger.warning(f"PLN data not found: {idpel or nometer}")
-            return None
-        else:
-            logger.error(f"PLN API error {resp.status_code}: {resp.text[:200]}")
-            return None
-    except Exception as e:
-        logger.error(f"PLN API connection error: {e}")
-        return None
+    for base_url in urls_to_try:
+        try:
+            resp = req_lib.get(f"{base_url}/api/lookup", params=params, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                return resp.json()
+            elif resp.status_code == 404:
+                continue # Try next AP2T server pool
+            else:
+                logger.debug(f"AP2T server {base_url} status {resp.status_code}")
+        except Exception as e:
+            logger.debug(f"AP2T server {base_url} connection error: {e}")
+
+    logger.warning(f"PLN data not found across all AP2T servers: {idpel or nometer}")
+    return None
 
 
 def download_photo(photo_url: str, dest_dir: str) -> Optional[str]:
-    """Download photo from server API."""
-    if not PLN_API_URL or not photo_url:
+    """Download photo from server API with multi-server photo pool fallback."""
+    urls_to_try = PLN_API_URLS if PLN_API_URLS else ([PLN_API_URL] if PLN_API_URL else [])
+    if not urls_to_try or not photo_url:
         return None
 
-    url = f"{PLN_API_URL}{photo_url}" if photo_url.startswith("/") else photo_url
     headers = {}
     if PLN_API_KEY:
         headers["X-API-Key"] = PLN_API_KEY
 
-    try:
-        resp = req_lib.get(url, headers=headers, timeout=30)
-        if resp.status_code == 200:
-            ext = ".webp"
-            ct = resp.headers.get("content-type", "")
-            if "jpeg" in ct or "jpg" in ct:
-                ext = ".jpg"
-            elif "png" in ct:
-                ext = ".png"
-            path = os.path.join(dest_dir, f"photo_{int(time.time())}_{random.randint(100,999)}{ext}")
-            with open(path, "wb") as f:
-                f.write(resp.content)
-            return path
-    except Exception as e:
-        logger.error(f"Photo download error: {e}")
+    for base_url in urls_to_try:
+        url = f"{base_url}{photo_url}" if photo_url.startswith("/") else photo_url
+        try:
+            resp = req_lib.get(url, headers=headers, timeout=20)
+            if resp.status_code == 200:
+                ext = ".webp"
+                ct = resp.headers.get("content-type", "")
+                if "jpeg" in ct or "jpg" in ct:
+                    ext = ".jpg"
+                elif "png" in ct:
+                    ext = ".png"
+                path = os.path.join(dest_dir, f"photo_{int(time.time())}_{random.randint(100,999)}{ext}")
+                with open(path, "wb") as f:
+                    f.write(resp.content)
+                return path
+        except Exception as e:
+            logger.debug(f"Photo download error on {base_url}: {e}")
     return None
 
 
