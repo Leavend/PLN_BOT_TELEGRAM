@@ -174,6 +174,16 @@ class AccountManager:
                     break
             self.save_accounts()
 
+    def mark_quota_exhausted(self, email: str):
+        """Mark account as quota exhausted for the day when BPS returns 429/limit error."""
+        with _quota_lock:
+            for acc in self.accounts:
+                if acc.get("email") == email:
+                    acc["used_today"] = acc.get("daily_quota", 300)
+                    logger.warning(f"⛔ Akun {email} ditandai KUOTA HABIS (429/Limit BPS mencapai batas).")
+                    break
+            self.save_accounts()
+
 
 class ExcelQueueManager:
     """Manages reading and thread-safe writing of the Master Excel file."""
@@ -369,15 +379,24 @@ class AutonomousRunner:
             self.excel_mgr.update_row(idx, "SUCCESS", retry_count, email, msg)
             self.account_mgr.increment_usage(email)
         else:
-            # Check if transient PLN error -> trigger 1 retry
-            is_transient = any(err in msg for err in ["PLN tidak ditemukan", "terjangkau", "overload", "timeout", "500", "502", "504"])
-            if is_transient and retry_count < 1:
-                logger.warning(f"⚠️ {idpel} transient error: {msg}. Scheduling RETRY 1x...")
-                self.excel_mgr.update_row(idx, "RETRYING", retry_count + 1, email, f"Retry 1x: {msg}")
+            msg_lower = msg.lower()
+            # Check if BPS account limit / quota reached (429 / limit / quota error)
+            is_rate_limited = any(t in msg_lower for t in ["429", "quota", "limit", "too many requests"])
+            if is_rate_limited:
+                logger.warning(f"⚠️ Account {email} reached BPS quota limit: {msg}. Falling back to next available account...")
+                self.account_mgr.mark_quota_exhausted(email)
+                # Keep status as RETRYING so another available account picks it up immediately
+                self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Fallback User (Limit 429): {msg}")
             else:
-                status_code = "FAILED_PLN" if "PLN" in msg else "FAILED"
-                logger.error(f"❌ {idpel} {status_code} via {email}: {msg}")
-                self.excel_mgr.update_row(idx, status_code, retry_count, email, msg)
+                # Check if transient PLN error -> trigger 1 retry
+                is_transient = any(err in msg for err in ["PLN tidak ditemukan", "terjangkau", "overload", "timeout", "500", "502", "504"])
+                if is_transient and retry_count < 1:
+                    logger.warning(f"⚠️ {idpel} transient error: {msg}. Scheduling RETRY 1x...")
+                    self.excel_mgr.update_row(idx, "RETRYING", retry_count + 1, email, f"Retry 1x: {msg}")
+                else:
+                    status_code = "FAILED_PLN" if "PLN" in msg else "FAILED"
+                    logger.error(f"❌ {idpel} {status_code} via {email}: {msg}")
+                    self.excel_mgr.update_row(idx, status_code, retry_count, email, msg)
 
     def run(self):
         """Run the main autonomous execution loop with 20 parallel workers."""
