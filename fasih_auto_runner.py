@@ -412,9 +412,15 @@ class AutonomousRunner:
             self.account_mgr.increment_usage(email)
         else:
             msg_lower = msg.lower()
+            # Check if Non-Rumah Tangga tarif (S1T, B-1, I-1, etc.)
+            is_non_residential = "non-rumah tangga" in msg_lower or "hanya tarif tipe r" in msg_lower
             # Check if BPS account limit / quota reached (429 / limit / quota error)
             is_rate_limited = any(t in msg_lower for t in ["429", "quota", "limit", "too many requests"])
-            if is_rate_limited:
+
+            if is_non_residential:
+                logger.warning(f"🚫 {idpel} NON_RESIDENTIAL via {email}: {msg}")
+                self.excel_mgr.update_row(idx, "NON_RESIDENTIAL", retry_count, email, msg)
+            elif is_rate_limited:
                 logger.warning(f"⚠️ Account {email} reached BPS quota limit: {msg}. Falling back to next available account...")
                 self.account_mgr.mark_quota_exhausted(email)
                 # Keep status as RETRYING so another available account picks it up immediately
