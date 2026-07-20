@@ -862,8 +862,7 @@ async def submit_fasih_safe(
             if status_callback:
                 await status_callback("📷 Mengunggah foto pelanggan ke S3 BPS...")
                 
-            tid = target.get("id")
-            filename = f"{tid}_r106.png"
+            filename = f"{tid}__r106__c.jpg"
             md5_b64 = compute_md5_base64(photo_path)
             try:
                 resp = await call_with_retry(
@@ -983,8 +982,9 @@ async def submit_fasih_safe(
             if status_callback:
                 await status_callback("☁️ Mengunggah arsip kuesioner ke S3 BPS...")
                 
-            is_edit = target.get("assignmentStatusAlias") != "OPEN"
-            copy_from_id = target.get("copyFromId")
+            status_alias = target.get("assignmentStatusAlias") or ""
+            is_edit = "SUBMITTED" in status_alias  # REJECTED uses /submit, not /edit
+            copy_from_id = target.get("copyFromId") if is_edit else None
             # Match the FASIH app: {id}_{epochms}.7z — BPS registers the sample into
             # the FASIH frame (check-idpln fasih_exists=true) only with this filename;
             # a plain {id}.7z submits but never registers ("belum tercatat").
@@ -1053,7 +1053,7 @@ async def submit_fasih_safe(
             **data_slots,
             "latitude": str(lat) if lat is not None else "0.0",
             "longitude": str(lon) if lon is not None else "0.0",
-            "copyFromId": str(target.get("copyFromId") or ""),
+            "copyFromId": str(target.get("copyFromId") or "") if is_edit else "",
             "statusApproval": "false",
             "sourceFrom": "CAPI",
             # Match the app: real paradata (interview action-log + device telemetry)

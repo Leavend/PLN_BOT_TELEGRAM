@@ -3,8 +3,8 @@ import sys
 import shutil
 import subprocess
 
-def prepare_staging(assignment_id: str, data_json_encrypted: str, work_dir: str) -> str:
-    """Prepares the staging directory and writes the encrypted data.json."""
+def prepare_staging(assignment_id: str, data_json_encrypted: str, work_dir: str, principal_data: dict = None) -> str:
+    """Prepares the staging directory and writes the encrypted data.json and companion files."""
     staging_parent = os.path.join(work_dir, "staging")
     if os.path.exists(staging_parent):
         shutil.rmtree(staging_parent)
@@ -12,6 +12,17 @@ def prepare_staging(assignment_id: str, data_json_encrypted: str, work_dir: str)
     os.makedirs(staging_dir, exist_ok=True)
     with open(os.path.join(staging_dir, "data.json"), "w", encoding="utf-8") as f:
         f.write(data_json_encrypted)
+    # Add checksum.md5 (static placeholder expected by BPS backend)
+    with open(os.path.join(staging_dir, "checksum.md5"), "w", encoding="utf-8") as f:
+        f.write("This file will contain MD5")
+    # Add reference.zip (empty zip file structure expected by BPS backend)
+    with open(os.path.join(staging_dir, "reference.zip"), "wb") as f:
+        f.write(b"PK\x05\x06\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+    # Add principal.json if provided
+    if principal_data:
+        import json
+        with open(os.path.join(staging_dir, "principal.json"), "w", encoding="utf-8") as f:
+            json.dump(principal_data, f, ensure_ascii=False)
     return staging_dir
 
 def run_compress(archive_path: str, staging_dir: str):
@@ -60,9 +71,9 @@ def run_compress(archive_path: str, staging_dir: str):
         print(f"[-] {err_msg}")
         raise RuntimeError(err_msg)
 
-def create_7z_archive(data_json_encrypted: str, assignment_id: str, work_dir: str) -> str:
-    """Creates a passwordless .7z archive containing the encrypted survey payload."""
-    staging_dir = prepare_staging(assignment_id, data_json_encrypted, work_dir)
+def create_7z_archive(data_json_encrypted: str, assignment_id: str, work_dir: str, principal_data: dict = None) -> str:
+    """Creates a passwordless .7z archive containing the encrypted survey payload and companion files."""
+    staging_dir = prepare_staging(assignment_id, data_json_encrypted, work_dir, principal_data)
     archive_path = os.path.join(work_dir, f"{assignment_id}.7z")
     if os.path.exists(archive_path):
         os.remove(archive_path)

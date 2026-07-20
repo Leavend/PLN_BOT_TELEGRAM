@@ -48,7 +48,7 @@ from fasih_archive import create_7z_archive
 from submit_fasih import (
     build_dynamic_answers, stage_and_encrypt, clean_pln_name,
     build_new_assignment_target, resolve_coordinate, build_paradata,
-    STATIC_LEGACY_KEY,
+    STATIC_LEGACY_KEY, build_principal_json,
 )
 from region import get_region, DEFAULT_REGION
 
@@ -298,11 +298,11 @@ def _account_email(token_data: dict) -> str:
     except Exception:
         return ""
 
-def _load_survey_cache(email: str):
+def _load_survey_cache(email: str = "", ignore_email: bool = False):
     try:
         with open(_SURVEY_CACHE_FILE) as f:
             c = json.load(f)
-        if c.get("email") == email and (time.time() - c.get("ts", 0)) < _SURVEY_CACHE_TTL:
+        if (ignore_email or c.get("email") == email) and (time.time() - c.get("ts", 0)) < _SURVEY_CACHE_TTL:
             return c.get("survey_caches")
     except Exception:
         pass
@@ -324,6 +324,124 @@ def _save_survey_cache(email: str, survey_caches: dict):
         logger.warning(f"Gagal simpan cache survei: {e}")
 
 
+def _adjust(a: bytearray, aOff: int, b: bytes) -> None:
+    x = (b[-1] & 0xff) + (a[aOff + len(b) - 1] & 0xff) + 1
+    a[aOff + len(b) - 1] = x & 0xff
+    x >>= 8
+    for i in range(len(b) - 2, -1, -1):
+        x += (b[i] & 0xff) + (a[aOff + i] & 0xff)
+        a[aOff + i] = x & 0xff
+        x >>= 8
+
+def _pkcs12_password_to_bytes(password_str: str) -> bytes:
+    if not password_str:
+        return b""
+    return password_str.encode('utf-16be') + b"\x00\x00"
+
+def _pkcs12_kdf(id_byte: int, n: int, salt: bytes, password_bytes: bytes, iteration_count: int) -> bytes:
+    u = 32
+    v = 64
+    D = bytes([id_byte] * v)
+    if salt:
+        S_len = v * ((len(salt) + v - 1) // v)
+        S = bytearray(S_len)
+        for i in range(S_len):
+            S[i] = salt[i % len(salt)]
+    else:
+        S = bytearray()
+    if password_bytes:
+        P_len = v * ((len(password_bytes) + v - 1) // v)
+        P = bytearray(P_len)
+        for i in range(P_len):
+            P[i] = password_bytes[i % len(password_bytes)]
+    else:
+        P = bytearray()
+    I = bytearray(S + P)
+    B = bytearray(v)
+    c = (n + u - 1) // u
+    dKey = bytearray(n)
+    for i in range(1, c + 1):
+        h = hashlib.sha256()
+        h.update(D)
+        h.update(I)
+        A = bytearray(h.digest())
+        for j in range(1, iteration_count):
+            h = hashlib.sha256()
+            h.update(A)
+            A = bytearray(h.digest())
+        for j in range(v):
+            B[j] = A[j % len(A)]
+        for j in range(len(I) // v):
+            _adjust(I, j * v, B)
+        if i == c:
+            dKey[(i - 1) * u:] = A[:n - (i - 1) * u]
+        else:
+            dKey[(i - 1) * u : i * u] = A
+    return bytes(dKey)
+
+def decrypt_legacy_bc(str_to_decrypt: str, passphrase: str) -> str:
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import unpad
+    parts = str_to_decrypt.split('#')
+    ciphertext_b64 = parts[0]
+    salt_b64 = parts[2]
+    iv_b64 = parts[3]
+    salt_raw = base64.b64decode(salt_b64)
+    iv = base64.b64decode(iv_b64)
+    ciphertext = base64.b64decode(ciphertext_b64)
+    salt_str = salt_raw.decode('utf-8', errors='replace')
+    salt = salt_str.encode('utf-8')
+    pwd_bytes = _pkcs12_password_to_bytes(passphrase)
+    key = _pkcs12_kdf(1, 32, salt, pwd_bytes, 11000)
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    plaintext_bytes = cipher.decrypt(ciphertext)
+    return unpad(plaintext_bytes, 16).decode('utf-8')
+
+def fetch_and_decrypt_original(headers: dict, assignment_id: str, survey_period_id: str, base_path: str) -> dict:
+    import subprocess
+    from fasih_crypto import decrypt_gcm_verify
+    filename = base_path.split('/')[-1]
+    url = f"https://fasih-survey.bps.go.id/mobile/assignment-sync/api/mobile/s3/assignment/presign-url?surveyPeriodId={survey_period_id}"
+    body = [{'assignmentId': assignment_id, 'copyFromId': None, 'fileNames': [filename]}]
+    resp = req_lib.post(url, headers=headers, json=body, timeout=30).json()
+    get_url = resp['data'][0]['presignedUrls'][0]['presignedUrl']
+    
+    temp_dir = tempfile.mkdtemp(prefix=f"download_{assignment_id}_")
+    archive_path = os.path.join(temp_dir, filename)
+    try:
+        with req_lib.get(get_url, stream=True) as r:
+            r.raise_for_status()
+            with open(archive_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        
+        extract_path = os.path.join(temp_dir, 'extracted')
+        os.makedirs(extract_path, exist_ok=True)
+        subprocess.run(['7z', 'x', archive_path, f'-o{extract_path}'], stdout=subprocess.DEVNULL, check=True)
+        
+        data_json_path = os.path.join(extract_path, assignment_id, 'data.json')
+        content = open(data_json_path, 'r').read()
+        
+        try:
+            key_bytes = base64.b64decode('sdbo2YDCr6nabprPpUf3vvCQjuKwuE7t5ppr4sdAjHk=')
+            decrypted = decrypt_gcm_verify(content, key_bytes)
+            return json.loads(decrypted)
+        except Exception:
+            pass
+            
+        try:
+            passphrase = 'Z!,vDKUPv;.Jy0Q4Eq1wVCY-a_!GnT'
+            decrypted = decrypt_legacy_bc(content, passphrase)
+            return json.loads(decrypted)
+        except Exception:
+            pass
+            
+        raise ValueError("Gagal mendeskripsi data original (GCM & CBC fail)")
+    finally:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+
+
 def submit_single(
     token_data: dict,
     val: str,
@@ -333,6 +451,8 @@ def submit_single(
     force: bool = False,
     resubmit_all: bool = False,
     resubmit_reject: bool = False,
+    resubmit_open: bool = False,
+    resubmit_reopen: bool = False,
 ) -> tuple[bool, str]:
     """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
     try:
@@ -407,6 +527,13 @@ def submit_single(
             if not target or "REJECT" not in status_alias.upper():
                 return True, "Bukan data REJECT (status berubah / tak ketemu) — dilewati."
 
+        # RESUBMIT-OPEN / RESUBMIT-REOPEN: touch OPEN or PERNAH DIBUKA records.
+        if resubmit_open or resubmit_reopen:
+            status_alias = (target or {}).get("assignmentStatusAlias") or ""
+            alias_u = status_alias.upper()
+            if not target or ("OPEN" not in alias_u and "PERNAH DIBUKA" not in alias_u):
+                return True, "Bukan data OPEN / PERNAH DIBUKA (status berubah / tak ketemu) — dilewati."
+
         # Anti-dupe FIRST (before PLN lookup): for a known idpel a single check-idpln
         # says if it's already registered — skip tercatat without wasting a PLN lookup
         # (also lowers CEK/PLN load, which feeds the 429 that would disable CEK).
@@ -414,7 +541,7 @@ def submit_single(
         import uuid
         aid = target.get("id") if target else str(uuid.uuid4())
         d_idpln = _cek(check_idpln, headers, aid, idpel_val) if idpel_val else {}
-        if d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject:
+        if d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
             return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
 
         # Step 5: PLN lookup via server API
@@ -497,7 +624,7 @@ def submit_single(
         # of truth for "already registered in FASIH". Skip anything tercatat unless the
         # user explicitly forces a rebuild (--resubmit-all, e.g. to fix region/BLOK III).
         fasih_exists = d_idpln.get("fasih_exists")
-        if fasih_exists and not resubmit_all and not resubmit_reject:
+        if fasih_exists and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
             return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
         # CEK unavailable (--no-cek / 429) AND a local SUBMITTED record exists, plain
         # mode: don't blind-resubmit (would dupe). --force asserts it's belum → proceed.
@@ -524,7 +651,13 @@ def submit_single(
                             if "OPEN" in (a.get("assignmentStatusAlias") or "")]
             template_pool = open_assigns or all_assigns
             if not template_pool:
-                return False, f"Tidak ada assignment di survey {matched_key}."
+                # Fallback to cached templates from disk if account has 0 assignments
+                fallback_sc = _load_survey_cache(ignore_email=True) or {}
+                if matched_key in fallback_sc and fallback_sc[matched_key].get("assignments"):
+                    template_pool = fallback_sc[matched_key]["assignments"]
+
+            if not template_pool:
+                return False, f"❌ Akun BPS ini belum memiliki tugas/assignment di survey {matched_key} (0 tugas). Admin BPS harus menugaskan minimal 1 sampel ke akun ini di Web Monitoring BPS."
             template_assignment = _find_template_for_region(template_pool, pln_data)
             target = build_new_assignment_target(
                 template_assignment, idpel_val, nometer_val, sc["template_mapping"])
@@ -544,10 +677,21 @@ def submit_single(
         # valid!"). createStatus=false (resubmit) is version-validated where createStatus
         # =true (create_new) is not — so only the reject path needs this. Stamp the
         # survey's CURRENT template version onto the target before encrypt/submit.
-        if resubmit_reject:
+        if resubmit_reject or resubmit_open or resubmit_reopen:
             tv = ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
             if tv:
                 target["templateVersion"] = tv
+
+            bp = target.get("basePath")
+            if bp:
+                logger.info(f"Mengunduh arsip original dari S3 untuk mengambil tanggal pembuatan...")
+                try:
+                    orig_data = fetch_and_decrypt_original(headers, target["id"], pid, bp)
+                    if orig_data and orig_data.get("createdAt"):
+                        target["createdAt"] = orig_data["createdAt"]
+                        logger.info(f"Berhasil memuat tanggal pembuatan original: {target['createdAt']}")
+                except Exception as ex:
+                    logger.warning(f"Gagal memuat tanggal pembuatan original dari S3: {ex}. Menggunakan fallback.")
 
         # CEK NIK (pemadanan) — companion verification, best-effort (see _cek)
         nik_val = direct_args.get("nik") or ""
@@ -564,7 +708,7 @@ def submit_single(
         # Step 7: Photo upload
         if photo_path and os.path.exists(photo_path):
             tid = target.get("id")
-            filename = f"{tid}_r106.png"
+            filename = f"{tid}__r106__c.jpg"
             md5_b64 = compute_md5_base64(photo_path)
             try:
                 resp = request_photo_presign_put(
@@ -645,16 +789,16 @@ def submit_single(
             pass
 
         encrypted = stage_and_encrypt(answers, key_bytes, target, user_name)
+        principal_data = build_principal_json(answers, target, user_name)
 
         # Step 9: Archive + upload
-        archive_path = create_7z_archive(encrypted, target["id"], temp_dir)
+        archive_path = create_7z_archive(encrypted, target["id"], temp_dir, principal_data)
 
-        # ponytail: reject-resubmit uses the plain submit path (presign-url + s3/submit),
-        # matching the real app's HAR of a reject fix — NOT s3/edit. createStatus stays
-        # "false" (target.isNew unset) so the EXISTING id is reused, no duplicate.
-        # Upgrade path: if BPS ever 4xxs a reject here, revisit whether it wants s3/edit.
-        is_edit = (target.get("assignmentStatusAlias") != "OPEN") and not resubmit_reject
-        copy_from_id = target.get("copyFromId")
+        # HAR-proven routing: ONLY "SUBMITTED" status uses /edit path. REJECTED and
+        # OPEN both use the plain /submit path (presign-url + s3/submit).
+        status_alias = target.get("assignmentStatusAlias") or ""
+        is_edit = "SUBMITTED" in status_alias
+        copy_from_id = target.get("copyFromId") if (is_edit or target.get("isNew")) else None
         # Match the FASIH app exactly: archive filename carries a submit-time epoch
         # ms suffix ({id}_{epochms}.7z). BPS's registration pipeline keys off this
         # format; a plain {id}.7z lands as a record but never registers into the
@@ -701,15 +845,16 @@ def submit_single(
             **data_slots,
             "latitude": str(lat) if lat is not None else "0.0",
             "longitude": str(lon) if lon is not None else "0.0",
-            "copyFromId": str(target.get("copyFromId") or ""),
             "statusApproval": "false",
             "sourceFrom": "CAPI",
             # Real paradata (interview action-log + device telemetry) like the app;
             # empty paradata => record stored but not registered into the FASIH frame
             # (check-idpln fasih_exists stays false).
             "paradata": build_paradata(lat, lon, target.get("currentUserId") or "", user_name),
-            "comment": '{"dataKey":"","notes":[]}', "note": ""
+            "comment": '{"dataKey":"","notes":[]}'
         }
+        if is_edit or target.get("isNew"):
+            params["copyFromId"] = str(target.get("copyFromId") or "")
 
         if not dry_run:
             submit_resp = confirm_submit(headers, params, is_edit=is_edit)
@@ -721,6 +866,8 @@ def submit_single(
         msg = str(e)
         # Network hiccups (BPS slow/overloaded) are transient — log a clean line,
         # not a full stack trace. Reserve the traceback for real/unexpected errors.
+        if any(t in msg.lower() for t in ("user tidak memiliki assignment", "assignment reference not found")):
+            return False, "❌ Akun BPS ini belum memiliki sampel/tugas dari BPS di wilayah ini. Admin BPS perlu menugaskan minimal 1 sampel ke akun ini di Web Monitoring BPS."
         if any(t in msg.lower() for t in ("timed out", "timeout", "max retries", "connection")):
             logger.error(f"Submit error for {val}: BPS lambat/timeout — {msg[:120]}")
             return False, "BPS lambat/timeout — coba lagi (cek fasih-status). Item dilewati."
@@ -732,8 +879,9 @@ def submit_single(
         # Fix needs the app's exact answer structure (capture one via tools/capture_7z.py,
         # decrypt with tools/decrypt_app_7z.py, then align wrap_answers). Until then a
         # reject can only be fixed inside the FASIH app itself.
-        if resubmit_reject and "versi data tidak valid" in msg.lower():
-            logger.error(f"Reject resubmit {val}: BPS tolak versi payload (limitasi diketahui).")
+        logger.info(f"DEBUG: raw submit error message: {msg}")
+        if (resubmit_reject or resubmit_open or resubmit_reopen) and "versi data tidak valid" in msg.lower():
+            logger.error(f"Resubmit {val}: BPS tolak versi payload (limitasi diketahui).")
             return False, ("❌ BPS tolak update ('Versi data tidak valid') — struktur payload "
                            "reject belum disamakan ke app (butuh 1 sampel 7z app). Sementara: "
                            "perbaiki reject ini lewat app FASIH. Lihat memory reject-resubmit-flow.")
@@ -761,6 +909,32 @@ def _reject_idpels(survey_caches: dict) -> list[str]:
     return out
 
 
+def _open_idpels(survey_caches: dict) -> list[str]:
+    """IDPel / NoMeter dari assignment berstatus OPEN / PERNAH DIBUKA."""
+    out, seen = [], set()
+    for sc in survey_caches.values():
+        tm = sc.get("template_mapping") or {}
+        idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
+        nometer_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
+        for a in sc.get("assignments") or []:
+            alias = (a.get("assignmentStatusAlias") or "").strip().upper()
+            if "OPEN" in alias or "PERNAH DIBUKA" in alias:
+                idp = (a.get(idpel_slot) or "").strip()
+                nom = (a.get(nometer_slot) or "").strip()
+                if idp and idp not in seen:
+                    seen.add(idp)
+                    out.append(idp)
+                if nom and nom not in seen:
+                    seen.add(nom)
+                    out.append(nom)
+    return out
+
+
+def _reopen_idpels(survey_caches: dict) -> list[str]:
+    """IDPel / NoMeter dari assignment berstatus OPEN / PERNAH DIBUKA (alias untuk _open_idpels)."""
+    return _open_idpels(survey_caches)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Batch Submit Petugas")
     parser.add_argument("input", nargs="?", help="File .txt berisi daftar IDPel/NoMeter (satu per baris)")
@@ -770,6 +944,8 @@ def main():
     parser.add_argument("--no-cek", action="store_true", help="Skip CEK IDPel/NIK dari awal (hindari 429 rate-limit). Data tetap TERDATA di FASIH via paradata; kehilangan routing prelist + tampilan pemadanan NIK")
     parser.add_argument("--resubmit-all", action="store_true", help="Submit ULANG semua ID walau sudah TERCATAT (buat betulin region/BLOK III record lama). Bikin record baru; yang lama jadi dobel")
     parser.add_argument("--resubmit-reject", action="store_true", help="Perbaiki data REJECT: buka ulang assignment yang statusnya REJECTED lalu resubmit ke ID yang SAMA (createStatus=false) — TIDAK bikin record baru, tidak dobel. Tanpa input = auto-cari semua reject; dengan input = hanya reject di daftar itu")
+    parser.add_argument("--resubmit-open", action="store_true", help="Submit data OPEN yang belum pernah dibuka (tanpa basePath): isi dan submit ke assignment ID yang SAMA — tidak bikin record baru. Tanpa input = auto-cari semua OPEN belum dibuka")
+    parser.add_argument("--resubmit-reopen", action="store_true", help="Submit data OPEN pernah dibuka (ada basePath): isi dan submit ke assignment ID yang SAMA — tidak bikin record baru. Tanpa input = auto-cari semua OPEN pernah dibuka")
     parser.add_argument("--fast", action="store_true", help="Setup survei dari cache disk (run pertama ambil 1 halaman lalu di-cache; run berikutnya ZERO fetch, gak bisa timeout). Buat create_new/add-sample")
     parser.add_argument("--delay", type=float, default=0.5, help="Stagger acak per item (detik) untuk hindari thundering-herd; 0 = tanpa stagger")
     parser.add_argument("--workers", type=int, default=4, help="Jumlah submit paralel (default 4). Item nunggu latency BPS ~8-10 dtk, jadi paralel = jauh lebih cepat. 1 = serial")
@@ -791,13 +967,14 @@ def main():
                 v = line.strip().replace("*", "").strip()
                 if v and not v.startswith("#"):
                     items.append(v)
-    elif args.resubmit_reject:
-        pass  # no input needed — reject idpels auto-derived after survey setup
+    elif args.resubmit_reject or args.resubmit_open or args.resubmit_reopen:
+        pass  # no input needed — idpels auto-derived after survey setup
     else:
         parser.print_help()
         sys.exit(1)
 
-    if not items and not args.resubmit_reject:
+    _any_resubmit = args.resubmit_reject or args.resubmit_open or args.resubmit_reopen
+    if not items and not _any_resubmit:
         print("❌ Tidak ada item untuk diproses.")
         sys.exit(1)
 
@@ -813,7 +990,7 @@ def main():
 
     if not PLN_API_URL:
         print("⚠️  PLN_API_URL belum diset di .env — PLN enrichment dilewati")
-    if items or not args.resubmit_reject:
+    if items or not _any_resubmit:
         print(f"\n📋 Total item: {len(items)}")
     if args.dry_run:
         print("🧪 Mode: DRY RUN (tidak submit ke BPS)")
@@ -823,6 +1000,10 @@ def main():
         print("♻️  Mode: RESUBMIT-ALL (submit ulang semua walau sudah tercatat — betulin region)")
     if args.resubmit_reject:
         print("🩹 Mode: RESUBMIT-REJECT (perbaiki data REJECT ke assignment yang SAMA — tidak dobel)")
+    if args.resubmit_open:
+        print("📂 Mode: RESUBMIT-OPEN (submit data OPEN belum dibuka ke assignment yang SAMA — tidak dobel)")
+    if args.resubmit_reopen:
+        print("📂 Mode: RESUBMIT-REOPEN (submit data OPEN pernah dibuka ke assignment yang SAMA — tidak dobel)")
     if args.no_cek:
         print("⏭️  Mode: NO-CEK (skip CEK IDPel/NIK — data tetap terdata via paradata)")
         print("   ⚠️  Tanpa CEK, guard anti-dupe mati. Pakai list yang SUDAH difilter (belum saja).")
@@ -846,7 +1027,7 @@ def main():
     email = _account_email(token_data)
     # --fast reuses a page-0 disk cache (templates only, no reject rows). Reject mode
     # MUST see the full list, so it never uses that cache even if --fast is also passed.
-    survey_caches = _load_survey_cache(email) if (args.fast and not args.resubmit_reject) else None
+    survey_caches = _load_survey_cache(email) if (args.fast and not _any_resubmit) else None
     if survey_caches:
         n = sum(len(sc.get("assignments", [])) for sc in survey_caches.values())
         print(f"📊 Pakai cache survei (skip fetch BPS) — {', '.join(survey_caches)} · {n} template")
@@ -893,10 +1074,11 @@ def main():
             # submit. --force / --resubmit-all create_new and dedup via fasih_exists, so
             # page-0 (a handful of templates to clone) is enough — skip the slow fetch.
             try:
-                if args.resubmit_reject:
-                    # Reject records live anywhere in the full list (never on page-0
-                    # templates) — must page through everything to find them.
-                    print(f"📋 Mengambil SEMUA tugas {skey} (cari reject)...")
+                if _any_resubmit:
+                    # Reject/open/reopen records live anywhere in the full list (never
+                    # on page-0 templates) — must page through everything to find them.
+                    _mode_label = "reject" if args.resubmit_reject else "open" if args.resubmit_open else "reopen"
+                    print(f"📋 Mengambil SEMUA tugas {skey} (cari {_mode_label})...")
                     assignments = fetch_all_assignments(headers, pid)
                 elif args.fast or args.force or args.resubmit_all:
                     print(f"📋 Mengambil template {skey} (fast)...")
@@ -922,8 +1104,8 @@ def main():
         if not survey_caches:
             print("❌ Tidak ada survei dengan periode aktif.")
             sys.exit(1)
-        if args.fast and not args.resubmit_reject:
-            _save_survey_cache(email, survey_caches)  # never persist reject full-list as the fast cache
+        if args.fast and not _any_resubmit:
+            _save_survey_cache(email, survey_caches)  # never persist resubmit full-list as the fast cache
 
     # RESUBMIT-REJECT: the item list IS the set of REJECTED records discovered in the
     # freshly-fetched assignments. If the user also passed IDs, keep only those that are
@@ -935,6 +1117,22 @@ def main():
             print("✅ Tidak ada data REJECT untuk diperbaiki. Selesai.")
             sys.exit(0)
         print(f"\n🩹 {len(items)} data REJECT ditemukan → resubmit ke assignment yang SAMA (tidak dobel)")
+
+    if args.resubmit_open:
+        opens = _open_idpels(survey_caches)
+        items = [x for x in items if x in set(opens)] if items else opens
+        if not items:
+            print("✅ Tidak ada data OPEN (belum dibuka) untuk disubmit. Selesai.")
+            sys.exit(0)
+        print(f"\n📂 {len(items)} data OPEN (belum dibuka) ditemukan → submit ke assignment yang SAMA (tidak dobel)")
+
+    if args.resubmit_reopen:
+        reopens = _reopen_idpels(survey_caches)
+        items = [x for x in items if x in set(reopens)] if items else reopens
+        if not items:
+            print("✅ Tidak ada data OPEN (pernah dibuka) untuk disubmit. Selesai.")
+            sys.exit(0)
+        print(f"\n📂 {len(items)} data OPEN pernah dibuka ditemukan → submit ke assignment yang SAMA (tidak dobel)")
 
     # Process items — parallel pool. Each item is ~8-10s of BPS network latency
     # (HAR: presign 2.5s + submit 1.6s + cek 1.5s + foto 1.5s), so running a few
@@ -961,6 +1159,8 @@ def main():
                 dry_run=args.dry_run, temp_dir=wdir, force=args.force,
                 resubmit_all=args.resubmit_all,
                 resubmit_reject=args.resubmit_reject,
+                resubmit_open=args.resubmit_open,
+                resubmit_reopen=args.resubmit_reopen,
             )
         except Exception as e:  # never let one item kill the pool
             ok, message = False, f"Error tak terduga: {str(e)[:120]}"

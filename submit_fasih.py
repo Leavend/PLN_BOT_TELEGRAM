@@ -507,19 +507,30 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
         if val:
             answers[field_key] = val
     
-    # Update region-based fields
-    answers.update(get_region_fields(target, direct_args))
+    # Update region-based fields only if not already populated
+    reg_fields = get_region_fields(target, direct_args)
+    for k, v in reg_fields.items():
+        if not answers.get(k):
+            answers[k] = v
+    
+    is_pasca = "kddk" in template_mapping.values()
     
     # Baseline/PLN-specific metadata fields
     answers.update({
-        "tarif": direct_args.get("tarif") or "R-1",
-        "daya": direct_args.get("daya") or "900",
-        "kdpm": direct_args.get("kdpm") or "01",
-        "kddk": direct_args.get("kddk") or "1",
-        "layanan": "PRABAYAR" if "PRABAYAR" in target.get("assignmentStatusAlias", "") else "PASCABAYAR",
+        "tarif": direct_args.get("tarif") or answers.get("tarif") or "R-1",
+        "daya": direct_args.get("daya") or answers.get("daya") or "900",
+        "kdpm": direct_args.get("kdpm") or answers.get("kdpm") or "01",
+        "layanan": "PASCABAYAR" if is_pasca else "PRABAYAR",
         "r104": direct_args.get("hasil") or "1. Berhasil didata",
-        "status_dil": direct_args.get("status_dil") or "1"
+        "status_dil": direct_args.get("status_dil") or answers.get("status_dil") or "1",
+        "_is_pasca": is_pasca
     })
+    
+    if is_pasca:
+        kddk_val = answers.get("kddk") or target.get("data6") or direct_args.get("kddk") or "1"
+        kode_rbm_val = answers.get("kode_rbm") or kddk_val[:7] or "1"
+        answers["kddk"] = kddk_val
+        answers["kode_rbm"] = kode_rbm_val
     
     # Populate Blok II, III, and IV fields
     res_reg = resolve_region_codes_and_names(target, direct_args)
@@ -642,7 +653,7 @@ def handle_photo_upload(headers: dict, target: dict, answers: dict, photo_path: 
         print(f"[-] Photo file not found: {photo_path}")
         sys.exit(1)
     tid = target.get("id")
-    filename = f"{tid}_r106.png"
+    filename = f"{tid}__r106__c.jpg"
     md5_b64 = compute_md5_base64(photo_path)
     put_url = get_s3_put_url(headers, target, filename, os.path.getsize(photo_path), md5_b64, dry_run)
     if not dry_run:
@@ -1001,12 +1012,43 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     
     now_ms = int(time.time() * 1000)
     now = datetime.now()
-    created_at = now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    
+    if isinstance(target, dict) and target.get("createdAt"):
+        created_at = target["createdAt"]
+    else:
+        created_at = now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        bp = target.get("basePath") if isinstance(target, dict) else None
+        if bp:
+            import re
+            m = re.search(r'_(\d+)\.7z$', bp)
+            if m:
+                try:
+                    ts_ms = int(m.group(1))
+                    from datetime import timezone
+                    dt = datetime.fromtimestamp(ts_ms / 1000.0, timezone.utc)
+                    created_at = dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+                except Exception:
+                    pass
 
-    # Random interview time within WITA working hours (07:00-18:00, UTC+8)
     import random as _rnd
-    today_wita = now + timedelta(hours=8) - timedelta(hours=now.astimezone().utcoffset().total_seconds() / 3600 if now.astimezone().utcoffset() else 0)
-    wita_date = now.date()
+    try:
+        if created_at.endswith("Z"):
+            created_dt = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%S.%fZ")
+        else:
+            created_dt = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%S.%f")
+    except:
+        created_dt = now
+    
+    # Determine the current date in WITA (UTC+8) for the interview times
+    from datetime import timezone
+    try:
+        now_utc = datetime.now(timezone.utc)
+        wita_now = now_utc + timedelta(hours=8)
+        wita_date = wita_now.date()
+    except Exception:
+        # Fallback to local system time date
+        wita_date = datetime.now().date()
+        
     hour_start = _rnd.randint(7, 16)
     minute_start = _rnd.randint(0, 59)
     second_start = _rnd.randint(0, 59)
@@ -1016,6 +1058,7 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     interview_end = interview_start + timedelta(seconds=duration_secs)
     if interview_end.hour >= 18:
         interview_end = interview_end.replace(hour=17, minute=_rnd.randint(45, 59))
+        
     start_time = interview_start.strftime("%Y-%m-%dT%H:%M:%S")
     end_time = interview_end.strftime("%Y-%m-%dT%H:%M:%S")
     
@@ -1148,48 +1191,91 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         r204_code = r204_val.split(".")[0].strip()
     r204_answer = [{"description": "", "label": r204_val, "value": r204_code, "open": False}]
     
-    answers_list = [
-        {"dataKey": "mulai", "answer": start_time},
-        {"dataKey": "r101a", "answer": flat_answers.get("r101a") or ""},
-        {"dataKey": "result_idpln", "answer": json.dumps(pln_data, ensure_ascii=False)},
-        {"dataKey": "hasilCheckIdPel2", "answer": "2"},
-        {"dataKey": "hasilCheckIdPel", "answer": hasil_check_html},
-        {"dataKey": "r101b", "answer": flat_answers.get("r101b") or ""},
-        {"dataKey": "hasilCheckNoMeter2", "answer": None},
-        {"dataKey": "r102a", "answer": flat_answers.get("r102a") or ""},
-        {"dataKey": "r102b", "answer": flat_answers.get("r102b") or ""},
-        {"dataKey": "r102c", "answer": flat_answers.get("r102c") or ""},
-        {"dataKey": "r102d", "answer": flat_answers.get("r102d") or ""},
-        {"dataKey": "r102e", "answer": flat_answers.get("r102e") or ""},
-        {"dataKey": "r103", "answer": flat_answers.get("r103") or ""},
-        {"dataKey": "r104", "answer": r104_answer},
-        {"dataKey": "r105", "answer": r105_answer_list},
-        {"dataKey": "r106", "answer": r106_answer_list},
-        {"dataKey": "unitup", "answer": flat_answers.get("unitup") or ""},
-        {"dataKey": "unitupi", "answer": flat_answers.get("unitupi") or ""},
-        {"dataKey": "unitap", "answer": flat_answers.get("unitap") or "23BTG"},
-        {"dataKey": "r201", "createdAt": now_ms, "answer": flat_answers.get("r201") or "", "updatedAt": now_ms},
-        {"dataKey": "r202", "createdAt": now_ms, "answer": flat_answers.get("r202") or "", "updatedAt": now_ms},
-        {"dataKey": "hasilPemadananNIK", "createdAt": now_ms, "answer": hasil_nik_html, "updatedAt": now_ms},
-        {"dataKey": "hasilPemadananNIK2", "createdAt": now_ms, "answer": "2", "updatedAt": now_ms},
-        {"dataKey": "no_kk", "createdAt": now_ms, "answer": no_kk_val, "updatedAt": now_ms},
-        {"dataKey": "result_callnik", "createdAt": now_ms, "answer": result_callnik_str, "updatedAt": now_ms},
-        {"dataKey": "r203", "createdAt": now_ms, "answer": flat_answers.get("r203") or "", "updatedAt": now_ms},
-        {"dataKey": "r204", "createdAt": now_ms, "answer": r204_answer, "updatedAt": now_ms},
-        {"dataKey": "nama_ktp", "createdAt": now_ms, "answer": "", "updatedAt": now_ms},
-        {"dataKey": "r301a", "createdAt": now_ms, "answer": [{"label": flat_answers.get("r301a") or f"[{l1_code}] {l1_name}", "value": l1_code}], "updatedAt": now_ms},
-        {"dataKey": "r301b", "createdAt": now_ms, "answer": [{"label": flat_answers.get("r301b") or f"[{l2_code}] {l2_name}", "value": l2_fullcode}], "updatedAt": now_ms},
-        {"dataKey": "r301c", "createdAt": now_ms, "answer": [{"label": flat_answers.get("r301c") or f"[{l3_code}] {l3_name}", "value": l3_fullcode}], "updatedAt": now_ms},
-        {"dataKey": "r301d", "createdAt": now_ms, "answer": [{"label": flat_answers.get("r301d") or f"[{l4_code}] {l4_name}", "value": l4_fullcode}], "updatedAt": now_ms},
-        {"dataKey": "r301e", "createdAt": now_ms, "answer": flat_answers.get("r301e") or "", "updatedAt": now_ms},
-        {"dataKey": "r302a", "createdAt": now_ms, "answer": 1, "updatedAt": now_ms},
-        {"dataKey": "r302a_var", "createdAt": now_ms, "answer": "1", "updatedAt": now_ms},
-        {"dataKey": "r302a_no#1", "createdAt": now_ms, "answer": 1, "updatedAt": now_ms},
-        {"dataKey": "r302b_1#1", "createdAt": now_ms, "answer": flat_answers.get("r302b_1#1") or "", "updatedAt": now_ms},
-        {"dataKey": "catatan", "createdAt": now_ms, "answer": flat_answers.get("catatan") or "", "updatedAt": now_ms},
-        {"dataKey": "selesai", "createdAt": now_ms, "answer": end_time, "updatedAt": now_ms}
-    ]
+    is_pasca = flat_answers.get("_is_pasca", False)
     
+    # Cast flagpre to int if possible
+    flagpre_val = flat_answers.get("flagpre") or 1
+    try:
+        flagpre_val = int(flagpre_val)
+    except:
+        pass
+
+    # Select the schema key list
+    if is_pasca:
+        keys_list = [
+            "flagpre", "mulai", "r101a", "r101b", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
+            "r104", "r105", "r106", "unitupi", "unitap", "unitup", "kode_rbm", "kddk", "r201", "r202",
+            "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "r203", "r204", "no_kk",
+            "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
+            "catatan", "selesai"
+        ]
+    else:
+        keys_list = [
+            "flagpre", "mulai", "r101a", "r101b", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
+            "r104", "r105", "r106", "unitupi", "unitap", "unitup", "r201", "r202",
+            "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "r203", "r204", "no_kk",
+            "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
+            "catatan", "selesai"
+        ]
+
+    # Pre-compute all answers mapped to their values
+    computed_answers = {
+        "flagpre": flagpre_val,
+        "mulai": start_time,
+        "r101a": flat_answers.get("r101a") or "",
+        "r101b": flat_answers.get("r101b") or "",
+        "r102a": flat_answers.get("r102a") or "",
+        "r102b": flat_answers.get("r102b") or "",
+        "r102c": flat_answers.get("r102c") or "",
+        "r102d": flat_answers.get("r102d") or "",
+        "r102e": flat_answers.get("r102e") or "",
+        "r103": flat_answers.get("r103") or "",
+        "r104": r104_answer,
+        "r105": r105_answer_list,
+        "r106": r106_answer_list,
+        "unitupi": flat_answers.get("unitupi") or "",
+        "unitap": flat_answers.get("unitap") or "23BTG",
+        "unitup": flat_answers.get("unitup") or "",
+        "kode_rbm": flat_answers.get("kode_rbm") or "",
+        "kddk": flat_answers.get("kddk") or "",
+        "r201": flat_answers.get("r201") or "",
+        "r202": flat_answers.get("r202") or "",
+        "nama_ktp": flat_answers.get("nama_ktp") or "",
+        "hasilPemadananNIK": hasil_nik_html,
+        "hasilPemadananNIK2": "1" if nik_exists else "2",
+        "result_callnik": result_callnik_str,
+        "r203": flat_answers.get("r203") or "",
+        "r204": r204_answer,
+        "no_kk": no_kk_val,
+        "r301a": [{"label": flat_answers.get("r301a") or f"[{l1_code}] {l1_name}", "value": l1_code}],
+        "r301b": [{"label": flat_answers.get("r301b") or f"[{l2_code}] {l2_name}", "value": l2_fullcode}],
+        "r301c": [{"label": flat_answers.get("r301c") or f"[{l3_code}] {l3_name}", "value": l3_fullcode}],
+        "r301d": [{"label": flat_answers.get("r301d") or f"[{l4_code}] {l4_name}", "value": l4_fullcode}],
+        "r301e": flat_answers.get("r301e") or "",
+        "r302a": 1,
+        "r302a_var": "1",
+        "r302a_no#1": 1,
+        "r302b_1#1": flat_answers.get("r302b_1#1") or "",
+        "catatan": flat_answers.get("catatan") or "",
+        "selesai": end_time
+    }
+
+    # Generate the formatted answers list
+    answers_list = []
+    keys_with_timestamps = {
+        "r104", "catatan"
+    }
+    for k in keys_list:
+        ans_obj = {
+            "dataKey": k,
+            "answer": computed_answers[k]
+        }
+        # Add timestamps for blocks II, III, IV, plus r104 and catatan
+        if k in keys_with_timestamps or k.startswith("r2") or k.startswith("r3") or k in ("nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "no_kk"):
+            ans_obj["createdAt"] = now_ms
+            ans_obj["updatedAt"] = now_ms
+        answers_list.append(ans_obj)
+        
     return {
         "dataKey": "",
         "createdAt": created_at,
@@ -1200,7 +1286,63 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         "isForceSubmit": False,
         "templateVersion": target.get("templateVersion") or "0.5.9",
         "validationVersion": "0.0.2",
-        "updatedAt": created_at
+        "updatedAt": now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    }
+
+def build_principal_json(answers: dict, target: dict, user_name: str) -> dict:
+    if "answers" in answers and isinstance(answers["answers"], list):
+        wrapped = answers
+        answers_list = wrapped["answers"]
+    else:
+        wrapped = wrap_answers(answers, target, user_name)
+        answers_list = wrapped["answers"]
+
+    def find_ans(key):
+        for item in answers_list:
+            if item.get("dataKey") == key:
+                return item.get("answer")
+        return ""
+
+    principals = []
+    
+    # 1. ID Pelanggan
+    idpel = find_ans("r101a")
+    if idpel:
+        principals.append({"dataKey": "r101a", "answer": str(idpel), "principal": 1, "columnName": "ID Pelanggan"})
+    # 2. Nama
+    nama = find_ans("r103")
+    if nama:
+        principals.append({"dataKey": "r103", "answer": str(nama), "principal": 2, "columnName": "Nama"})
+    # 3. No. Meter
+    nometer = find_ans("r101b")
+    if nometer:
+        principals.append({"dataKey": "r101b", "answer": str(nometer), "principal": 3, "columnName": "No. Meter"})
+    # 4. Alamat
+    alamat = find_ans("r102e")
+    if alamat:
+        principals.append({"dataKey": "r102e", "answer": str(alamat), "principal": 4, "columnName": "Alamat"})
+    # 5. IsPrelist
+    flagpre = find_ans("flagpre")
+    if flagpre is not None and flagpre != "":
+        principals.append({"dataKey": "flagpre", "answer": flagpre, "principal": 5, "columnName": "IsPrelist"})
+    # 6. Kddk
+    kddk = find_ans("kddk")
+    if kddk:
+        principals.append({"dataKey": "kddk", "answer": str(kddk), "principal": 6, "columnName": "Kddk"})
+    # 7. Hasil pendataan
+    r104 = find_ans("r104")
+    if r104:
+        principals.append({"dataKey": "r104", "answer": r104, "principal": 7, "columnName": "Hasil pendataan"})
+
+    from datetime import datetime
+    return {
+        "principals": principals,
+        "templateVersion": target.get("templateVersion") or "0.5.9",
+        "validationVersion": "0.0.2",
+        "updatedAt": wrapped.get("updatedAt") or datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        "updatedBy": user_name,
+        "createdAt": wrapped.get("createdAt") or target.get("createdAt") or datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        "createdBy": wrapped.get("createdBy") or user_name
     }
 
 def stage_and_encrypt(answers: dict, key_bytes: bytes, target: dict, user_name: str) -> str:
@@ -1219,8 +1361,9 @@ def stage_and_encrypt(answers: dict, key_bytes: bytes, target: dict, user_name: 
 def upload_archive_flow(headers: dict, target: dict, archive_path: str, dry_run: bool) -> str:
     tid = target.get("id")
     pid = target.get("surveyPeriodId")
-    is_edit = target.get("assignmentStatusAlias") != "OPEN"
-    copy_from_id = target.get("copyFromId")
+    status_alias = target.get("assignmentStatusAlias") or ""
+    is_edit = "SUBMITTED" in status_alias  # REJECTED uses /submit, not /edit
+    copy_from_id = target.get("copyFromId") if is_edit else None
     presign_resp = request_presign_url(headers, tid, pid, [f"{tid}.7z"], is_edit, copy_from_id)
     data_obj = presign_resp.get("data", {})
     if isinstance(data_obj, list):
@@ -1264,7 +1407,7 @@ def get_submit_params(target: dict, data_slots: dict, archive_md5: str, lat: Opt
         **data_slots,
         "latitude": str(lat) if lat is not None else "0.0",
         "longitude": str(lon) if lon is not None else "0.0",
-        "copyFromId": str(target.get("copyFromId") or ""),
+        "copyFromId": str(target.get("copyFromId") or "") if target.get("isNew", False) or "SUBMITTED" in str(target.get("assignmentStatusAlias") or "") else "",
         "statusApproval": "false",
         "sourceFrom": "CAPI",
         "paradata": "",
@@ -1273,7 +1416,8 @@ def get_submit_params(target: dict, data_slots: dict, archive_md5: str, lat: Opt
     }
 
 def confirm_submission_flow(headers: dict, target: dict, answers: dict, template_mapping: dict, archive_md5: str, lat: Optional[float], lon: Optional[float], dry_run: bool):
-    is_edit = target.get("assignmentStatusAlias") != "OPEN"
+    status_alias = target.get("assignmentStatusAlias") or ""
+    is_edit = "SUBMITTED" in status_alias  # REJECTED uses /submit, not /edit
     params = get_submit_params(target, map_answers_to_data_slots(answers, template_mapping), archive_md5, lat, lon)
     if not dry_run:
         print("      Confirming submission with server...")
