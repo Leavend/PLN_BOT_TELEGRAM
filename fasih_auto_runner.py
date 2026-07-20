@@ -267,11 +267,31 @@ class ExcelQueueManager:
         except Exception as e:
             logger.warning(f"Error saving Excel file: {e}")
 
-    def get_pending_items(self) -> List[Tuple[int, Dict[str, Any]]]:
+    def get_pending_items(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None) -> List[Tuple[int, Dict[str, Any]]]:
         """Get list of (index, row_dict) for rows that need processing."""
         with _excel_lock:
             pending = []
+            target_start_idx = 0
+
+            # Resolve start_idpel row index if specified
+            if start_idpel:
+                idpel_clean = str(start_idpel).strip()
+                matches = self.df[self.df[self.idpel_col].astype(str).str.strip() == idpel_clean]
+                if not matches.empty:
+                    target_start_idx = matches.index[0]
+                    logger.info(f"📍 Menemukan Start IDPel '{idpel_clean}' pada baris Excel #{target_start_idx + 2}")
+                else:
+                    logger.warning(f"⚠️ Start IDPel '{idpel_clean}' tidak ditemukan di Excel. Mulai dari awal.")
+
+            # Resolve start_row if specified (converting 1-indexed Excel row to 0-indexed DataFrame index)
+            elif start_row is not None and start_row > 0:
+                # Excel row 1 is header, so Excel row 2 is df index 0
+                target_start_idx = max(0, start_row - 2)
+                logger.info(f"📍 Menyetel baris awal eksekusi dari baris Excel #{start_row} (DF index {target_start_idx})")
+
             for idx, row in self.df.iterrows():
+                if idx < target_start_idx:
+                    continue
                 status = str(row.get("BOT_STATUS", "PENDING")).upper()
                 if status in ["PENDING", "RETRYING"]:
                     item = {
@@ -410,11 +430,52 @@ class AutonomousRunner:
                     logger.error(f"❌ {idpel} {status_code} via {email}: {msg}")
                     self.excel_mgr.update_row(idx, status_code, retry_count, email, msg)
 
-    def run(self):
+    def prompt_interactive_start(self) -> Tuple[Optional[int], Optional[str]]:
+        """Interactive startup prompt to let user select start row or IDPel."""
+        df = self.excel_mgr.df
+        total_rows = len(df)
+        completed_cnt = sum(1 for status in df["BOT_STATUS"] if str(status).upper() in ["SUCCESS", "FAILED", "FAILED_PLN"])
+        pending_cnt = total_rows - completed_cnt
+
+        print("\n" + "=" * 65)
+        print("📌 FASIH AUTONOMOUS RUNNER — SESI INTERAKTIF")
+        print("=" * 65)
+        print(f"📄 File Excel           : {self.excel_mgr.excel_path}")
+        print(f"📊 Total Baris Excel    : {total_rows:,}")
+        print(f"✅ Sudah Dikerjakan     : {completed_cnt:,}")
+        print(f"📋 Menunggu Diproses    : {pending_cnt:,}")
+        print("=" * 65)
+        print("Pilih titik awal eksekusi script:")
+        print("  [1] Mulai otomatis dari baris PENDING pertama (Default)")
+        print("  [2] Mulai dari Nomor Baris Excel tertentu (misal: 1500)")
+        print("  [3] Mulai dari IDPel tertentu (misal: 312100553931)")
+        print("-" * 65)
+
+        try:
+            choice = input("Masukkan pilihan [1-3] (Tekan Enter untuk Opsi 1): ").strip()
+            if choice == "2":
+                r_str = input(f"Masukkan nomor baris Excel (2 - {total_rows + 1}): ").strip()
+                if r_str.isdigit():
+                    return int(r_str), None
+            elif choice == "3":
+                id_str = input("Masukkan IDPel awal yang ingin dikerjakan: ").strip()
+                if id_str:
+                    return None, id_str
+        except (KeyboardInterrupt, EOFError):
+            print("\nProses dibatalkan oleh pengguna.")
+            sys.exit(0)
+
+        return None, None
+
+    def run(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None, non_interactive: bool = False):
         """Run the main autonomous execution loop with 20 parallel workers."""
+        # Check interactive prompt if terminal & no explicit start args given
+        if not non_interactive and sys.stdin.isatty() and start_row is None and not start_idpel:
+            start_row, start_idpel = self.prompt_interactive_start()
+
         logger.info(f"⚡ MEMULAI AUTONOMOUS RUNNER — Workers: {self.max_workers}")
-        pending_items = self.excel_mgr.get_pending_items()
-        logger.info(f"📋 Total IDPel pending: {len(pending_items)}")
+        pending_items = self.excel_mgr.get_pending_items(start_row=start_row, start_idpel=start_idpel)
+        logger.info(f"📋 Total IDPel pending yang akan diproses: {len(pending_items)}")
 
         if not pending_items:
             logger.info("✅ Semua IDPel di Excel sudah diproses (STATUS = SUCCESS / FAILED).")
@@ -480,6 +541,9 @@ def main():
     parser.add_argument("--excel", required=True, help="Path file Master Excel (.xlsx)")
     parser.add_argument("--users-file", default="users.json", help="Path file akun BPS (default: users.json)")
     parser.add_argument("--workers", type=int, default=20, help="Jumlah paralel worker (default: 20)")
+    parser.add_argument("--start-row", type=int, help="Mulai dari nomor baris Excel tertentu (misal: 1500)")
+    parser.add_argument("--start-idpel", type=str, help="Mulai dari IDPel tertentu di Excel")
+    parser.add_argument("--non-interactive", action="store_true", help="Jalankan langsung tanpa sesi interaktif")
     parser.add_argument("--resubmit-reject", action="store_true", help="Mode perbaiki data REJECTED")
     parser.add_argument("--resubmit-open", action="store_true", help="Mode submit data OPEN")
     parser.add_argument("--resubmit-reopen", action="store_true", help="Mode submit data REOPEN")
@@ -500,7 +564,11 @@ def main():
         max_workers=args.workers,
         mode_args=mode_args
     )
-    runner.run()
+    runner.run(
+        start_row=args.start_row,
+        start_idpel=args.start_idpel,
+        non_interactive=args.non_interactive
+    )
 
 
 if __name__ == "__main__":
