@@ -493,6 +493,13 @@ def check_idpln(headers: dict, assignment_id: str, idpel: str) -> dict:
         json={"assignmentId": assignment_id, "body": {"id_pelanggan_pln": idpel}},
         timeout=30,
     )
+    if resp.status_code == 429:
+        try:
+            err_data = resp.json()
+            msg = err_data.get("message") or "Limit hit (429)"
+        except Exception:
+            msg = f"HTTP 429: {resp.text}"
+        raise requests.exceptions.HTTPError(f"429 Rate Limit: {msg}", response=resp)
     resp.raise_for_status()
     return resp.json()
 
