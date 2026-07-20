@@ -236,22 +236,34 @@ class ExcelQueueManager:
         self.df["BOT_STATUS"] = self.df["BOT_STATUS"].fillna("PENDING")
         self.df["BOT_RETRY"] = self.df["BOT_RETRY"].fillna(0).astype(int)
 
+        self._unsaved_count = 0
+        self._last_save_time = time.time()
         logger.info(f"Excel loaded: {len(self.df)} rows | IDPel Col: '{self.idpel_col}' | Lat/Lon: '{self.lat_col}'/'{self.lon_col}' | Keperluan: '{self.keperluan_col}'")
 
-    def update_row(self, index: int, status: str, retry_count: int, user_email: str, catatan: str):
-        """Thread-safe update of a single row in memory and flush to Excel."""
+    def update_row(self, index: int, status: str, retry_count: int, user_email: str, catatan: str, force_save: bool = False):
+        """Thread-safe update of a single row in memory with throttled Excel flush."""
         with _excel_lock:
             self.df.at[index, "BOT_STATUS"] = status
             self.df.at[index, "BOT_RETRY"] = retry_count
             self.df.at[index, "BOT_PETUGAS"] = user_email
             self.df.at[index, "BOT_TIMESTAMP"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.df.at[index, "BOT_CATATAN"] = catatan
+            self._unsaved_count += 1
+            now = time.time()
+            if force_save or self._unsaved_count >= 5 or (now - self._last_save_time) > 3:
+                self._save_excel()
+
+    def flush(self):
+        """Force save remaining in-memory updates to disk."""
+        with _excel_lock:
             self._save_excel()
 
     def _save_excel(self):
         """Save DataFrame to Excel file."""
         try:
             self.df.to_excel(self.excel_path, index=False)
+            self._unsaved_count = 0
+            self._last_save_time = time.time()
         except Exception as e:
             logger.warning(f"Error saving Excel file: {e}")
 
@@ -408,13 +420,18 @@ class AutonomousRunner:
             logger.info("✅ Semua IDPel di Excel sudah diproses (STATUS = SUCCESS / FAILED).")
             return
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [executor.submit(self.process_item, idx, item) for idx, item in pending_items]
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    logger.error(f"Worker exception: {e}")
+        try:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = [executor.submit(self.process_item, idx, item) for idx, item in pending_items]
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error(f"Worker exception: {e}")
+        except KeyboardInterrupt:
+            logger.warning("\n⚠️ Proses dihentikan oleh pengguna (Ctrl+C). Menyimpan progress terakhir...")
+        finally:
+            self.excel_mgr.flush()
 
         # Generate CSV report identical to fasih-submit-batch format
         try:
