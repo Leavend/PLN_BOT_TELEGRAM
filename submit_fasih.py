@@ -273,12 +273,16 @@ def construct_pln_alamat(p: dict) -> str:
 def resolve_r204_from_keperluan(keperluan: str) -> str:
     if not keperluan:
         return "1. Milik sendiri"
-    kep_upper = keperluan.upper()
+    kep_upper = str(keperluan).upper()
     if any(x in kep_upper for x in ["KOST", "KOS", "KONTRAK", "SEWA"]):
         return "2. Kontrak/sewa"
+    if "BEBAS SEWA" in kep_upper:
+        return "3. Bebas sewa"
     if "DINAS" in kep_upper:
         return "4. Dinas"
-    return "1. Milik sendiri"
+    if any(x in kep_upper for x in ["PRIBADI", "MILIK"]):
+        return "1. Milik sendiri"
+    return "5. Lainnya"
 
 _kec_lookup_cache = None
 _desa_lookup_cache = None
