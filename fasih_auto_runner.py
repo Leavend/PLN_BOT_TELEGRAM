@@ -614,6 +614,8 @@ class AutonomousRunner:
             is_non_residential = "non-rumah tangga" in msg_lower or "hanya tarif tipe r" in msg_lower
             # Check if BPS account limit / quota reached (429 / limit / quota error)
             is_rate_limited = any(t in msg_lower for t in ["429", "quota", "limit", "too many requests"])
+            # Check if account has no assignment / sample in this region
+            is_no_assignment = any(t in msg_lower for t in ["belum memiliki sampel", "tidak memiliki assignment", "web monitoring bps"])
 
             if is_non_residential:
                 logger.warning(f"🚫 {idpel} Tarif Non-Rumah Tangga via {email}: {msg}")
@@ -623,6 +625,11 @@ class AutonomousRunner:
                 self.account_mgr.mark_quota_exhausted(email)
                 # Keep status as RETRYING so another available account picks it up immediately
                 self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Beralih Akun (Limit 429 BPS): {msg}")
+            elif is_no_assignment:
+                logger.error(f"⛔ Akun {email} tidak memiliki tugas/sampel BPS di wilayah ini! Otomatis beralih ke akun berikutnya...")
+                self.account_mgr.mark_quota_exhausted(email)
+                # Keep status as RETRYING so another available account picks it up immediately
+                self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Beralih Akun ({email} tidak ada tugas di wilayah ini)")
             else:
                 # Check if transient PLN error -> trigger 1 retry
                 is_transient = any(err in msg.lower() for err in ["pln tidak ditemukan", "terjangkau", "overload", "timeout", "500", "502", "504", "connection"])
