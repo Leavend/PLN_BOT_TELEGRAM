@@ -200,13 +200,16 @@ class AccountManager:
             today = datetime.date.today().isoformat()
             counts = {}
             if df is not None and "BOT_STATUS" in df.columns and "BOT_PETUGAS" in df.columns:
-                for _, row in df.iterrows():
-                    st = str(row.get("BOT_STATUS", "")).upper()
-                    p = str(row.get("BOT_PETUGAS", "")).strip().lower()
-                    ts = str(row.get("BOT_TIMESTAMP", ""))
-                    if st == "SUCCESS" and p:
-                        if ts.startswith(today) or not ts:
-                            counts[p] = counts.get(p, 0) + 1
+                status_series = df["BOT_STATUS"].astype(str).str.upper()
+                petugas_series = df["BOT_PETUGAS"].fillna("").astype(str).str.strip().str.lower()
+                mask = (status_series == "SUCCESS") & (petugas_series != "")
+                if "BOT_TIMESTAMP" in df.columns:
+                    ts_series = df["BOT_TIMESTAMP"].fillna("").astype(str)
+                    date_mask = ts_series.str.startswith(today) | (ts_series == "")
+                    mask = mask & date_mask
+
+                if mask.any():
+                    counts = petugas_series[mask].value_counts().to_dict()
 
             synced_any = False
             for acc in self.accounts:
