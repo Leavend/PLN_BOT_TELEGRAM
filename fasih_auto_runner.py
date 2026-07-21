@@ -644,7 +644,7 @@ class AutonomousRunner:
                 # Check if error is 'Region PLN tak lengkap (kd_kel kosong)' -> DO NOT RETRY
                 is_region_incomplete = any(err in msg_lower for err in ["region pln tak lengkap", "kd_kel kosong"])
                 # Check if error is 'Data PLN tidak ditemukan / server PLN tak terjangkau' -> RETRY UP TO 3X
-                is_pln_not_found = any(err in msg_lower for err in ["pln tidak ditemukan", "terjangkau", "tidak terjangkau", "overload", "timeout", "500", "502", "504", "connection"])
+                is_pln_not_found = not is_region_incomplete and any(err in msg_lower for err in ["pln tidak ditemukan", "terjangkau", "tidak terjangkau", "timeout", "500", "502", "504", "connection"])
 
                 if is_non_residential:
                     logger.warning(f"🚫 {idpel} Tarif Non-Rumah Tangga via {email}: {msg}")
