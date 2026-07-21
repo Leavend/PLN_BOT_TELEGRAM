@@ -289,27 +289,21 @@ def _find_template_for_region(open_assignments, pln_data):
 # once we see a 429 we stop calling them for the rest of the run: submits keep
 # working + registering, just without prelist routing / NIK-pemadanan display
 # (wilayah still correct — it comes from PLN kd_kel, not CEK).
-_cek_state = {"enabled": True}
 # Serialize token refreshes so parallel workers never write TOKEN_FILE concurrently.
 _token_lock = threading.Lock()
 
 def _cek(fn, *args, skip_cek_idpln: bool = False) -> dict:
-    if skip_cek_idpln or not _cek_state["enabled"]:
+    if skip_cek_idpln:
         return {}
     try:
         return fn(*args).get("data") or {}
     except Exception as e:
         msg = str(e)
-        if "429" in msg or "RATE_LIMIT_EXCEEDED" in msg or "terlampaui" in msg:
-            if _cek_state["enabled"]:
-                _cek_state["enabled"] = False
-                logger.warning("⏭️  CEK IDPel BPS terkena 429 Rate Limit — CEK dinonaktifkan otomatis. Submit tetap berjalan & TERDATA via paradata.")
-            return {}
+        if any(t in msg.lower() for t in ("429", "rate_limit_exceeded", "terlampaui", "too many requests")):
+            raise Exception(f"429 Rate Limit BPS (CEK IDPel limit terlampaui): {msg}")
         msg_lower = msg.lower()
         if any(t in msg_lower for t in ("timed out", "timeout", "max retries", "connection")):
-            if _cek_state["enabled"]:
-                _cek_state["enabled"] = False
-                logger.warning("⏭️  CEK dinonaktifkan (BPS timeout/koneksi) — submit tetap jalan & TERDATA lewat paradata")
+            logger.warning(f"CEK BPS timeout/koneksi: {e}")
         else:
             logger.warning(f"CEK gagal: {e}")
         return {}
