@@ -168,11 +168,12 @@ class AccountManager:
                         pass
 
     def set_cooldown(self, email: str, seconds: int = 60):
-        """Set a temporary cooldown on an account for transient 429 burst rate limit without corrupting used_today."""
+        """Set a temporary cooldown on an account for transient 429 rate limit without corrupting used_today."""
         with _quota_lock:
             for acc in self.accounts:
                 if (acc.get("email") or "").lower() == email.lower():
                     acc["cooldown_until"] = time.time() + seconds
+                    logger.warning(f"⏳ Akun {email} dimasukkan ke cooldown sementara {seconds}s (Rate Limit BPS 429).")
                     break
 
     def get_available_account(
@@ -181,9 +182,7 @@ class AccountManager:
         account_end: Optional[int] = None,
         selected_emails: Optional[List[str]] = None
     ) -> Any:
-        """Find an active account within range or selected emails list with remaining quota.
-        Returns: dict (account), "IN_COOLDOWN" (all valid accounts temporarily cooling down), or None (all at 400/400).
-        """
+        """Find an active account within range or selected emails list with remaining quota."""
         with _quota_lock:
             today = datetime.date.today().isoformat()
             if selected_emails:
@@ -195,8 +194,7 @@ class AccountManager:
                 subset = self.accounts[start_idx:end_idx]
 
             now = time.time()
-            any_in_cooldown = False
-
+            all_quota_full = True
             for acc in subset:
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
@@ -207,9 +205,9 @@ class AccountManager:
                 used = acc.get("used_today", 0)
                 quota = acc.get("daily_quota", 400)
                 if used < quota:
-                    # Skip accounts currently in temporary cooldown
+                    all_quota_full = False
+                    # Skip accounts currently in 429 temporary cooldown
                     if acc.get("cooldown_until") and now < acc["cooldown_until"]:
-                        any_in_cooldown = True
                         continue
 
                     # Auto login check if token is missing
@@ -223,9 +221,9 @@ class AccountManager:
                     if acc.get("token_data"):
                         return acc
 
-            if any_in_cooldown:
-                return "IN_COOLDOWN"  # Some accounts still have quota but temporarily cooling down from burst 429
-            return None  # All selected accounts really reached 400/400 daily quota
+            if all_quota_full:
+                return None  # All selected accounts really reached 400/400 daily quota
+            return "IN_COOLDOWN"  # Accounts are still valid, but temporarily cooling down from 429
 
     def increment_usage(self, email: str):
         """Increment daily usage for account after successful submit."""
@@ -269,22 +267,18 @@ class AccountManager:
                 self.save_accounts()
 
     def mark_quota_exhausted(self, email: str):
-        """Smart 429 handler: if used_today < 380, it's burst concurrency rate limit (cooldown 60s).
-        If used_today >= 380, it's likely real daily quota exhaustion (set 400/400)."""
+        """Mark account as quota exhausted ONLY if actual usage reached daily quota or confirmed exhausted."""
         with _quota_lock:
             for acc in self.accounts:
                 if (acc.get("email") or "").lower() == email.lower():
                     used = acc.get("used_today", 0)
                     quota = acc.get("daily_quota", 400)
-                    # ponytail: threshold 380 — adjust if BPS changes daily limit
-                    if used >= (quota - 20):
-                        # Genuinely close to or at daily limit → mark as exhausted
+                    if used >= quota:
                         acc["used_today"] = quota
-                        logger.warning(f"⛔ Akun {email} KUOTA HARIAN HABIS ({quota}/{quota}) — di-lock di users.json.")
+                        logger.warning(f"⛔ Akun {email} ditandai KUOTA HARIAN HABIS ({used}/{quota}).")
                     else:
-                        # Burst concurrency 429 — NOT real daily exhaustion, just cooldown
                         acc["cooldown_until"] = time.time() + 60
-                        logger.warning(f"⏳ Akun {email} terkena 429 burst rate limit (terpakai: {used}/{quota}). Cooldown 60s — BUKAN kuota habis.")
+                        logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit (Terpakai: {used}/{quota}). Dimasukkan ke cooldown sementara 60 detik.")
                     break
             self.save_accounts()
 
@@ -552,9 +546,6 @@ class AutonomousRunner:
         self.stop_event = threading.Event()
         self.processed_indices = set()
         self._processed_lock = threading.Lock()
-        # Per-account semaphore: max 3 concurrent BPS API calls per account to avoid burst 429
-        self._account_semaphores: Dict[str, threading.Semaphore] = {}
-        self._sem_lock = threading.Lock()
 
     def _get_user_caches(self, token_data: dict, email: str) -> dict:
         """Load or build survey caches for a specific BPS user account."""
@@ -605,7 +596,7 @@ class AutonomousRunner:
 
         # Acquire an available user account within specified range or selected email list
         acc = None
-        for _wait in range(24):  # 24 * 5s = 2min max wait for cooldown
+        for _ in range(30):
             if self.stop_event.is_set():
                 return
             res = self.account_mgr.get_available_account(
@@ -617,11 +608,10 @@ class AutonomousRunner:
                 acc = res
                 break
             elif res == "IN_COOLDOWN":
-                if _wait == 0:
-                    logger.info("⏳ Akun sedang cooldown dari burst 429. Menunggu akun tersedia kembali...")
+                logger.info(f"⏳ Akun BPS sedang dalam cooldown 429 rate-limit sementara. Menunggu 5 detik...")
                 time.sleep(5.0)
             else:
-                break  # None = all at 400/400
+                break
 
         if not acc:
             if not self.stop_event.is_set():
@@ -666,26 +656,16 @@ class AutonomousRunner:
             else:
                 logger.info(f"🚀 [Worker] Processing {idpel} via {email} (Attempt 1/{max_pln_attempts})...")
 
-            # Acquire per-account semaphore to limit concurrent BPS API calls
-            with self._sem_lock:
-                if email not in self._account_semaphores:
-                    self._account_semaphores[email] = threading.Semaphore(3)
-            sem = self._account_semaphores[email]
-
-            sem.acquire()
-            try:
-                ok, msg = submit_single(
-                    token_data=token_data,
-                    val=idpel,
-                    survey_caches=sc,
-                    dry_run=dry_run,
-                    resubmit_reject=resubmit_reject,
-                    resubmit_open=resubmit_open,
-                    resubmit_reopen=resubmit_reopen,
-                    skip_cek_idpln=self.mode_args.get("skip_cek_idpln", False)
-                )
-            finally:
-                sem.release()
+            ok, msg = submit_single(
+                token_data=token_data,
+                val=idpel,
+                survey_caches=sc,
+                dry_run=dry_run,
+                resubmit_reject=resubmit_reject,
+                resubmit_open=resubmit_open,
+                resubmit_reopen=resubmit_reopen,
+                skip_cek_idpln=self.mode_args.get("skip_cek_idpln", False)
+            )
 
             with self._processed_lock:
                 self.processed_indices.add(idx)
@@ -706,16 +686,17 @@ class AutonomousRunner:
                 # Check if error is 'Region PLN tak lengkap (kd_kel kosong)' -> DO NOT RETRY
                 is_region_incomplete = any(err in msg_lower for err in ["region pln tak lengkap", "kd_kel kosong"])
                 # Check if error is 'Data PLN tidak ditemukan / server PLN tak terjangkau' -> RETRY UP TO 3X
-                is_pln_not_found = not is_region_incomplete and any(err in msg_lower for err in ["pln tidak ditemukan", "terjangkau", "tidak terjangkau", "timeout", "500", "502", "503", "504", "service unavailable", "connection"])
+                is_pln_not_found = not is_region_incomplete and any(err in msg_lower for err in ["pln tidak ditemukan", "terjangkau", "tidak terjangkau", "timeout", "500", "502", "504", "connection"])
 
                 if is_non_residential:
                     logger.warning(f"🚫 {idpel} Tarif Non-Rumah Tangga via {email}: {msg}")
                     self.excel_mgr.update_row(idx, "NON_RESIDENTIAL", retry_count, email, msg)
                     break
                 elif is_rate_limited:
-                    # mark_quota_exhausted will auto-detect burst vs real quota
+                    logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit. Dimasukkan ke cooldown 60s...")
                     self.account_mgr.mark_quota_exhausted(email)
-                    self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"429 Rate Limit: {msg}")
+                    self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Cooldown 429 BPS: {msg}")
+                    time.sleep(2.0)
                     break
                 elif is_no_assignment:
                     logger.error(f"⛔ Akun {email} tidak memiliki tugas/sampel BPS di wilayah ini! Otomatis beralih ke akun berikutnya...")
@@ -805,39 +786,63 @@ class AutonomousRunner:
 
         try:
             from concurrent.futures import wait, FIRST_COMPLETED
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                active_futures = set()
-                pending_iter = iter(pending_indices)
+            import concurrent.futures.thread
 
-                # Prime pool with up to max_workers active tasks
+            class DaemonThreadPoolExecutor(ThreadPoolExecutor):
+                def _adjust_thread_count(self):
+                    orig_thread = threading.Thread
+                    def daemon_thread(*args, **kwargs):
+                        kwargs['daemon'] = True
+                        return orig_thread(*args, **kwargs)
+                    try:
+                        threading.Thread = daemon_thread
+                        super()._adjust_thread_count()
+                    finally:
+                        threading.Thread = orig_thread
+
+            executor = DaemonThreadPoolExecutor(max_workers=self.max_workers)
+            active_futures = set()
+            pending_iter = iter(pending_indices)
+
+            # Prime pool with up to max_workers active tasks
+            while len(active_futures) < self.max_workers and not self.stop_event.is_set():
+                try:
+                    idx = next(pending_iter)
+                    active_futures.add(executor.submit(self.process_item, idx))
+                    time.sleep(0.1)
+                except StopIteration:
+                    break
+
+            # Continuous bounded worker pipeline
+            while active_futures and not self.stop_event.is_set():
+                done, active_futures = wait(active_futures, return_when=FIRST_COMPLETED)
+                for f in done:
+                    try:
+                        f.result()
+                    except Exception as e:
+                        logger.error(f"Worker exception: {e}")
+
+                # Replenish finished worker slots
                 while len(active_futures) < self.max_workers and not self.stop_event.is_set():
                     try:
                         idx = next(pending_iter)
                         active_futures.add(executor.submit(self.process_item, idx))
-                        time.sleep(0.5)  # Stagger workers to avoid burst 429
                     except StopIteration:
                         break
-
-                # Continuous bounded worker pipeline
-                while active_futures and not self.stop_event.is_set():
-                    done, active_futures = wait(active_futures, return_when=FIRST_COMPLETED)
-                    for f in done:
-                        try:
-                            f.result()
-                        except Exception as e:
-                            logger.error(f"Worker exception: {e}")
-
-                    # Replenish finished worker slots
-                    while len(active_futures) < self.max_workers and not self.stop_event.is_set():
-                        try:
-                            idx = next(pending_iter)
-                            active_futures.add(executor.submit(self.process_item, idx))
-                        except StopIteration:
-                            break
         except KeyboardInterrupt:
             logger.warning("\n⚠️ Proses dihentikan oleh pengguna (Ctrl+C). Menyimpan progress terakhir...")
+            self.stop_event.set()
+            for f in active_futures:
+                f.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            try:
+                concurrent.futures.thread._threads_queues.clear()
+            except Exception:
+                pass
         finally:
             self.excel_mgr.flush()
+            if not self.stop_event.is_set():
+                executor.shutdown(wait=True)
 
         # Generate CSV report containing ONLY IDPels processed during this session
         try:
