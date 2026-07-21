@@ -1066,7 +1066,10 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    _any_resubmit = args.resubmit_reject or args.resubmit_open or args.resubmit_reopen
+    _any_resubmit = args.resubmit_reject or args.resubmit_open or args.resubmit_reopen or args.resubmit_all
+    if _any_resubmit:
+        _cek_state["enabled"] = False
+
     if not items and not _any_resubmit:
         print("❌ Tidak ada item untuk diproses.")
         sys.exit(1)
@@ -1092,11 +1095,11 @@ def main():
     if args.resubmit_all:
         print("♻️  Mode: RESUBMIT-ALL (submit ulang semua walau sudah tercatat — betulin region)")
     if args.resubmit_reject:
-        print("🩹 Mode: RESUBMIT-REJECT (perbaiki data REJECT ke assignment yang SAMA — tidak dobel)")
+        print("🩹 Mode: RESUBMIT-REJECT (perbaiki data REJECT — CEK IDPel otomatis diskip)")
     if args.resubmit_open:
-        print("📂 Mode: RESUBMIT-OPEN (submit data OPEN belum dibuka ke assignment yang SAMA — tidak dobel)")
+        print("📂 Mode: RESUBMIT-OPEN (submit data OPEN — CEK IDPel otomatis diskip)")
     if args.resubmit_reopen:
-        print("📂 Mode: RESUBMIT-REOPEN (submit data OPEN pernah dibuka ke assignment yang SAMA — tidak dobel)")
+        print("📂 Mode: RESUBMIT-REOPEN (submit data OPEN/PERNAH DIBUKA — CEK IDPel otomatis diskip)")
     if args.no_cek:
         print("⏭️  Mode: NO-CEK (skip CEK IDPel/NIK — data tetap terdata via paradata)")
         print("   ⚠️  Tanpa CEK, guard anti-dupe mati. Pakai list yang SUDAH difilter (belum saja).")
