@@ -938,7 +938,12 @@ def manage_accounts_interactive(users_file: str = "users.json"):
         else:
             print(f"📋 Total {len(mgr.accounts)} akun terdaftar:")
             for idx, acc in enumerate(mgr.accounts, 1):
-                status_str = "❌ Limit" if acc.get("used_today", 0) >= acc.get("daily_quota", 400) else "✅ Active"
+                if acc.get("is_disabled"):
+                    status_str = "❌ Disabled"
+                elif acc.get("used_today", 0) >= acc.get("daily_quota", 400):
+                    status_str = "❌ Limit"
+                else:
+                    status_str = "✅ Active"
                 email = acc.get("email") or "Unknown"
                 used = acc.get("used_today", 0)
                 quota = acc.get("daily_quota", 400)
@@ -946,7 +951,7 @@ def manage_accounts_interactive(users_file: str = "users.json"):
 
         print("-" * 60)
         print("  [1] ➕ Tambah Akun BPS Baru (Email & Password)")
-        print("  [2] 🔑 Test Login SSO Semua Akun")
+        print("  [2] 🔑 Test Login & Validasi Tugas Semua Akun (Auto-Disable Akun Kosong)")
         print("  [3] 🗑️ Hapus Akun BPS")
         print("  [0] 🔙 Kembali ke Menu Utama")
         print("=" * 60)
@@ -979,7 +984,8 @@ def manage_accounts_interactive(users_file: str = "users.json"):
                     if existing:
                         existing["password"] = password
                         existing["token_data"] = td
-                        print(f"ℹ️ Password & Token untuk {email} telah diperbarui.")
+                        existing["is_disabled"] = False
+                        print(f"ℹ️ Password & Token untuk {email} telah diperbarui (akun diaktifkan).")
                     else:
                         today = datetime.date.today().isoformat()
                         mgr.accounts.append({
@@ -988,7 +994,8 @@ def manage_accounts_interactive(users_file: str = "users.json"):
                             "token_data": td,
                             "daily_quota": 400,
                             "used_today": 0,
-                            "last_date": today
+                            "last_date": today,
+                            "is_disabled": False
                         })
                         print(f"✅ Akun {email} berhasil ditambahkan ke {users_file}!")
                     mgr.save_accounts()
@@ -998,7 +1005,7 @@ def manage_accounts_interactive(users_file: str = "users.json"):
                 print(f"❌ Error saat login SSO: {e}")
 
         elif choice == "2":
-            print("\n🔑 Memeriksa & Test Login SSO Semua Akun:")
+            print("\n🔑 Memeriksa, Test Login, & Validasi Tugas Semua Akun:")
             if not mgr.accounts:
                 print("⚠️ Tidak ada akun di users.json untuk di-test.")
                 continue
@@ -1006,20 +1013,37 @@ def manage_accounts_interactive(users_file: str = "users.json"):
                 email = acc.get("email")
                 pwd = acc.get("password")
                 if email and pwd:
-                    print(f"   [{idx}/{len(mgr.accounts)}] Login {email}...")
+                    print(f"   [{idx}/{len(mgr.accounts)}] Memeriksa {email}...")
                     try:
                         td = perform_login(email, pwd, exit_on_failure=False)
                         if td and "access_token" in td:
                             acc["token_data"] = td
-                            print(f"       ✅ SUCCESS")
+                            headers = get_headers(td)
+                            surveys = fetch_surveys(headers)
+                            active_surveys_cnt = 0
+                            total_assigns = 0
+                            for s in surveys:
+                                active_p = next((p for p in s.get("listPeriode", []) if p.get("isActive")), None)
+                                if active_p:
+                                    active_surveys_cnt += 1
+                                    assigns = fetch_all_assignments(headers, active_p["id"])
+                                    total_assigns += len(assigns)
+                            if active_surveys_cnt == 0 or total_assigns == 0:
+                                acc["is_disabled"] = True
+                                print(f"       ❌ DISABLED (0 tugas survey aktif)")
+                            else:
+                                acc["is_disabled"] = False
+                                print(f"       ✅ ACTIVE ({active_surveys_cnt} survey aktif, {total_assigns} tugas)")
                         else:
-                            print(f"       ❌ FAILED")
+                            acc["is_disabled"] = True
+                            print(f"       ❌ DISABLED (Login SSO Gagal)")
                     except Exception as e:
-                        print(f"       ❌ ERROR: {e}")
+                        acc["is_disabled"] = True
+                        print(f"       ❌ ERROR: {e} -> Akun dinonaktifkan sementara")
                 else:
                     print(f"   [{idx}/{len(mgr.accounts)}] {email} (tanpa password tersimpan)")
             mgr.save_accounts()
-            print("✅ Verifikasi selesai.")
+            print("✅ Verifikasi dan pemfilteran selesai. Hasil disimpan ke users.json.")
 
         elif choice == "3":
             if not mgr.accounts:
