@@ -194,6 +194,36 @@ class AccountManager:
                     break
             self.save_accounts()
 
+    def sync_usage_from_excel(self, df: pd.DataFrame):
+        """Automatically synchronize used_today counts for all accounts based on Excel Master data for today."""
+        with _quota_lock:
+            today = datetime.date.today().isoformat()
+            counts = {}
+            if df is not None and "BOT_STATUS" in df.columns and "BOT_PETUGAS" in df.columns:
+                for _, row in df.iterrows():
+                    st = str(row.get("BOT_STATUS", "")).upper()
+                    p = str(row.get("BOT_PETUGAS", "")).strip().lower()
+                    ts = str(row.get("BOT_TIMESTAMP", ""))
+                    if st == "SUCCESS" and p:
+                        if ts.startswith(today) or not ts:
+                            counts[p] = counts.get(p, 0) + 1
+
+            synced_any = False
+            for acc in self.accounts:
+                email = str(acc.get("email", "")).strip().lower()
+                if acc.get("last_date") != today:
+                    acc["last_date"] = today
+                    acc["used_today"] = counts.get(email, 0)
+                    synced_any = True
+                else:
+                    actual = counts.get(email, 0)
+                    if actual > acc.get("used_today", 0):
+                        acc["used_today"] = actual
+                        synced_any = True
+
+            if synced_any:
+                self.save_accounts()
+
     def mark_quota_exhausted(self, email: str):
         """Mark account as quota exhausted for the day when BPS returns 429/limit error."""
         with _quota_lock:
@@ -263,9 +293,35 @@ class ExcelQueueManager:
         self.df["BOT_STATUS"] = self.df["BOT_STATUS"].fillna("PENDING")
         self.df["BOT_RETRY"] = self.df["BOT_RETRY"].fillna(0).astype(int)
 
+        self._apply_checkpoint_if_exists()
+
         self._unsaved_count = 0
         self._last_save_time = time.time()
         logger.info(f"Excel loaded: {len(self.df)} rows | IDPel Col: '{self.idpel_col}' | Lat/Lon: '{self.lat_col}'/'{self.lon_col}' | Keperluan: '{self.keperluan_col}'")
+
+    def _apply_checkpoint_if_exists(self):
+        """Apply any un-flushed progress from checkpoint CSV file on load."""
+        ckpt_path = self.excel_path + ".checkpoint.csv"
+        if os.path.exists(ckpt_path):
+            try:
+                ckpt_df = pd.read_csv(ckpt_path)
+                applied_cnt = 0
+                for _, row in ckpt_df.iterrows():
+                    try:
+                        idx = int(row["index"])
+                        if 0 <= idx < len(self.df):
+                            self.df.at[idx, "BOT_STATUS"] = str(row["status"])
+                            self.df.at[idx, "BOT_RETRY"] = int(row["retry_count"])
+                            self.df.at[idx, "BOT_PETUGAS"] = str(row["user_email"])
+                            self.df.at[idx, "BOT_CATATAN"] = str(row["catatan"])
+                            self.df.at[idx, "BOT_TIMESTAMP"] = str(row["timestamp"])
+                            applied_cnt += 1
+                    except Exception:
+                        pass
+                if applied_cnt > 0:
+                    logger.info(f"🔄 Checkpoint recovery: Applied {applied_cnt} recent updates from checkpoint log.")
+            except Exception as e:
+                logger.warning(f"Failed loading checkpoint file {ckpt_path}: {e}")
 
     def update_row(self, index: int, status: str, retry_count: int, user_email: str, catatan: str, force_save: bool = False):
         """Thread-safe update of a single row in memory with instant non-blocking checkpointing."""
@@ -406,6 +462,7 @@ class AutonomousRunner:
     ):
         self.excel_mgr = ExcelQueueManager(excel_path)
         self.account_mgr = AccountManager(users_file)
+        self.account_mgr.sync_usage_from_excel(self.excel_mgr.df)
         self.max_workers = max_workers
         self.mode_args = mode_args or {}
         self.account_start = account_start
@@ -877,6 +934,11 @@ def interactive_main_menu(args):
                 continue
 
             mgr = AccountManager(args.users_file)
+            try:
+                excel_mgr_temp = ExcelQueueManager(excel_path)
+                mgr.sync_usage_from_excel(excel_mgr_temp.df)
+            except Exception:
+                pass
             total_accs = len(mgr.accounts)
 
             print("\n" + "=" * 65)
