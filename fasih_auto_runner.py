@@ -209,12 +209,12 @@ class ExcelQueueManager:
 
         # Detect columns
         for c in cols:
-            cu = str(c).upper()
+            cu = str(c).upper().strip()
             if not self.idpel_col and any(k in cu for k in ["IDPEL", "NO_PELANGGAN", "ID_PEL", "ID PELANGGAN"]):
                 self.idpel_col = c
-            if not self.lat_col and any(k in cu for k in ["LATITUDE", "LAT", "KOORDINAT_LAT"]):
+            if not self.lat_col and any(k in cu for k in ["LATITUDE", "KOORDINAT_Y", "KOORDINAT Y", "KOORD_Y", "KOORD Y", "LAT_Y", "LATITUDE_Y", "LAT", "KOORDINAT_LAT", "Y_KOORDINAT"]):
                 self.lat_col = c
-            if not self.lon_col and any(k in cu for k in ["LONGITUDE", "LON", "KOORDINAT_LON"]):
+            if not self.lon_col and any(k in cu for k in ["LONGITUDE", "KOORDINAT_X", "KOORDINAT X", "KOORD_X", "KOORD X", "LON_X", "LONGITUDE_X", "LON", "LONG", "KOORDINAT_LON", "X_KOORDINAT"]):
                 self.lon_col = c
             if not self.keperluan_col and any(k in cu for k in ["KET_KEPERLUAN", "KEPERLUAN", "KD_KEPERLUAN"]):
                 self.keperluan_col = c
