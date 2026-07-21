@@ -543,9 +543,237 @@ class AutonomousRunner:
         logger.info("🎉 EKSEKUSI BOT SELESAI. Semua progress tersimpan di Excel Master.")
 
 
+def scan_excel_files(search_dir: str = ".") -> List[str]:
+    """Scan current working directory for Excel files (.xlsx, .xls)."""
+    files = []
+    try:
+        for f in os.listdir(search_dir):
+            if f.endswith((".xlsx", ".xls")) and not f.startswith("~$") and not f.startswith("batch_report_"):
+                files.append(f)
+    except Exception:
+        pass
+    files.sort()
+    return files
+
+
+def manage_accounts_interactive(users_file: str = "users.json"):
+    """Interactive menu for managing BPS accounts in users.json."""
+    mgr = AccountManager(users_file)
+    while True:
+        print("\n" + "=" * 60)
+        print("👤 KELOLA AKUN BPS (users.json)")
+        print("=" * 60)
+        if not mgr.accounts:
+            print("⚠️ Belum ada akun di users.json (menggunakan fallback fasih_token.json jika ada).")
+        else:
+            print(f"📋 Total {len(mgr.accounts)} akun terdaftar:")
+            for idx, acc in enumerate(mgr.accounts, 1):
+                status_str = "❌ Limit" if acc.get("used_today", 0) >= acc.get("daily_quota", 300) else "✅ Active"
+                email = acc.get("email") or "Unknown"
+                used = acc.get("used_today", 0)
+                quota = acc.get("daily_quota", 300)
+                print(f"   {idx}. {email} [{status_str}] (Kuota terpakai: {used}/{quota})")
+
+        print("-" * 60)
+        print("  [1] ➕ Tambah Akun BPS Baru (Email & Password)")
+        print("  [2] 🔑 Test Login SSO Semua Akun")
+        print("  [3] 🗑️ Hapus Akun BPS")
+        print("  [0] 🔙 Kembali ke Menu Utama")
+        print("=" * 60)
+
+        choice = input("Pilih menu (0-3): ").strip()
+        if choice == "0":
+            break
+        elif choice == "1":
+            print("\n➕ Tambah Akun BPS Baru:")
+            email = input("  Email BPS SSO   : ").strip()
+            if not email:
+                print("❌ Email tidak boleh kosong!")
+                continue
+            import getpass
+            try:
+                password = getpass.getpass("  Password BPS SSO: ").strip()
+            except Exception:
+                password = input("  Password BPS SSO: ").strip()
+
+            if not password:
+                print("❌ Password tidak boleh kosong!")
+                continue
+
+            print(f"\n🔄 Menghubungi SSO BPS untuk memverifikasi akun {email}...")
+            try:
+                td = perform_login(email, password, exit_on_failure=False)
+                if td and "access_token" in td:
+                    print(f"✅ Login SSO BERHASIL untuk {email}!")
+                    existing = next((a for a in mgr.accounts if a.get("email") == email), None)
+                    if existing:
+                        existing["password"] = password
+                        existing["token_data"] = td
+                        print(f"ℹ️ Password & Token untuk {email} telah diperbarui.")
+                    else:
+                        today = datetime.date.today().isoformat()
+                        mgr.accounts.append({
+                            "email": email,
+                            "password": password,
+                            "token_data": td,
+                            "daily_quota": 300,
+                            "used_today": 0,
+                            "last_date": today
+                        })
+                        print(f"✅ Akun {email} berhasil ditambahkan ke {users_file}!")
+                    mgr.save_accounts()
+                else:
+                    print(f"❌ Login SSO gagal untuk {email}. Periksa kembali email & password.")
+            except Exception as e:
+                print(f"❌ Error saat login SSO: {e}")
+
+        elif choice == "2":
+            print("\n🔑 Memeriksa & Test Login SSO Semua Akun:")
+            if not mgr.accounts:
+                print("⚠️ Tidak ada akun di users.json untuk di-test.")
+                continue
+            for idx, acc in enumerate(mgr.accounts, 1):
+                email = acc.get("email")
+                pwd = acc.get("password")
+                if email and pwd:
+                    print(f"   [{idx}/{len(mgr.accounts)}] Login {email}...")
+                    try:
+                        td = perform_login(email, pwd, exit_on_failure=False)
+                        if td and "access_token" in td:
+                            acc["token_data"] = td
+                            print(f"       ✅ SUCCESS")
+                        else:
+                            print(f"       ❌ FAILED")
+                    except Exception as e:
+                        print(f"       ❌ ERROR: {e}")
+                else:
+                    print(f"   [{idx}/{len(mgr.accounts)}] {email} (tanpa password tersimpan)")
+            mgr.save_accounts()
+            print("✅ Verifikasi selesai.")
+
+        elif choice == "3":
+            if not mgr.accounts:
+                print("❌ Tidak ada akun untuk dihapus.")
+                continue
+            idx_str = input(f"Masukkan nomor akun yang ingin dihapus (1-{len(mgr.accounts)}): ").strip()
+            if idx_str.isdigit():
+                idx_val = int(idx_str)
+                if 1 <= idx_val <= len(mgr.accounts):
+                    removed = mgr.accounts.pop(idx_val - 1)
+                    mgr.save_accounts()
+                    print(f"✅ Akun {removed.get('email')} berhasil dihapus.")
+                else:
+                    print("❌ Nomor akun tidak valid.")
+
+
+def select_excel_interactive() -> Optional[str]:
+    """Interactively scan and list Excel files in current working directory."""
+    excel_files = scan_excel_files(".")
+    print("\n" + "=" * 60)
+    print("📂 PILIH FILE MASTER EXCEL")
+    print("=" * 60)
+    if excel_files:
+        print("Ditemukan file Excel di folder ini:")
+        for idx, f in enumerate(excel_files, 1):
+            size_mb = os.path.getsize(f) / (1024 * 1024)
+            print(f"   [{idx}] {f} ({size_mb:.2f} MB)")
+        print("   [0] Input path file manual")
+        print("-" * 60)
+        choice = input(f"Pilih file (1-{len(excel_files)} / 0): ").strip()
+        if choice.isdigit():
+            c_val = int(choice)
+            if 1 <= c_val <= len(excel_files):
+                return excel_files[c_val - 1]
+            elif c_val == 0:
+                manual_path = input("Masukkan path file Excel: ").strip().strip('"').strip("'")
+                if os.path.exists(manual_path):
+                    return manual_path
+                else:
+                    print(f"❌ File '{manual_path}' tidak ditemukan.")
+                    return None
+    else:
+        print("⚠️ Tidak ditemukan file Excel (.xlsx/.xls) di folder ini.")
+        manual_path = input("Masukkan path file Excel: ").strip().strip('"').strip("'")
+        if os.path.exists(manual_path):
+            return manual_path
+        else:
+            print(f"❌ File '{manual_path}' tidak ditemukan.")
+            return None
+    return None
+
+
+def interactive_main_menu(args):
+    """Interactive CLI Main Menu for fasih-auto-runner."""
+    while True:
+        print("\n" + "=" * 60)
+        print("🤖 FASIH AUTONOMOUS RUNNER — INTERACTIVE MENU")
+        print("=" * 60)
+        print("  [1] 🚀 Jalankan Auto Runner (Pilih File Excel & Akun BPS)")
+        print("  [2] 👤 Kelola Akun BPS (Tambah / Lihat / Hapus Akun di users.json)")
+        print("  [3] ⚙️ Pengaturan Mode Submit (Reject / Open / Reopen / Skip Cek IDPel)")
+        print("  [0] ❌ Keluar")
+        print("=" * 60)
+
+        c = input("Pilih menu (0-3): ").strip()
+        if c == "0":
+            print("👋 Bye!")
+            sys.exit(0)
+        elif c == "2":
+            manage_accounts_interactive(args.users_file)
+        elif c == "3":
+            while True:
+                print("\n" + "-" * 50)
+                print("⚙️ PENGATURAN MODE SUBMIT:")
+                print(f"  1. Skip Cek IDPel (--no-cek)          : {'✅ ON' if args.skip_cek_idpln else '❌ OFF'}")
+                print(f"  2. Resubmit Reject (--resubmit-reject) : {'✅ ON' if args.resubmit_reject else '❌ OFF'}")
+                print(f"  3. Resubmit Open (--resubmit-open)     : {'✅ ON' if args.resubmit_open else '❌ OFF'}")
+                print(f"  4. Resubmit Reopen (--resubmit-reopen) : {'✅ ON' if args.resubmit_reopen else '❌ OFF'}")
+                print("  0. 🔙 Kembali ke Menu Utama")
+                print("-" * 50)
+                sub_c = input("Pilih nomor mode untuk toggle ON/OFF (0 untuk kembali): ").strip()
+                if sub_c == "0":
+                    break
+                elif sub_c == "1":
+                    args.skip_cek_idpln = not args.skip_cek_idpln
+                elif sub_c == "2":
+                    args.resubmit_reject = not args.resubmit_reject
+                elif sub_c == "3":
+                    args.resubmit_open = not args.resubmit_open
+                elif sub_c == "4":
+                    args.resubmit_reopen = not args.resubmit_reopen
+        elif c == "1":
+            excel_path = select_excel_interactive()
+            if not excel_path:
+                continue
+
+            workers_input = input(f"Masukkan jumlah paralel worker (default {args.workers}): ").strip()
+            max_workers = int(workers_input) if workers_input.isdigit() and int(workers_input) > 0 else args.workers
+
+            mode_args = {
+                "resubmit_reject": args.resubmit_reject,
+                "resubmit_open": args.resubmit_open,
+                "resubmit_reopen": args.resubmit_reopen,
+                "skip_cek_idpln": args.skip_cek_idpln,
+                "dry_run": args.dry_run
+            }
+
+            runner = AutonomousRunner(
+                excel_path=excel_path,
+                users_file=args.users_file,
+                max_workers=max_workers,
+                mode_args=mode_args
+            )
+            runner.run(
+                start_row=args.start_row,
+                start_idpel=args.start_idpel,
+                non_interactive=False
+            )
+            break
+
+
 def main():
     parser = argparse.ArgumentParser(description="Autonomous Multi-Account Batch Processor for BPS FASIH")
-    parser.add_argument("--excel", required=True, help="Path file Master Excel (.xlsx)")
+    parser.add_argument("--excel", help="Path file Master Excel (.xlsx)")
     parser.add_argument("--users-file", default="users.json", help="Path file akun BPS (default: users.json)")
     parser.add_argument("--workers", type=int, default=20, help="Jumlah paralel worker (default: 20)")
     parser.add_argument("--start-row", type=int, help="Mulai dari nomor baris Excel tertentu (misal: 1500)")
@@ -566,6 +794,13 @@ def main():
         "skip_cek_idpln": args.skip_cek_idpln,
         "dry_run": args.dry_run
     }
+
+    if not args.excel and not args.non_interactive:
+        interactive_main_menu(args)
+        return
+
+    if not args.excel:
+        parser.error("Argument --excel diperlukan saat menggunakan --non-interactive.")
 
     runner = AutonomousRunner(
         excel_path=args.excel,
