@@ -437,13 +437,10 @@ class ExcelQueueManager:
                 except Exception:
                     pass
 
-    def get_pending_items(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None) -> List[Tuple[int, Dict[str, Any]]]:
-        """Get list of (index, row_dict) for rows that need processing."""
+    def get_pending_indices(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None) -> List[int]:
+        """Get list of row indices that need processing (instant <1ms)."""
         with _excel_lock:
-            pending = []
             target_start_idx = 0
-
-            # Resolve start_idpel row index if specified
             if start_idpel:
                 idpel_clean = str(start_idpel).strip()
                 matches = self.df[self.df[self.idpel_col].astype(str).str.strip() == idpel_clean]
@@ -452,10 +449,7 @@ class ExcelQueueManager:
                     logger.info(f"📍 Menemukan Start IDPel '{idpel_clean}' pada baris Excel #{target_start_idx + 2}")
                 else:
                     logger.warning(f"⚠️ Start IDPel '{idpel_clean}' tidak ditemukan di Excel. Mulai dari awal.")
-
-            # Resolve start_row if specified (converting 1-indexed Excel row to 0-indexed DataFrame index)
             elif start_row is not None and start_row > 0:
-                # Excel row 1 is header, so Excel row 2 is df index 0
                 target_start_idx = max(0, start_row - 2)
                 logger.info(f"📍 Menyetel baris awal eksekusi dari baris Excel #{start_row} (DF index {target_start_idx})")
 
@@ -464,24 +458,19 @@ class ExcelQueueManager:
             if target_start_idx > 0:
                 mask.iloc[:target_start_idx] = False
 
-            filtered_indices = self.df.index[mask].tolist()
-            idpels = self.df.loc[mask, self.idpel_col].fillna("").astype(str).str.strip().tolist()
-            lats = self.df.loc[mask, self.lat_col].tolist() if self.lat_col else [None] * len(filtered_indices)
-            lons = self.df.loc[mask, self.lon_col].tolist() if self.lon_col else [None] * len(filtered_indices)
-            keperluans = self.df.loc[mask, self.keperluan_col].fillna("").astype(str).str.strip().tolist() if self.keperluan_col else [""] * len(filtered_indices)
-            retries = self.df.loc[mask, "BOT_RETRY"].fillna(0).astype(int).tolist()
+            return self.df.index[mask].tolist()
 
-            for i in range(len(filtered_indices)):
-                idx = filtered_indices[i]
-                item = {
-                    "idpel": idpels[i],
-                    "lat": lats[i],
-                    "lon": lons[i],
-                    "keperluan": keperluans[i],
-                    "retry_count": retries[i],
-                }
-                pending.append((idx, item))
-            return pending
+    def get_item(self, idx: int) -> dict:
+        """Fetch item dict lazily on demand for a single row index."""
+        with _excel_lock:
+            row = self.df.iloc[idx]
+            return {
+                "idpel": str(row.get(self.idpel_col) or "").strip(),
+                "lat": row.get(self.lat_col) if self.lat_col else None,
+                "lon": row.get(self.lon_col) if self.lon_col else None,
+                "keperluan": str(row.get(self.keperluan_col) or "").strip() if self.keperluan_col else "",
+                "retry_count": int(row.get("BOT_RETRY", 0)),
+            }
 
 
 class AutonomousRunner:
@@ -545,10 +534,13 @@ class AutonomousRunner:
             self.user_caches[email] = sc
             return sc
 
-    def process_item(self, idx: int, item: dict):
+    def process_item(self, idx: int, item: Optional[dict] = None):
         """Worker task for processing a single IDPel item."""
         if self.stop_event.is_set():
             return
+
+        if item is None:
+            item = self.excel_mgr.get_item(idx)
 
         idpel = item["idpel"]
         retry_count = item["retry_count"]
@@ -700,10 +692,10 @@ class AutonomousRunner:
             start_row, start_idpel = self.prompt_interactive_start()
 
         logger.info(f"⚡ MEMULAI AUTONOMOUS RUNNER — Workers: {self.max_workers}")
-        pending_items = self.excel_mgr.get_pending_items(start_row=start_row, start_idpel=start_idpel)
-        logger.info(f"📋 Total IDPel pending yang akan diproses: {len(pending_items)}")
+        pending_indices = self.excel_mgr.get_pending_indices(start_row=start_row, start_idpel=start_idpel)
+        logger.info(f"📋 Total IDPel pending yang akan diproses: {len(pending_indices)}")
 
-        if not pending_items:
+        if not pending_indices:
             logger.info("✅ Semua IDPel di Excel sudah diproses (STATUS = SUCCESS / FAILED).")
             return
 
@@ -711,13 +703,13 @@ class AutonomousRunner:
             from concurrent.futures import wait, FIRST_COMPLETED
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 active_futures = set()
-                pending_iter = iter(pending_items)
+                pending_iter = iter(pending_indices)
 
                 # Prime pool with up to max_workers active tasks
                 while len(active_futures) < self.max_workers and not self.stop_event.is_set():
                     try:
-                        idx, item = next(pending_iter)
-                        active_futures.add(executor.submit(self.process_item, idx, item))
+                        idx = next(pending_iter)
+                        active_futures.add(executor.submit(self.process_item, idx))
                     except StopIteration:
                         break
 
@@ -733,8 +725,8 @@ class AutonomousRunner:
                     # Replenish finished worker slots
                     while len(active_futures) < self.max_workers and not self.stop_event.is_set():
                         try:
-                            idx, item = next(pending_iter)
-                            active_futures.add(executor.submit(self.process_item, idx, item))
+                            idx = next(pending_iter)
+                            active_futures.add(executor.submit(self.process_item, idx))
                         except StopIteration:
                             break
         except KeyboardInterrupt:
