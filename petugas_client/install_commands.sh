@@ -119,6 +119,24 @@ OUTER
 sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-resubmit-reject" 2>/dev/null || \
   sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-resubmit-reject"
 
+# fasih-resubmit-open: direct shortcut to auto-submit OPEN/PERNAH DIBUKA assignments
+cat > "$BIN/fasih-resubmit-open" << 'OUTER'
+#!/bin/bash
+cd "REPO_PLACEHOLDER"
+python3 petugas_client/batch_submit.py --resubmit-open "$@"
+OUTER
+sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-resubmit-open" 2>/dev/null || \
+  sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-resubmit-open"
+
+# fasih-resubmit-reopen: direct shortcut to auto-submit OPEN/PERNAH DIBUKA assignments
+cat > "$BIN/fasih-resubmit-reopen" << 'OUTER'
+#!/bin/bash
+cd "REPO_PLACEHOLDER"
+python3 petugas_client/batch_submit.py --resubmit-reopen "$@"
+OUTER
+sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-resubmit-reopen" 2>/dev/null || \
+  sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-resubmit-reopen"
+
 # fasih-reregister: paste mode + --force (submit ulang record lama yang belum tercatat)
 cat > "$BIN/fasih-reregister" << 'OUTER'
 #!/bin/bash
