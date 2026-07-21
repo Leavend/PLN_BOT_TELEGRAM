@@ -193,8 +193,6 @@ class AccountManager:
                 end_idx = account_end if (account_end is not None and account_end > 0) else len(self.accounts)
                 subset = self.accounts[start_idx:end_idx]
 
-            now = time.time()
-            all_quota_full = True
             for acc in subset:
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
@@ -205,11 +203,6 @@ class AccountManager:
                 used = acc.get("used_today", 0)
                 quota = acc.get("daily_quota", 400)
                 if used < quota:
-                    all_quota_full = False
-                    # Skip accounts currently in 429 temporary cooldown
-                    if acc.get("cooldown_until") and now < acc["cooldown_until"]:
-                        continue
-
                     # Auto login check if token is missing
                     if not acc.get("token_data") and acc.get("email") and acc.get("password"):
                         try:
@@ -221,9 +214,7 @@ class AccountManager:
                     if acc.get("token_data"):
                         return acc
 
-            if all_quota_full:
-                return None  # All selected accounts really reached 400/400 daily quota
-            return "IN_COOLDOWN"  # Accounts are still valid, but temporarily cooling down from 429
+            return None  # All selected accounts really reached 400/400 daily quota
 
     def increment_usage(self, email: str):
         """Increment daily usage for account after successful submit."""
@@ -267,18 +258,13 @@ class AccountManager:
                 self.save_accounts()
 
     def mark_quota_exhausted(self, email: str):
-        """Mark account as quota exhausted ONLY if actual usage reached daily quota or confirmed exhausted."""
+        """Mark account as daily quota exhausted (400/400) when rate limited or quota limit reached."""
         with _quota_lock:
             for acc in self.accounts:
                 if (acc.get("email") or "").lower() == email.lower():
-                    used = acc.get("used_today", 0)
                     quota = acc.get("daily_quota", 400)
-                    if used >= quota:
-                        acc["used_today"] = quota
-                        logger.warning(f"⛔ Akun {email} ditandai KUOTA HARIAN HABIS ({used}/{quota}).")
-                    else:
-                        acc["cooldown_until"] = time.time() + 60
-                        logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit (Terpakai: {used}/{quota}). Dimasukkan ke cooldown sementara 60 detik.")
+                    acc["used_today"] = quota
+                    logger.warning(f"⛔ Akun {email} resmi ditandai KUOTA HARIAN HABIS ({quota}/{quota}).")
                     break
             self.save_accounts()
 
@@ -595,23 +581,14 @@ class AutonomousRunner:
             return
 
         # Acquire an available user account within specified range or selected email list
-        acc = None
-        for _ in range(30):
-            if self.stop_event.is_set():
-                return
-            res = self.account_mgr.get_available_account(
-                account_start=self.account_start,
-                account_end=self.account_end,
-                selected_emails=self.selected_emails
-            )
-            if isinstance(res, dict):
-                acc = res
-                break
-            elif res == "IN_COOLDOWN":
-                logger.info(f"⏳ Akun BPS sedang dalam cooldown 429 rate-limit sementara. Menunggu 5 detik...")
-                time.sleep(5.0)
-            else:
-                break
+        if self.stop_event.is_set():
+            return
+
+        acc = self.account_mgr.get_available_account(
+            account_start=self.account_start,
+            account_end=self.account_end,
+            selected_emails=self.selected_emails
+        )
 
         if not acc:
             if not self.stop_event.is_set():
