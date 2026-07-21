@@ -552,6 +552,9 @@ class AutonomousRunner:
         self.stop_event = threading.Event()
         self.processed_indices = set()
         self._processed_lock = threading.Lock()
+        # Per-account semaphore: max 3 concurrent BPS API calls per account to avoid burst 429
+        self._account_semaphores: Dict[str, threading.Semaphore] = {}
+        self._sem_lock = threading.Lock()
 
     def _get_user_caches(self, token_data: dict, email: str) -> dict:
         """Load or build survey caches for a specific BPS user account."""
@@ -663,16 +666,26 @@ class AutonomousRunner:
             else:
                 logger.info(f"🚀 [Worker] Processing {idpel} via {email} (Attempt 1/{max_pln_attempts})...")
 
-            ok, msg = submit_single(
-                token_data=token_data,
-                val=idpel,
-                survey_caches=sc,
-                dry_run=dry_run,
-                resubmit_reject=resubmit_reject,
-                resubmit_open=resubmit_open,
-                resubmit_reopen=resubmit_reopen,
-                skip_cek_idpln=self.mode_args.get("skip_cek_idpln", False)
-            )
+            # Acquire per-account semaphore to limit concurrent BPS API calls
+            with self._sem_lock:
+                if email not in self._account_semaphores:
+                    self._account_semaphores[email] = threading.Semaphore(3)
+            sem = self._account_semaphores[email]
+
+            sem.acquire()
+            try:
+                ok, msg = submit_single(
+                    token_data=token_data,
+                    val=idpel,
+                    survey_caches=sc,
+                    dry_run=dry_run,
+                    resubmit_reject=resubmit_reject,
+                    resubmit_open=resubmit_open,
+                    resubmit_reopen=resubmit_reopen,
+                    skip_cek_idpln=self.mode_args.get("skip_cek_idpln", False)
+                )
+            finally:
+                sem.release()
 
             with self._processed_lock:
                 self.processed_indices.add(idx)
