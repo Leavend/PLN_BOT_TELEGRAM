@@ -607,58 +607,78 @@ class AutonomousRunner:
         resubmit_reopen = self.mode_args.get("resubmit_reopen", False)
         dry_run = self.mode_args.get("dry_run", False)
 
-        logger.info(f"🚀 [Worker] Processing {idpel} via {email} (Attempt {retry_count + 1})...")
-
-        ok, msg = submit_single(
-            token_data=token_data,
-            val=idpel,
-            survey_caches=sc,
-            dry_run=dry_run,
-            resubmit_reject=resubmit_reject,
-            resubmit_open=resubmit_open,
-            resubmit_reopen=resubmit_reopen,
-            skip_cek_idpln=self.mode_args.get("skip_cek_idpln", False)
-        )
-
-        with self._processed_lock:
-            self.processed_indices.add(idx)
-
-        if ok:
-            logger.info(f"✅ {idpel} SUCCESS via {email}: {msg}")
-            self.excel_mgr.update_row(idx, "SUCCESS", retry_count, email, msg)
-            self.account_mgr.increment_usage(email)
-        else:
-            msg_lower = msg.lower()
-            # Check if Non-Rumah Tangga tarif (S1T, B-1, I-1, etc.)
-            is_non_residential = "non-rumah tangga" in msg_lower or "hanya tarif tipe r" in msg_lower
-            # Check if BPS account limit / quota reached (429 / limit / quota error)
-            is_rate_limited = any(t in msg_lower for t in ["429", "quota", "limit", "too many requests"])
-            # Check if account has no assignment / sample in this region
-            is_no_assignment = any(t in msg_lower for t in ["belum memiliki sampel", "tidak memiliki assignment", "web monitoring bps"])
-
-            if is_non_residential:
-                logger.warning(f"🚫 {idpel} Tarif Non-Rumah Tangga via {email}: {msg}")
-                self.excel_mgr.update_row(idx, "NON_RESIDENTIAL", retry_count, email, msg)
-            elif is_rate_limited:
-                logger.warning(f"⏳ Akun {email} terkena Limit Kuota Harian BPS (429 Rate Limit). Otomatis beralih ke akun cadangan berikutnya...")
-                self.account_mgr.mark_quota_exhausted(email)
-                # Keep status as RETRYING so another available account picks it up immediately
-                self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Beralih Akun (Limit 429 BPS): {msg}")
-            elif is_no_assignment:
-                logger.error(f"⛔ Akun {email} tidak memiliki tugas/sampel BPS di wilayah ini! Otomatis beralih ke akun berikutnya...")
-                self.account_mgr.mark_quota_exhausted(email)
-                # Keep status as RETRYING so another available account picks it up immediately
-                self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Beralih Akun ({email} tidak ada tugas di wilayah ini)")
+        max_pln_attempts = 3
+        for attempt in range(1, max_pln_attempts + 1):
+            if attempt > 1:
+                logger.info(f"🔄 [Worker] Re-attempting {idpel} via {email} (Attempt {attempt}/{max_pln_attempts})...")
             else:
-                # Check if transient PLN error -> trigger 1 retry
-                is_transient = any(err in msg.lower() for err in ["pln tidak ditemukan", "terjangkau", "overload", "timeout", "500", "502", "504", "connection"])
-                if is_transient and retry_count < 1:
-                    logger.warning(f"⚠️ {idpel} Gangguan Sementara BPS/PLN: {msg}. Dibuat antrean Retry 1x...")
-                    self.excel_mgr.update_row(idx, "RETRYING", retry_count + 1, email, f"Retry 1x: {msg}")
+                logger.info(f"🚀 [Worker] Processing {idpel} via {email} (Attempt 1/{max_pln_attempts})...")
+
+            ok, msg = submit_single(
+                token_data=token_data,
+                val=idpel,
+                survey_caches=sc,
+                dry_run=dry_run,
+                resubmit_reject=resubmit_reject,
+                resubmit_open=resubmit_open,
+                resubmit_reopen=resubmit_reopen,
+                skip_cek_idpln=self.mode_args.get("skip_cek_idpln", False)
+            )
+
+            with self._processed_lock:
+                self.processed_indices.add(idx)
+
+            if ok:
+                logger.info(f"✅ {idpel} SUCCESS via {email}: {msg}")
+                self.excel_mgr.update_row(idx, "SUCCESS", retry_count + attempt - 1, email, msg)
+                self.account_mgr.increment_usage(email)
+                break
+            else:
+                msg_lower = msg.lower()
+                # Check if Non-Rumah Tangga tarif (S1T, B-1, I-1, etc.)
+                is_non_residential = "non-rumah tangga" in msg_lower or "hanya tarif tipe r" in msg_lower
+                # Check if BPS account limit / quota reached (429 / limit / quota error)
+                is_rate_limited = any(t in msg_lower for t in ["429", "quota", "limit", "too many requests"])
+                # Check if account has no assignment / sample in this region
+                is_no_assignment = any(t in msg_lower for t in ["belum memiliki sampel", "tidak memiliki assignment", "web monitoring bps"])
+                # Check if error is 'Region PLN tak lengkap (kd_kel kosong)' -> DO NOT RETRY
+                is_region_incomplete = any(err in msg_lower for err in ["region pln tak lengkap", "kd_kel kosong"])
+                # Check if error is 'Data PLN tidak ditemukan / server PLN tak terjangkau' -> RETRY UP TO 3X
+                is_pln_not_found = any(err in msg_lower for err in ["pln tidak ditemukan", "terjangkau", "tidak terjangkau", "overload", "timeout", "500", "502", "504", "connection"])
+
+                if is_non_residential:
+                    logger.warning(f"🚫 {idpel} Tarif Non-Rumah Tangga via {email}: {msg}")
+                    self.excel_mgr.update_row(idx, "NON_RESIDENTIAL", retry_count, email, msg)
+                    break
+                elif is_rate_limited:
+                    logger.warning(f"⏳ Akun {email} terkena Limit Kuota Harian BPS (429 Rate Limit). Otomatis beralih ke akun cadangan berikutnya...")
+                    self.account_mgr.mark_quota_exhausted(email)
+                    self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Beralih Akun (Limit 429 BPS): {msg}")
+                    break
+                elif is_no_assignment:
+                    logger.error(f"⛔ Akun {email} tidak memiliki tugas/sampel BPS di wilayah ini! Otomatis beralih ke akun berikutnya...")
+                    self.account_mgr.mark_quota_exhausted(email)
+                    self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Beralih Akun ({email} tidak ada tugas di wilayah ini)")
+                    break
+                elif is_region_incomplete:
+                    # ABAIKAN RETRY: Langsung FAILED_PLN & move ke task berikutnya
+                    logger.error(f"❌ {idpel} FAILED_PLN via {email}: {msg} (Dilewati tanpa retry — kd_kel kosong)")
+                    self.excel_mgr.update_row(idx, "FAILED_PLN", retry_count, email, msg)
+                    break
+                elif is_pln_not_found:
+                    if attempt < max_pln_attempts:
+                        logger.warning(f"⚠️ {idpel} Gangguan Sementara PLN (Coba {attempt}/{max_pln_attempts}): {msg} — mencoba ulang dalam 1 detik...")
+                        time.sleep(1.0)
+                        continue
+                    else:
+                        logger.error(f"❌ {idpel} FAILED_PLN via {email}: {msg} (Gagal setelah {max_pln_attempts}x percobaan — dilewati)")
+                        self.excel_mgr.update_row(idx, "FAILED_PLN", retry_count + attempt - 1, email, f"Gagal {max_pln_attempts}x retry: {msg}")
+                        break
                 else:
                     status_code = "FAILED_PLN" if "PLN" in msg else "FAILED"
                     logger.error(f"❌ {idpel} {status_code} via {email}: {msg}")
                     self.excel_mgr.update_row(idx, status_code, retry_count, email, msg)
+                    break
 
     def prompt_interactive_start(self) -> Tuple[Optional[int], Optional[str]]:
         """Interactive startup prompt to let user select start row or IDPel."""
