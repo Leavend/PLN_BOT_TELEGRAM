@@ -136,12 +136,19 @@ class AccountManager:
 
     def save_accounts(self):
         with _quota_lock:
+            tmp_path = self.users_file + ".tmp"
             try:
-                # Omit actual passwords if saving back, or keep safe
-                with open(self.users_file, "w") as f:
+                with open(tmp_path, "w") as f:
                     json.dump(self.accounts, f, indent=2)
+                if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+                    os.replace(tmp_path, self.users_file)
             except Exception as e:
                 logger.warning(f"Failed saving accounts to {self.users_file}: {e}")
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
 
     def get_available_account(
         self,
