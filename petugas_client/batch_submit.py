@@ -948,8 +948,20 @@ def submit_single(
 
     except Exception as e:
         msg = str(e)
+        # Handle Rate Limit (429) gracefully with a clear message for laypersons
+        if "429" in msg or "rate limit" in msg.lower() or "terlampaui" in msg.lower():
+            clean_msg = "⏳ Kuota Harian BPS Terlampaui (429 Rate Limit)"
+            import re
+            m = re.search(r'Coba lagi dalam [^.]+', msg)
+            if m:
+                clean_msg += f" ({m.group(0)})"
+            else:
+                clean_msg += ". Silakan tunggu reset kuota BPS."
+            logger.warning(f"Submit warning for {val}: {clean_msg}")
+            return False, clean_msg
+
         # Network hiccups (BPS slow/overloaded) are transient — log a clean line,
-        # not a full stack trace. Reserve the traceback for real/unexpected errors.
+        # not a full stack trace.
         if any(t in msg.lower() for t in ("user tidak memiliki assignment", "assignment reference not found")):
             return False, "❌ Akun BPS ini belum memiliki sampel/tugas dari BPS di wilayah ini. Admin BPS perlu menugaskan minimal 1 sampel ke akun ini di Web Monitoring BPS."
         if any(t in msg.lower() for t in ("timed out", "timeout", "max retries", "connection")):
@@ -960,17 +972,13 @@ def submit_single(
         # 0.6.7). This tool rebuilds a synthetic payload whose `answers` array differs, so
         # BPS rejects it with "Versi data tidak valid" — every observable submit field
         # (params/envelope/paradata/encryption/X-Device-Id) already matches the app.
-        # Fix needs the app's exact answer structure (capture one via tools/capture_7z.py,
-        # decrypt with tools/decrypt_app_7z.py, then align wrap_answers). Until then a
-        # reject can only be fixed inside the FASIH app itself.
-        logger.info(f"DEBUG: raw submit error message: {msg}")
         if (resubmit_reject or resubmit_open or resubmit_reopen) and "versi data tidak valid" in msg.lower():
             logger.error(f"Resubmit {val}: BPS tolak versi payload (limitasi diketahui).")
             return False, ("❌ BPS tolak update ('Versi data tidak valid') — struktur payload "
                            "reject belum disamakan ke app (butuh 1 sampel 7z app). Sementara: "
-                           "perbaiki reject ini lewat app FASIH. Lihat memory reject-resubmit-flow.")
-        logger.error(f"Submit error for {val}: {e}", exc_info=True)
-        return False, f"Error: {str(e)}"
+                           "perbaiki reject ini lewat app FASIH.")
+        logger.error(f"Submit error for {val}: {msg}")
+        return False, f"Error: {msg}"
 
 
 # --- Main ---
@@ -1351,7 +1359,7 @@ def main():
     if failed:
         print(f"\n❌ {len(failed)} ID GAGAL (+ alasan):")
         for r in failed:
-            print(f"   • {r['val']} — {r['message'][:90]}")
+            print(f"   • {r['val']} — {r['message']}")
         print(f"\n📋 Copy ID gagal (paste ulang buat coba lagi):")
         for r in failed:
             print(f"{r['val']}")
