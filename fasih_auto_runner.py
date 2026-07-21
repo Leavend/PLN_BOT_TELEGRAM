@@ -499,7 +499,7 @@ class ExcelQueueManager:
                 logger.info(f"📍 Menyetel baris awal eksekusi dari baris Excel #{start_row} (DF index {target_start_idx})")
 
             status_series = self.df["BOT_STATUS"].astype(str).str.upper()
-            mask = status_series.isin(["PENDING", "RETRYING"])
+            mask = ~status_series.isin(["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL"])
             if target_start_idx > 0:
                 mask.iloc[:target_start_idx] = False
 
@@ -727,7 +727,7 @@ class AutonomousRunner:
         """Interactive startup prompt to let user select start row or IDPel."""
         df = self.excel_mgr.df
         total_rows = len(df)
-        completed_cnt = sum(1 for status in df["BOT_STATUS"] if str(status).upper() in ["SUCCESS", "FAILED", "FAILED_PLN"])
+        completed_cnt = sum(1 for status in df["BOT_STATUS"] if str(status).upper() in ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL"])
         pending_cnt = total_rows - completed_cnt
 
         print("\n" + "=" * 65)
@@ -781,7 +781,7 @@ class AutonomousRunner:
         logger.info(f"📋 Total IDPel pending yang akan diproses: {len(pending_indices)}")
 
         if not pending_indices:
-            logger.info("✅ Semua IDPel di Excel sudah diproses (STATUS = SUCCESS / FAILED).")
+            logger.info("✅ Semua IDPel di Excel sudah diproses (STATUS = SUCCESS / NON_RESIDENTIAL / INVALID_IDPEL).")
             return
 
         try:
