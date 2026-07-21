@@ -34,7 +34,7 @@ sys.path.insert(0, REPO_ROOT)
 from dotenv import load_dotenv
 load_dotenv(os.path.join(REPO_ROOT, ".env"))
 
-from fasih_auth import perform_login, refresh_token_if_needed, get_headers
+from fasih_auth import perform_login, refresh_token_if_needed, get_headers, is_token_valid
 from fasih_api import (
     fetch_surveys, fetch_all_assignments, fetch_assignments,
     fetch_template_mapping, fetch_regions,
