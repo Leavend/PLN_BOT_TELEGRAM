@@ -48,9 +48,9 @@ logger.setLevel(logging.INFO)
 logger.handlers.clear()
 logger.addHandler(handler)
 
-# Thread locks
-_excel_lock = threading.Lock()
-_quota_lock = threading.Lock()
+# Thread locks (Reentrant locks to prevent self-deadlocks)
+_excel_lock = threading.RLock()
+_quota_lock = threading.RLock()
 
 # Default AP2T Multi-Server Pool
 DEFAULT_AP2T_SERVERS = [
