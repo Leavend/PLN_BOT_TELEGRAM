@@ -106,7 +106,7 @@ class AccountManager:
                         "email": email,
                         "password": "",
                         "token_data": td,
-                        "daily_quota": 300,
+                        "daily_quota": 400,
                         "used_today": 0,
                         "last_date": today
                     }]
@@ -119,7 +119,7 @@ class AccountManager:
                 acc["last_date"] = today
                 acc["used_today"] = 0
             if "daily_quota" not in acc:
-                acc["daily_quota"] = 300
+                acc["daily_quota"] = 400
             if "used_today" not in acc:
                 acc["used_today"] = 0
 
@@ -174,7 +174,7 @@ class AccountManager:
                             acc["token_data"] = td
                     except Exception:
                         pass
-                if acc.get("token_data") and acc.get("used_today", 0) < acc.get("daily_quota", 300):
+                if acc.get("token_data") and acc.get("used_today", 0) < acc.get("daily_quota", 400):
                     return acc
             return None
 
@@ -192,7 +192,7 @@ class AccountManager:
         with _quota_lock:
             for acc in self.accounts:
                 if acc.get("email") == email:
-                    acc["used_today"] = acc.get("daily_quota", 300)
+                    acc["used_today"] = acc.get("daily_quota", 400)
                     logger.warning(f"⛔ Akun {email} ditandai KUOTA HABIS (429/Limit BPS mencapai batas).")
                     break
             self.save_accounts()
@@ -603,10 +603,10 @@ def manage_accounts_interactive(users_file: str = "users.json"):
         else:
             print(f"📋 Total {len(mgr.accounts)} akun terdaftar:")
             for idx, acc in enumerate(mgr.accounts, 1):
-                status_str = "❌ Limit" if acc.get("used_today", 0) >= acc.get("daily_quota", 300) else "✅ Active"
+                status_str = "❌ Limit" if acc.get("used_today", 0) >= acc.get("daily_quota", 400) else "✅ Active"
                 email = acc.get("email") or "Unknown"
                 used = acc.get("used_today", 0)
-                quota = acc.get("daily_quota", 300)
+                quota = acc.get("daily_quota", 400)
                 print(f"   {idx}. {email} [{status_str}] (Kuota terpakai: {used}/{quota})")
 
         print("-" * 60)
@@ -651,7 +651,7 @@ def manage_accounts_interactive(users_file: str = "users.json"):
                             "email": email,
                             "password": password,
                             "token_data": td,
-                            "daily_quota": 300,
+                            "daily_quota": 400,
                             "used_today": 0,
                             "last_date": today
                         })
@@ -791,7 +791,8 @@ def interactive_main_menu(args):
             for idx, acc in enumerate(mgr.accounts, 1):
                 status = "✅ Active" if not acc.get("is_disabled") else "❌ Disabled"
                 used = acc.get("used_today", 0)
-                print(f"  {idx:2d}. {acc['email']:<38} [{status}] (Terpakai: {used}/300)")
+                quota = acc.get("daily_quota", 400)
+                print(f"  {idx:2d}. {acc['email']:<38} [{status}] (Terpakai: {used}/{quota})")
 
             print("-" * 65)
             print("📌 PILIHAN AKUN BPS YANG AKAN DIGUNAKAN:")
