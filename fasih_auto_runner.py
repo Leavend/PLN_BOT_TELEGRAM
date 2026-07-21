@@ -47,6 +47,12 @@ logger = logging.getLogger("fasih_auto_runner")
 logger.setLevel(logging.INFO)
 logger.handlers.clear()
 logger.addHandler(handler)
+logger.propagate = False
+
+# Suppress urllib3 connectionpool and requests duplicate warnings
+logging.getLogger("urllib3").setLevel(logging.ERROR)
+logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
+logging.getLogger("requests").setLevel(logging.ERROR)
 
 # Thread locks (Reentrant locks to prevent self-deadlocks)
 _excel_lock = threading.RLock()
@@ -499,29 +505,28 @@ class AutonomousRunner:
             if email in self.user_caches:
                 return self.user_caches[email]
 
-        sc = _load_survey_cache(email)
-        if not sc:
-            headers = get_headers(token_data)
-            logger.info(f"📊 Initializing survey caches for user: {email}")
-            surveys = fetch_surveys(headers)
-            sc = {}
-            for s in surveys:
-                sname = (s.get("name") or "").upper()
-                skey = "PASCABAYAR" if "PASCA" in sname else "PRABAYAR" if "PRA" in sname else "DEFAULT"
-                active_p = next((p for p in s.get("listPeriode", []) if p.get("isActive")), None)
-                if active_p:
-                    tl = (s.get("templateLookup") or [{}])[0]
-                    tm = fetch_template_mapping(headers, tl.get("templateId", ""), tl.get("templateVersion", "")) if tl else {}
-                    sc[skey] = {
-                        "survey": s,
-                        "periode": active_p,
-                        "template_mapping": tm,
-                        "assignments": fetch_all_assignments(headers, active_p["id"]),
-                        "regions": fetch_regions(headers, active_p["id"])
-                    }
-            _save_survey_cache(email, sc)
+            sc = _load_survey_cache(email)
+            if not sc:
+                headers = get_headers(token_data)
+                logger.info(f"📊 Initializing survey caches for user: {email}")
+                surveys = fetch_surveys(headers)
+                sc = {}
+                for s in surveys:
+                    sname = (s.get("name") or "").upper()
+                    skey = "PASCABAYAR" if "PASCA" in sname else "PRABAYAR" if "PRA" in sname else "DEFAULT"
+                    active_p = next((p for p in s.get("listPeriode", []) if p.get("isActive")), None)
+                    if active_p:
+                        tl = (s.get("templateLookup") or [{}])[0]
+                        tm = fetch_template_mapping(headers, tl.get("templateId", ""), tl.get("templateVersion", "")) if tl else {}
+                        sc[skey] = {
+                            "survey": s,
+                            "periode": active_p,
+                            "template_mapping": tm,
+                            "assignments": fetch_all_assignments(headers, active_p["id"]),
+                            "regions": fetch_regions(headers, active_p["id"])
+                        }
+                _save_survey_cache(email, sc)
 
-        with self._cache_lock:
             self.user_caches[email] = sc
             return sc
 
@@ -1151,4 +1156,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (KeyboardInterrupt, EOFError):
+        print("\n\n👋 Auto Runner dihentikan oleh pengguna (Ctrl+C). Selesai.")
+        sys.exit(0)

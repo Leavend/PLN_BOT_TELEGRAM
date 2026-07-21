@@ -817,7 +817,7 @@ def submit_single(
                         "url": get_url
                     }, ensure_ascii=False)
             except Exception as e:
-                logger.warning(f"Photo upload failed: {e}")
+                logger.debug(f"Photo upload optional step: {e}")
 
         # Coordinates — PLN coords → target coords → Mapbox admin geocode (cached per
         # idpel so re-submits never move the pin). resolve_coordinate handles the whole
