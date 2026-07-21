@@ -37,13 +37,16 @@ from petugas_client.batch_submit import (
     PLN_API_URL
 )
 
-# Set up logger
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S"
-)
+# Set up logger with unbuffered stdout handler
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+handler.setFormatter(formatter)
+
 logger = logging.getLogger("fasih_auto_runner")
+logger.setLevel(logging.INFO)
+logger.handlers.clear()
+logger.addHandler(handler)
 
 # Thread locks
 _excel_lock = threading.Lock()
@@ -113,7 +116,7 @@ class AccountManager:
             except Exception:
                 pass
 
-        # Reset daily quota if date changed & auto-login if token missing
+        # Reset daily quota if date changed
         for acc in self.accounts:
             if acc.get("last_date") != today:
                 acc["last_date"] = today
@@ -122,17 +125,6 @@ class AccountManager:
                 acc["daily_quota"] = 400
             if "used_today" not in acc:
                 acc["used_today"] = 0
-
-            # Auto-login if password available but token missing
-            if not acc.get("token_data") and acc.get("email") and acc.get("password"):
-                try:
-                    logger.info(f"🔑 Auto SSO Login for account: {acc['email']}...")
-                    td = perform_login(acc["email"], acc["password"], exit_on_failure=False)
-                    if td and "access_token" in td:
-                        acc["token_data"] = td
-                        logger.info(f"✅ Auto SSO Login successful for: {acc['email']}")
-                except Exception as e:
-                    logger.error(f"❌ Auto SSO Login failed for {acc['email']}: {e}")
 
     def save_accounts(self):
         with _quota_lock:
@@ -200,16 +192,15 @@ class AccountManager:
             today = datetime.date.today().isoformat()
             counts = {}
             if df is not None and "BOT_STATUS" in df.columns and "BOT_PETUGAS" in df.columns:
-                status_series = df["BOT_STATUS"].astype(str).str.upper()
-                petugas_series = df["BOT_PETUGAS"].fillna("").astype(str).str.strip().str.lower()
-                mask = (status_series == "SUCCESS") & (petugas_series != "")
-                if "BOT_TIMESTAMP" in df.columns:
-                    ts_series = df["BOT_TIMESTAMP"].fillna("").astype(str)
-                    date_mask = ts_series.str.startswith(today) | (ts_series == "")
-                    mask = mask & date_mask
-
-                if mask.any():
-                    counts = petugas_series[mask].value_counts().to_dict()
+                success_mask = df["BOT_STATUS"].astype(str).str.upper() == "SUCCESS"
+                if success_mask.any():
+                    sub_df = df[success_mask]
+                    petugas_series = sub_df["BOT_PETUGAS"].fillna("").astype(str).str.strip().str.lower()
+                    if "BOT_TIMESTAMP" in sub_df.columns:
+                        ts_series = sub_df["BOT_TIMESTAMP"].fillna("").astype(str)
+                        date_mask = ts_series.str.startswith(today) | (ts_series == "")
+                        petugas_series = petugas_series[date_mask]
+                    counts = petugas_series[petugas_series != ""].value_counts().to_dict()
 
             synced_any = False
             for acc in self.accounts:
