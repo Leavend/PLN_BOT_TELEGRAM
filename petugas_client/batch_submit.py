@@ -1193,25 +1193,67 @@ def main():
         rejects = _reject_idpels(survey_caches)
         items = [x for x in items if x in set(rejects)] if items else rejects
         if not items:
-            print("✅ Tidak ada data REJECT untuk diperbaiki. Selesai.")
+            print("\n✅ Tidak ada data REJECT pada akun ini untuk diperbaiki. Selesai.")
             sys.exit(0)
-        print(f"\n🩹 {len(items)} data REJECT ditemukan → resubmit ke assignment yang SAMA (tidak dobel)")
+
+        total_found = len(items)
+        print(f"\n📋 Ditemukan {total_found} data REJECT pada akun BPS ini ({email}).")
+        if sys.stdin.isatty() and not args.list and not args.input:
+            try:
+                ans = input(f"👉 Mau berapa data REJECT yang di-resubmit? [Tekan ENTER untuk SEMUA ({total_found}), atau ketik jumlah (misal: 10)]: ").strip()
+                if ans.isdigit() and int(ans) > 0:
+                    limit_n = int(ans)
+                    items = items[:limit_n]
+                    print(f"🎯 Mengambil {len(items)} dari {total_found} data REJECT untuk di-resubmit.")
+            except (KeyboardInterrupt, EOFError):
+                print("\n❌ Dibatalkan oleh pengguna.")
+                sys.exit(0)
+        else:
+            print(f"🩹 Resubmit {len(items)} data REJECT ke assignment yang SAMA (tidak dobel)")
 
     if args.resubmit_open:
         opens = _open_idpels(survey_caches)
         items = [x for x in items if x in set(opens)] if items else opens
         if not items:
-            print("✅ Tidak ada data OPEN (belum dibuka) untuk disubmit. Selesai.")
+            print("\n✅ Tidak ada data OPEN (belum dibuka) untuk disubmit. Selesai.")
             sys.exit(0)
-        print(f"\n📂 {len(items)} data OPEN (belum dibuka) ditemukan → submit ke assignment yang SAMA (tidak dobel)")
+
+        total_found = len(items)
+        print(f"\n📋 Ditemukan {total_found} data OPEN (belum dibuka) pada akun BPS ini ({email}).")
+        if sys.stdin.isatty() and not args.list and not args.input:
+            try:
+                ans = input(f"👉 Mau berapa data OPEN yang di-submit? [Tekan ENTER untuk SEMUA ({total_found}), atau ketik jumlah (misal: 10)]: ").strip()
+                if ans.isdigit() and int(ans) > 0:
+                    limit_n = int(ans)
+                    items = items[:limit_n]
+                    print(f"🎯 Mengambil {len(items)} dari {total_found} data OPEN untuk di-submit.")
+            except (KeyboardInterrupt, EOFError):
+                print("\n❌ Dibatalkan oleh pengguna.")
+                sys.exit(0)
+        else:
+            print(f"📂 Submit {len(items)} data OPEN (belum dibuka) ke assignment yang SAMA (tidak dobel)")
 
     if args.resubmit_reopen:
         reopens = _reopen_idpels(survey_caches)
         items = [x for x in items if x in set(reopens)] if items else reopens
         if not items:
-            print("✅ Tidak ada data OPEN (pernah dibuka) untuk disubmit. Selesai.")
+            print("\n✅ Tidak ada data OPEN (pernah dibuka) untuk disubmit. Selesai.")
             sys.exit(0)
-        print(f"\n📂 {len(items)} data OPEN pernah dibuka ditemukan → submit ke assignment yang SAMA (tidak dobel)")
+
+        total_found = len(items)
+        print(f"\n📋 Ditemukan {total_found} data OPEN (pernah dibuka) pada akun BPS ini ({email}).")
+        if sys.stdin.isatty() and not args.list and not args.input:
+            try:
+                ans = input(f"👉 Mau berapa data OPEN (pernah dibuka) yang di-submit? [Tekan ENTER untuk SEMUA ({total_found}), atau ketik jumlah (misal: 10)]: ").strip()
+                if ans.isdigit() and int(ans) > 0:
+                    limit_n = int(ans)
+                    items = items[:limit_n]
+                    print(f"🎯 Mengambil {len(items)} dari {total_found} data OPEN untuk di-submit.")
+            except (KeyboardInterrupt, EOFError):
+                print("\n❌ Dibatalkan oleh pengguna.")
+                sys.exit(0)
+        else:
+            print(f"📂 Submit {len(items)} data OPEN (pernah dibuka) ke assignment yang SAMA (tidak dobel)")
 
     # Process items — parallel pool. Each item is ~8-10s of BPS network latency
     # (HAR: presign 2.5s + submit 1.6s + cek 1.5s + foto 1.5s), so running a few

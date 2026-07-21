@@ -44,12 +44,18 @@ else:
 " "\$@"
 EOF
 
-# fasih-submit-batch: interactive paste mode
+# fasih-submit-batch: interactive paste mode (or auto-fetch if --resubmit-* passed)
 cat > "$BIN/fasih-submit-batch" << 'OUTER'
 #!/bin/bash
 cd "REPO_PLACEHOLDER"
 python3 -c "
-import sys, re
+import sys, re, subprocess
+
+# If --resubmit-* flag passed, run batch_submit directly without interactive paste loop
+has_resubmit = any(a in sys.argv[1:] for a in ['--resubmit-reject', '--resubmit-open', '--resubmit-reopen', '--resubmit-all'])
+if has_resubmit:
+    subprocess.run([sys.executable, 'petugas_client/batch_submit.py'] + sys.argv[1:])
+    sys.exit(0)
 
 print('📋 Paste ID Pelanggan (satu per baris)')
 print('   Tekan ENTER 2x untuk mulai submit')
@@ -97,13 +103,21 @@ if confirm not in ('y', 'yes', ''):
     print('❌ Dibatalkan')
     sys.exit(0)
 
-import subprocess
 ids_str = ','.join(unique)
 subprocess.run([sys.executable, 'petugas_client/batch_submit.py'] + sys.argv[1:] + ['--list', ids_str])
 " "$@"
 OUTER
 sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-submit-batch" 2>/dev/null || \
   sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-submit-batch"
+
+# fasih-resubmit-reject: direct shortcut to auto-resubmit REJECTED assignments
+cat > "$BIN/fasih-resubmit-reject" << 'OUTER'
+#!/bin/bash
+cd "REPO_PLACEHOLDER"
+python3 petugas_client/batch_submit.py --resubmit-reject "$@"
+OUTER
+sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-resubmit-reject" 2>/dev/null || \
+  sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-resubmit-reject"
 
 # fasih-reregister: paste mode + --force (submit ulang record lama yang belum tercatat)
 cat > "$BIN/fasih-reregister" << 'OUTER'
