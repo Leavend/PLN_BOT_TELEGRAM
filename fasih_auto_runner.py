@@ -212,9 +212,16 @@ class ExcelQueueManager:
 
     def _load_excel(self):
         if not os.path.exists(self.excel_path):
-            raise FileNotFoundError(f"Excel file not found: {self.excel_path}")
+            raise FileNotFoundError(f"File Excel tidak ditemukan: {self.excel_path}")
 
-        self.df = pd.read_excel(self.excel_path)
+        if os.path.getsize(self.excel_path) == 0:
+            raise ValueError(f"File Excel '{self.excel_path}' berukuran 0 byte (kosong/corrupt). Harap gunakan file Excel yang valid!")
+
+        try:
+            self.df = pd.read_excel(self.excel_path)
+        except Exception as e:
+            raise ValueError(f"Gagal membaca format file Excel '{self.excel_path}': {e}")
+
         cols = list(self.df.columns)
 
         # Detect columns
@@ -573,7 +580,7 @@ class AutonomousRunner:
 
 
 def scan_excel_files(target_dir: str = "Folder-Runner") -> List[str]:
-    """Scan target directory (Folder-Runner) and fallback to '.' for Excel files (.xlsx, .xls)."""
+    """Scan target directory (Folder-Runner) and fallback to '.' for valid Excel files (> 1KB)."""
     files = []
     dirs_to_check = [target_dir, "."] if os.path.exists(target_dir) else ["."]
     seen = set()
@@ -582,7 +589,7 @@ def scan_excel_files(target_dir: str = "Folder-Runner") -> List[str]:
             for f in os.listdir(d):
                 if f.endswith((".xlsx", ".xls")) and not f.startswith("~$") and not f.startswith("batch_report_"):
                     filepath = os.path.join(d, f) if d != "." else f
-                    if filepath not in seen:
+                    if filepath not in seen and os.path.exists(filepath) and os.path.getsize(filepath) > 1024:
                         seen.add(filepath)
                         files.append(filepath)
         except Exception:
@@ -856,15 +863,21 @@ def interactive_main_menu(args):
                 "dry_run": args.dry_run
             }
 
-            runner = AutonomousRunner(
-                excel_path=excel_path,
-                users_file=args.users_file,
-                max_workers=max_workers,
-                mode_args=mode_args,
-                account_start=acc_start,
-                account_end=acc_end,
-                selected_emails=selected_emails
-            )
+            try:
+                runner = AutonomousRunner(
+                    excel_path=excel_path,
+                    users_file=args.users_file,
+                    max_workers=max_workers,
+                    mode_args=mode_args,
+                    account_start=acc_start,
+                    account_end=acc_end,
+                    selected_emails=selected_emails
+                )
+            except Exception as e:
+                print(f"\n❌ GAGAL MEMBUKA FILE EXCEL: {e}")
+                input("\nTekan Enter untuk kembali ke Menu Utama...")
+                continue
+
             runner.run(
                 start_row=args.start_row,
                 start_idpel=args.start_idpel,
