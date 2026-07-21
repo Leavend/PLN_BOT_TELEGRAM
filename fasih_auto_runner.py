@@ -684,7 +684,10 @@ class AutonomousRunner:
         # Generate CSV report identical to fasih-submit-batch format
         try:
             import csv
-            report_file = f"batch_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            report_dir = os.path.join("Folder-Runner", "report")
+            os.makedirs(report_dir, exist_ok=True)
+            report_filename = f"batch_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            report_file = os.path.join(report_dir, report_filename)
             report_rows = []
             for idx, row in self.excel_mgr.df.iterrows():
                 report_rows.append({
