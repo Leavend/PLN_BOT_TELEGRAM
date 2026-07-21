@@ -328,11 +328,18 @@ def _account_email(token_data: dict) -> str:
     except Exception:
         return ""
 
+def _survey_cache_file_for(email: str) -> str:
+    clean = email.strip().lower().replace("@", "_at_").replace(".", "_") if email else "default"
+    return os.path.join(REPO_ROOT, f".fasih_survey_cache_{clean}.json")
+
 def _load_survey_cache(email: str = "", ignore_email: bool = False):
+    cfile = _survey_cache_file_for(email) if email else _SURVEY_CACHE_FILE
     try:
-        with open(_SURVEY_CACHE_FILE) as f:
+        if not os.path.exists(cfile) and os.path.exists(_SURVEY_CACHE_FILE):
+            cfile = _SURVEY_CACHE_FILE
+        with open(cfile) as f:
             c = json.load(f)
-        if (ignore_email or c.get("email") == email) and (time.time() - c.get("ts", 0)) < _SURVEY_CACHE_TTL:
+        if (ignore_email or c.get("email") == email or not email) and (time.time() - c.get("ts", 0)) < _SURVEY_CACHE_TTL:
             return c.get("survey_caches")
     except Exception:
         pass
@@ -340,6 +347,7 @@ def _load_survey_cache(email: str = "", ignore_email: bool = False):
 
 def _save_survey_cache(email: str, survey_caches: dict):
     try:
+        cfile = _survey_cache_file_for(email) if email else _SURVEY_CACHE_FILE
         trimmed = {}
         for k, sc in survey_caches.items():
             trimmed[k] = {
@@ -348,7 +356,7 @@ def _save_survey_cache(email: str, survey_caches: dict):
                 "assignments": sc["assignments"][:20],  # a few templates is enough
                 "regions": sc["regions"],
             }
-        with open(_SURVEY_CACHE_FILE, "w") as f:
+        with open(cfile, "w") as f:
             json.dump({"email": email, "ts": time.time(), "survey_caches": trimmed}, f)
     except Exception as e:
         logger.warning(f"Gagal simpan cache survei: {e}")

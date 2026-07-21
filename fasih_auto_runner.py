@@ -431,19 +431,28 @@ class ExcelQueueManager:
                 target_start_idx = max(0, start_row - 2)
                 logger.info(f"📍 Menyetel baris awal eksekusi dari baris Excel #{start_row} (DF index {target_start_idx})")
 
-            for idx, row in self.df.iterrows():
-                if idx < target_start_idx:
-                    continue
-                status = str(row.get("BOT_STATUS", "PENDING")).upper()
-                if status in ["PENDING", "RETRYING"]:
-                    item = {
-                        "idpel": str(row.get(self.idpel_col) or "").strip(),
-                        "lat": row.get(self.lat_col) if self.lat_col else None,
-                        "lon": row.get(self.lon_col) if self.lon_col else None,
-                        "keperluan": str(row.get(self.keperluan_col) or "").strip() if self.keperluan_col else "",
-                        "retry_count": int(row.get("BOT_RETRY", 0)),
-                    }
-                    pending.append((idx, item))
+            status_series = self.df["BOT_STATUS"].astype(str).str.upper()
+            mask = status_series.isin(["PENDING", "RETRYING"])
+            if target_start_idx > 0:
+                mask.iloc[:target_start_idx] = False
+
+            filtered_indices = self.df.index[mask].tolist()
+            idpels = self.df.loc[mask, self.idpel_col].fillna("").astype(str).str.strip().tolist()
+            lats = self.df.loc[mask, self.lat_col].tolist() if self.lat_col else [None] * len(filtered_indices)
+            lons = self.df.loc[mask, self.lon_col].tolist() if self.lon_col else [None] * len(filtered_indices)
+            keperluans = self.df.loc[mask, self.keperluan_col].fillna("").astype(str).str.strip().tolist() if self.keperluan_col else [""] * len(filtered_indices)
+            retries = self.df.loc[mask, "BOT_RETRY"].fillna(0).astype(int).tolist()
+
+            for i in range(len(filtered_indices)):
+                idx = filtered_indices[i]
+                item = {
+                    "idpel": idpels[i],
+                    "lat": lats[i],
+                    "lon": lons[i],
+                    "keperluan": keperluans[i],
+                    "retry_count": retries[i],
+                }
+                pending.append((idx, item))
             return pending
 
 
@@ -669,18 +678,35 @@ class AutonomousRunner:
             return
 
         try:
+            from concurrent.futures import wait, FIRST_COMPLETED
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = []
-                for idx, item in pending_items:
-                    if self.stop_event.is_set():
-                        break
-                    futures.append(executor.submit(self.process_item, idx, item))
+                active_futures = set()
+                pending_iter = iter(pending_items)
 
-                for future in as_completed(futures):
+                # Prime pool with up to max_workers active tasks
+                while len(active_futures) < self.max_workers and not self.stop_event.is_set():
                     try:
-                        future.result()
-                    except Exception as e:
-                        logger.error(f"Worker exception: {e}")
+                        idx, item = next(pending_iter)
+                        active_futures.add(executor.submit(self.process_item, idx, item))
+                    except StopIteration:
+                        break
+
+                # Continuous bounded worker pipeline
+                while active_futures and not self.stop_event.is_set():
+                    done, active_futures = wait(active_futures, return_when=FIRST_COMPLETED)
+                    for f in done:
+                        try:
+                            f.result()
+                        except Exception as e:
+                            logger.error(f"Worker exception: {e}")
+
+                    # Replenish finished worker slots
+                    while len(active_futures) < self.max_workers and not self.stop_event.is_set():
+                        try:
+                            idx, item = next(pending_iter)
+                            active_futures.add(executor.submit(self.process_item, idx, item))
+                        except StopIteration:
+                            break
         except KeyboardInterrupt:
             logger.warning("\n⚠️ Proses dihentikan oleh pengguna (Ctrl+C). Menyimpan progress terakhir...")
         finally:
