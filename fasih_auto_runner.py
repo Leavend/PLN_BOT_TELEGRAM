@@ -37,16 +37,35 @@ from petugas_client.batch_submit import (
     PLN_API_URL
 )
 
-# Set up logger with unbuffered stdout handler
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
-handler.setFormatter(formatter)
+# Set up logger with unbuffered stdout handler and file logging in Logs-Runner/
+LOGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Logs-Runner")
+os.makedirs(LOGS_DIR, exist_ok=True)
+
+session_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+log_filename = os.path.join(LOGS_DIR, f"auto_runner_{session_time}.log")
+latest_filename = os.path.join(LOGS_DIR, "latest_runner.log")
+
+stdout_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+file_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_handler.setLevel(logging.INFO)
+stdout_handler.setFormatter(stdout_formatter)
+
+file_handler = logging.FileHandler(log_filename, encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(file_formatter)
+
+latest_handler = logging.FileHandler(latest_filename, mode="w", encoding="utf-8")
+latest_handler.setLevel(logging.INFO)
+latest_handler.setFormatter(file_formatter)
 
 logger = logging.getLogger("fasih_auto_runner")
 logger.setLevel(logging.INFO)
 logger.handlers.clear()
-logger.addHandler(handler)
+logger.addHandler(stdout_handler)
+logger.addHandler(file_handler)
+logger.addHandler(latest_handler)
 logger.propagate = False
 
 # Suppress urllib3 connectionpool and requests duplicate warnings
