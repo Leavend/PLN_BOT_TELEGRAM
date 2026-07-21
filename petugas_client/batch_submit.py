@@ -307,7 +307,10 @@ def _cek(fn, *args, skip_cek_idpln: bool = False) -> dict:
         if any(t in msg.lower() for t in ("429", "rate_limit_exceeded", "terlampaui", "too many requests")):
             raise Exception(f"429 Rate Limit BPS (CEK IDPel limit terlampaui): {msg}")
         msg_lower = msg.lower()
-        if any(t in msg_lower for t in ("timed out", "timeout", "max retries", "connection")):
+        if "403" in msg_lower or "forbidden" in msg_lower:
+            idpel_str = args[2] if len(args) > 2 else ""
+            logger.warning(f"⚠️ CEK IDPel {idpel_str} dilarang (403 Forbidden — beda wilayah/tidak ditugaskan ke akun ini)")
+        elif any(t in msg_lower for t in ("timed out", "timeout", "max retries", "connection")):
             logger.warning(f"CEK BPS timeout/koneksi: {e}")
         else:
             logger.warning(f"CEK gagal: {e}")
@@ -520,6 +523,10 @@ def submit_single(
                 if not is_token_valid(token_data):
                     token_data = refresh_token_if_needed(token_data, token_file=None, exit_on_failure=False)
         headers = get_headers(token_data)
+
+        # Guard against empty survey caches (accounts with 0 assignments/surveys)
+        if not survey_caches:
+            return False, "❌ Akun BPS ini tidak memiliki survey aktif (0 survey / belum ditugaskan sampel)."
 
         # Determine idpel vs nometer
         is_idpel = len(val) == 12
