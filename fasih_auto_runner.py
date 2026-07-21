@@ -167,12 +167,21 @@ class AccountManager:
                     except Exception:
                         pass
 
+    def set_cooldown(self, email: str, seconds: int = 60):
+        """Set a temporary cooldown on an account for transient 429 rate limit without corrupting used_today."""
+        with _quota_lock:
+            for acc in self.accounts:
+                if (acc.get("email") or "").lower() == email.lower():
+                    acc["cooldown_until"] = time.time() + seconds
+                    logger.warning(f"⏳ Akun {email} dimasukkan ke cooldown sementara {seconds}s (Rate Limit BPS 429).")
+                    break
+
     def get_available_account(
         self,
         account_start: int = 1,
         account_end: Optional[int] = None,
         selected_emails: Optional[List[str]] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Any:
         """Find an active account within range or selected emails list with remaining quota."""
         with _quota_lock:
             today = datetime.date.today().isoformat()
@@ -184,23 +193,37 @@ class AccountManager:
                 end_idx = account_end if (account_end is not None and account_end > 0) else len(self.accounts)
                 subset = self.accounts[start_idx:end_idx]
 
+            now = time.time()
+            all_quota_full = True
             for acc in subset:
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
                     acc["used_today"] = 0
                 if acc.get("is_disabled"):
                     continue
-                # Auto login check if token is missing
-                if not acc.get("token_data") and acc.get("email") and acc.get("password"):
-                    try:
-                        td = perform_login(acc["email"], acc["password"], exit_on_failure=False)
-                        if td and "access_token" in td:
-                            acc["token_data"] = td
-                    except Exception:
-                        pass
-                if acc.get("token_data") and acc.get("used_today", 0) < acc.get("daily_quota", 400):
-                    return acc
-            return None
+
+                used = acc.get("used_today", 0)
+                quota = acc.get("daily_quota", 400)
+                if used < quota:
+                    all_quota_full = False
+                    # Skip accounts currently in 429 temporary cooldown
+                    if acc.get("cooldown_until") and now < acc["cooldown_until"]:
+                        continue
+
+                    # Auto login check if token is missing
+                    if not acc.get("token_data") and acc.get("email") and acc.get("password"):
+                        try:
+                            td = perform_login(acc["email"], acc["password"], exit_on_failure=False)
+                            if td and "access_token" in td:
+                                acc["token_data"] = td
+                        except Exception:
+                            pass
+                    if acc.get("token_data"):
+                        return acc
+
+            if all_quota_full:
+                return None  # All selected accounts really reached 400/400 daily quota
+            return "IN_COOLDOWN"  # Accounts are still valid, but temporarily cooling down from 429
 
     def increment_usage(self, email: str):
         """Increment daily usage for account after successful submit."""
@@ -244,12 +267,18 @@ class AccountManager:
                 self.save_accounts()
 
     def mark_quota_exhausted(self, email: str):
-        """Mark account as quota exhausted for the day when BPS returns 429/limit error."""
+        """Mark account as quota exhausted ONLY if actual usage reached daily quota or confirmed exhausted."""
         with _quota_lock:
             for acc in self.accounts:
-                if acc.get("email") == email:
-                    acc["used_today"] = acc.get("daily_quota", 400)
-                    logger.warning(f"⛔ Akun {email} ditandai KUOTA HABIS (429/Limit BPS mencapai batas).")
+                if (acc.get("email") or "").lower() == email.lower():
+                    used = acc.get("used_today", 0)
+                    quota = acc.get("daily_quota", 400)
+                    if used >= quota:
+                        acc["used_today"] = quota
+                        logger.warning(f"⛔ Akun {email} ditandai KUOTA HARIAN HABIS ({used}/{quota}).")
+                    else:
+                        acc["cooldown_until"] = time.time() + 60
+                        logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit (Terpakai: {used}/{quota}). Dimasukkan ke cooldown sementara 60 detik.")
                     break
             self.save_accounts()
 
@@ -566,11 +595,24 @@ class AutonomousRunner:
             return
 
         # Acquire an available user account within specified range or selected email list
-        acc = self.account_mgr.get_available_account(
-            account_start=self.account_start,
-            account_end=self.account_end,
-            selected_emails=self.selected_emails
-        )
+        acc = None
+        for _ in range(30):
+            if self.stop_event.is_set():
+                return
+            res = self.account_mgr.get_available_account(
+                account_start=self.account_start,
+                account_end=self.account_end,
+                selected_emails=self.selected_emails
+            )
+            if isinstance(res, dict):
+                acc = res
+                break
+            elif res == "IN_COOLDOWN":
+                logger.info(f"⏳ Akun BPS sedang dalam cooldown 429 rate-limit sementara. Menunggu 5 detik...")
+                time.sleep(5.0)
+            else:
+                break
+
         if not acc:
             if not self.stop_event.is_set():
                 self.stop_event.set()
@@ -651,9 +693,10 @@ class AutonomousRunner:
                     self.excel_mgr.update_row(idx, "NON_RESIDENTIAL", retry_count, email, msg)
                     break
                 elif is_rate_limited:
-                    logger.warning(f"⏳ Akun {email} terkena Limit Kuota Harian BPS (429 Rate Limit). Otomatis beralih ke akun cadangan berikutnya...")
+                    logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit. Dimasukkan ke cooldown 60s...")
                     self.account_mgr.mark_quota_exhausted(email)
-                    self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Beralih Akun (Limit 429 BPS): {msg}")
+                    self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Cooldown 429 BPS: {msg}")
+                    time.sleep(2.0)
                     break
                 elif is_no_assignment:
                     logger.error(f"⛔ Akun {email} tidak memiliki tugas/sampel BPS di wilayah ini! Otomatis beralih ke akun berikutnya...")
@@ -752,6 +795,7 @@ class AutonomousRunner:
                     try:
                         idx = next(pending_iter)
                         active_futures.add(executor.submit(self.process_item, idx))
+                        time.sleep(0.1)
                     except StopIteration:
                         break
 
