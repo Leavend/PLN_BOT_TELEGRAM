@@ -797,11 +797,25 @@ def interactive_main_menu(args):
             print("-" * 65)
             print("📌 PILIHAN AKUN BPS YANG AKAN DIGUNAKAN:")
             print("  • Masukkan nomor urutan (misal: 12 atau rentang 5-15)")
-            print("  • ATAU masukkan/paste Email BPS (misal: sahidmalaba7@gmail.com)")
-            print(f"  • ATAU Tekan ENTER untuk menggunakan SEMUA AKUN (1 - {total_accs})")
+            print("  • ATAU Paste/Ketik Email BPS (satu atau banyak per baris)")
+            print(f"  • ATAU Tekan ENTER pada baris kosong untuk menggunakan SEMUA AKUN (1 - {total_accs})")
             print("-" * 65)
+            print("Pilihan Akun BPS (Paste Email / Nomor / ENTER):")
 
-            acc_inp = input("Pilihan Akun BPS (Nomor / Rentang / Email / ENTER): ").strip()
+            acc_lines = []
+            while True:
+                try:
+                    line = input().strip()
+                    if not line:
+                        break
+                    acc_lines.append(line)
+                    first_item = acc_lines[0].strip()
+                    if len(acc_lines) == 1 and ("@" not in first_item):
+                        break
+                except (KeyboardInterrupt, EOFError):
+                    break
+
+            acc_inp = " ".join(acc_lines).strip()
 
             acc_start = 1
             acc_end = None
@@ -809,15 +823,17 @@ def interactive_main_menu(args):
 
             if "@" in acc_inp:
                 # Email(s) input
-                emails = [e.strip() for e in acc_inp.replace(",", " ").replace(";", " ").split() if "@" in e]
+                emails = [e.strip() for e in acc_inp.replace(",", " ").replace(";", " ").replace("\t", " ").split() if "@" in e]
                 if emails:
                     selected_emails = emails
-                    print(f"✅ Dipilih {len(selected_emails)} akun spesifik berdasarkan Email: {', '.join(selected_emails)}")
+                    print(f"\n✅ Dipilih {len(selected_emails)} akun spesifik berdasarkan Email:")
+                    for e_idx, em in enumerate(selected_emails, 1):
+                        print(f"   {e_idx:2d}. {em}")
             elif "-" in acc_inp and acc_inp.replace("-", "").isdigit():
                 parts = acc_inp.split("-")
                 acc_start = max(1, min(total_accs, int(parts[0])))
                 acc_end = max(acc_start, min(total_accs, int(parts[1])))
-                print(f"✅ Dipilih akun rentang urutan #{acc_start} s.d. #{acc_end}.")
+                print(f"\n✅ Dipilih akun rentang urutan #{acc_start} s.d. #{acc_end}.")
             elif acc_inp.isdigit():
                 acc_start = max(1, min(total_accs, int(acc_inp)))
                 aend_inp = input(f"   Sampai Akun BPS ke- ({acc_start} - {total_accs}, default {total_accs}): ").strip()
@@ -825,9 +841,9 @@ def interactive_main_menu(args):
                     acc_end = max(acc_start, min(total_accs, int(aend_inp)))
                 else:
                     acc_end = total_accs
-                print(f"✅ Dipilih akun rentang urutan #{acc_start} s.d. #{acc_end or total_accs}.")
+                print(f"\n✅ Dipilih akun rentang urutan #{acc_start} s.d. #{acc_end or total_accs}.")
             else:
-                print(f"✅ Menggunakan SEMUA akun terdaftar (1 - {total_accs}).")
+                print(f"\n✅ Menggunakan SEMUA akun terdaftar (1 - {total_accs}).")
 
             workers_input = input(f"\n⚡ Jumlah paralel worker (default {args.workers}): ").strip()
             max_workers = int(workers_input) if workers_input.isdigit() and int(workers_input) > 0 else args.workers
