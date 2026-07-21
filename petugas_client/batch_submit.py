@@ -427,14 +427,21 @@ def decrypt_legacy_bc(str_to_decrypt: str, passphrase: str) -> str:
     plaintext_bytes = cipher.decrypt(ciphertext)
     return unpad(plaintext_bytes, 16).decode('utf-8')
 
-def fetch_and_decrypt_original(headers: dict, assignment_id: str, survey_period_id: str, base_path: str) -> dict:
+def fetch_and_decrypt_original(headers: dict, assignment_id: str, survey_period_id: str, base_path: str, region_key_bytes: bytes = None) -> dict:
     import subprocess
     from fasih_crypto import decrypt_gcm_verify
     filename = base_path.split('/')[-1]
     url = f"https://fasih-survey.bps.go.id/mobile/assignment-sync/api/mobile/s3/assignment/presign-url?surveyPeriodId={survey_period_id}"
     body = [{'assignmentId': assignment_id, 'copyFromId': None, 'fileNames': [filename]}]
     resp = req_lib.post(url, headers=headers, json=body, timeout=30).json()
-    get_url = resp['data'][0]['presignedUrls'][0]['presignedUrl']
+    urls = resp.get("data", [])
+    if isinstance(urls, dict):
+        urls = urls.get("presignedUrls", [])
+    elif isinstance(urls, list) and urls and "presignedUrls" in urls[0]:
+        urls = urls[0]["presignedUrls"]
+    get_url = urls[0].get("presignedUrl") or urls[0].get("url") if urls else None
+    if not get_url:
+        raise ValueError("Presigned URL download original tidak ditemukan")
     
     temp_dir = tempfile.mkdtemp(prefix=f"download_{assignment_id}_")
     archive_path = os.path.join(temp_dir, filename)
@@ -451,6 +458,13 @@ def fetch_and_decrypt_original(headers: dict, assignment_id: str, survey_period_
         
         data_json_path = os.path.join(extract_path, assignment_id, 'data.json')
         content = open(data_json_path, 'r').read()
+
+        if region_key_bytes:
+            try:
+                decrypted = decrypt_gcm_verify(content, region_key_bytes)
+                return json.loads(decrypted)
+            except Exception:
+                pass
         
         try:
             key_bytes = base64.b64decode('sdbo2YDCr6nabprPpUf3vvCQjuKwuE7t5ppr4sdAjHk=')
@@ -468,6 +482,7 @@ def fetch_and_decrypt_original(headers: dict, assignment_id: str, survey_period_
 
         raise ValueError("Gagal mendeskripsi data original (GCM & CBC fail)")
     finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
 
@@ -571,7 +586,7 @@ def submit_single(
         # Nometer-only items resolve idpel via PLN below and are CEK'd there.
         import uuid
         aid = target.get("id") if target else str(uuid.uuid4())
-        d_idpln = _cek(check_idpln, headers, aid, idpel_val) if idpel_val else {}
+        d_idpln = _cek(check_idpln, headers, aid, idpel_val) if (idpel_val and not skip_cek_idpln) else {}
         if d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
             return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
 
@@ -715,11 +730,22 @@ def submit_single(
         cached_regions = sc["regions"]
         pid = sc["periode"]["id"]
 
-        # RESUBMIT-REJECT: a datatable record carries NO templateVersion, so wrap_answers
-        # falls back to a stale "0.5.9" and BPS rejects the update ("Versi data tidak
-        # valid!"). createStatus=false (resubmit) is version-validated where createStatus
-        # =true (create_new) is not — so only the reject path needs this. Stamp the
-        # survey's CURRENT template version onto the target before encrypt/submit.
+        # Step 8 prep: Resolve region key early for decryption & encryption
+        region_id = (target.get("region") or {}).get("id", "")
+        wrapped_key = None
+        for r in cached_regions:
+            if r.get("region_id") == region_id or (r.get("region") or {}).get("id") == region_id:
+                wrapped_key = r.get("wrappedDatakey")
+                break
+        if not wrapped_key:
+            wrapped_key = STATIC_LEGACY_KEY
+        try:
+            key_bytes = base64.b64decode(wrapped_key.encode("utf-8"))
+        except Exception:
+            key_bytes = STATIC_LEGACY_KEY.encode("utf-8")
+
+        # RESUBMIT-REJECT / RESUBMIT-OPEN: download & decrypt original archive using region key
+        orig_data = None
         if resubmit_reject or resubmit_open or resubmit_reopen:
             tv = ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
             if tv:
@@ -729,7 +755,7 @@ def submit_single(
             if bp:
                 logger.info(f"Mengunduh arsip original dari S3 untuk mengambil tanggal pembuatan...")
                 try:
-                    orig_data = fetch_and_decrypt_original(headers, target["id"], pid, bp)
+                    orig_data = fetch_and_decrypt_original(headers, target["id"], pid, bp, key_bytes)
                     if orig_data and orig_data.get("createdAt"):
                         target["createdAt"] = orig_data["createdAt"]
                         logger.info(f"Berhasil memuat tanggal pembuatan original: {target['createdAt']}")
@@ -808,20 +834,6 @@ def submit_single(
             "remark": "", "accuracy": 10.0
         }
 
-        # Step 8: Encrypt
-        region_id = (target.get("region") or {}).get("id", "")
-        wrapped_key = None
-        for r in cached_regions:
-            if r.get("region_id") == region_id or (r.get("region") or {}).get("id") == region_id:
-                wrapped_key = r.get("wrappedDatakey")
-                break
-        if not wrapped_key:
-            wrapped_key = STATIC_LEGACY_KEY
-        try:
-            key_bytes = base64.b64decode(wrapped_key.encode("utf-8"))
-        except Exception:
-            key_bytes = STATIC_LEGACY_KEY.encode("utf-8")
-
         user_name = "Petugas"
         try:
             payload_b64 = token_data["access_token"].split(".")[1]
@@ -831,8 +843,23 @@ def submit_single(
         except Exception:
             pass
 
-        encrypted = stage_and_encrypt(answers, key_bytes, target, user_name)
-        principal_data = build_principal_json(answers, target, user_name)
+        if orig_data and isinstance(orig_data.get("answers"), list):
+            # merge updated fields into orig_data["answers"]
+            ans_map = {a.get("dataKey"): a for a in orig_data["answers"] if isinstance(a, dict) and "dataKey" in a}
+            for k, v in answers.items():
+                if k.startswith("_"):
+                    continue
+                if k in ans_map:
+                    ans_map[k]["answer"] = v
+                else:
+                    orig_data["answers"].append({"dataKey": k, "answer": v})
+            payload_to_encrypt = orig_data
+            principal_data = orig_data
+        else:
+            payload_to_encrypt = answers
+            principal_data = build_principal_json(answers, target, user_name)
+
+        encrypted = stage_and_encrypt(payload_to_encrypt, key_bytes, target, user_name)
 
         # Step 9: Archive + upload
         archive_path = create_7z_archive(encrypted, target["id"], temp_dir, principal_data)
