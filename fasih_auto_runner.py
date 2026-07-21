@@ -495,7 +495,7 @@ class AutonomousRunner:
         print("-" * 65)
 
         try:
-            choice = input("Masukkan pilihan [1-3] (Tekan Enter untuk Opsi 1): ").strip()
+            choice = input("Masukkan pilihan [1-3] atau ketik langsung No. Baris / IDPel: ").strip()
             if choice == "2":
                 r_str = input(f"Masukkan nomor baris Excel (2 - {total_rows + 1}): ").strip()
                 if r_str.isdigit():
@@ -504,6 +504,16 @@ class AutonomousRunner:
                 id_str = input("Masukkan IDPel awal yang ingin dikerjakan: ").strip()
                 if id_str:
                     return None, id_str
+            elif choice.isdigit():
+                if len(choice) >= 10:
+                    # Auto-detect 10+ digit number as IDPel
+                    print(f"📍 Otomatis mendeteksi IDPel awal: '{choice}'")
+                    return None, choice
+                elif int(choice) > 1:
+                    # Auto-detect number as Excel row number
+                    row_num = int(choice)
+                    print(f"📍 Otomatis mendeteksi Nomor Baris Excel awal: #{row_num}")
+                    return row_num, None
         except (KeyboardInterrupt, EOFError):
             print("\nProses dibatalkan oleh pengguna.")
             sys.exit(0)
