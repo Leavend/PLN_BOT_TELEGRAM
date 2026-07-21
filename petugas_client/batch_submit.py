@@ -634,7 +634,11 @@ def submit_single(
         def _kel_ok(d):
             k = str((d or {}).get("kd_kel") or "").strip()
             return len(k) == 10 and k.isdigit()
-        if not _kel_ok(pln_data):
+        for attempt in range(1, 4):
+            if _kel_ok(pln_data):
+                break
+            logger.warning(f"⚠️ Region PLN parsial/kd_kel kosong untuk {idpel_val or nometer_val} (percobaan {attempt}/3). Retrying...")
+            time.sleep(0.5 * attempt)
             pln_data = pln_lookup(idpel=idpel_val, nometer=nometer_val) or pln_data
         if not _kel_ok(pln_data):
             return False, "❌ Region PLN tak lengkap (kd_kel kosong — BLOK III bakal blank) — dilewati, coba lagi. Kalau sering: turunkan --workers (tunnel PLN overload)."
