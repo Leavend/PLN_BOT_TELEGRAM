@@ -256,11 +256,16 @@ def ensure_login() -> dict:
 # --- Submit Pipeline ---
 
 def _is_prabayar(direct_args: dict) -> bool:
-    """Determine product type from PLN API explicit 'produk' field, tarif suffix fallback."""
+    """Determine product type from PLN API explicit 'produk' field, tarif suffix (T = Prabayar/Token), or prelist."""
     produk = (direct_args.get("produk") or "").strip().upper()
-    if produk:
-        return produk == "PRABAYAR"
-    return (direct_args.get("tarif") or "").strip().upper().endswith("M")
+    if "PRABAYAR" in produk or "PREPAID" in produk or "TOKEN" in produk:
+        return True
+    if "PASCABAYAR" in produk or "POSTPAID" in produk or "REKENING" in produk:
+        return False
+    tarif = (direct_args.get("tarif") or "").strip().upper()
+    if tarif.endswith("T") or "TOKEN" in tarif or "PRABAYAR" in tarif:
+        return True
+    return False
 
 
 def _find_template_for_region(open_assignments, pln_data):
@@ -1038,9 +1043,6 @@ def main():
     parser.add_argument("--workers", type=int, default=4, help="Jumlah submit paralel (default 4). Item nunggu latency BPS ~8-10 dtk, jadi paralel = jauh lebih cepat. 1 = serial")
     args = parser.parse_args()
 
-    if args.no_cek or args.skip_cek_idpln:
-        _cek_state["enabled"] = False
-
     # Parse item list
     items = []
     if args.list:
@@ -1061,8 +1063,6 @@ def main():
         sys.exit(1)
 
     _any_resubmit = args.resubmit_reject or args.resubmit_open or args.resubmit_reopen or args.resubmit_all
-    if _any_resubmit:
-        _cek_state["enabled"] = False
 
     if not items and not _any_resubmit:
         print("❌ Tidak ada item untuk diproses.")
@@ -1346,11 +1346,6 @@ def main():
     print(f"   ❌ Gagal:  {failures}")
     print(f"   ⏱  Waktu:  {int(elapsed_total//60)}m {int(elapsed_total%60)}s")
     print(f"{'='*50}")
-    # Dedup guard degrades if CEK got disabled mid-run (429/timeout) — warn loudly so
-    # silent duplicates for already-tercatat items don't go unnoticed (finding #1).
-    if not _cek_state["enabled"] and not args.no_cek:
-        print("⚠️  CEK sempat mati (429/timeout) di tengah batch — guard anti-dupe bocor.")
-        print("    Item TERCATAT setelah itu bisa jadi dobel. Ganti akun / cek ulang ID-nya.")
 
     failed = [r for r in report_rows if r["status"] == "FAILED"]
     if failed:
