@@ -364,6 +364,7 @@ class AutonomousRunner:
         # Cache of initialized survey caches per user email
         self.user_caches: Dict[str, dict] = {}
         self._cache_lock = threading.Lock()
+        self.stop_event = threading.Event()
 
     def _get_user_caches(self, token_data: dict, email: str) -> dict:
         """Load or build survey caches for a specific BPS user account."""
@@ -397,6 +398,9 @@ class AutonomousRunner:
 
     def process_item(self, idx: int, item: dict):
         """Worker task for processing a single IDPel item."""
+        if self.stop_event.is_set():
+            return
+
         idpel = item["idpel"]
         retry_count = item["retry_count"]
 
@@ -412,7 +416,9 @@ class AutonomousRunner:
             selected_emails=self.selected_emails
         )
         if not acc:
-            logger.warning(f"⚠️ No active accounts with remaining daily quota for item {idpel}")
+            if not self.stop_event.is_set():
+                self.stop_event.set()
+                logger.warning("⛔ SEMUA AKUN BPS YANG DIGUNAKAN TELAH MENCAPAI LIMIT KUOTA HARIAN (400/400). Menghentikan eksekusi...")
             return
 
         email = acc["email"]
@@ -551,7 +557,12 @@ class AutonomousRunner:
 
         try:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = [executor.submit(self.process_item, idx, item) for idx, item in pending_items]
+                futures = []
+                for idx, item in pending_items:
+                    if self.stop_event.is_set():
+                        break
+                    futures.append(executor.submit(self.process_item, idx, item))
+
                 for future in as_completed(futures):
                     try:
                         future.result()
