@@ -356,7 +356,7 @@ def _save_survey_cache(email: str, survey_caches: dict):
             trimmed[k] = {
                 "periode": sc["periode"],
                 "template_mapping": sc["template_mapping"],
-                "assignments": sc["assignments"][:20],  # a few templates is enough
+                "assignments": sc["assignments"],  # Keep all assignments so no target items are lost
                 "regions": sc["regions"],
             }
         with open(cfile, "w") as f:
