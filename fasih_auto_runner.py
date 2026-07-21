@@ -608,7 +608,11 @@ class AutonomousRunner:
                 acc = res
                 break
             elif res == "IN_COOLDOWN":
-                logger.info(f"⏳ Akun BPS sedang dalam cooldown 429 rate-limit sementara. Menunggu 5 detik...")
+                with self._processed_lock:
+                    now = time.time()
+                    if now - getattr(self, "_last_cooldown_log", 0) > 15.0:
+                        logger.info("⏳ Akun BPS sedang dalam cooldown 429 rate-limit sementara. Menunggu akun tersedia...")
+                        self._last_cooldown_log = now
                 time.sleep(5.0)
             else:
                 break
