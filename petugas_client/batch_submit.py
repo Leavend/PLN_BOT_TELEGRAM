@@ -1205,7 +1205,7 @@ def main():
                 resubmit_reject=args.resubmit_reject,
                 resubmit_open=args.resubmit_open,
                 resubmit_reopen=args.resubmit_reopen,
-                skip_cek_idpln=args.skip_cek_idpln,
+                skip_cek_idpln=args.no_cek or args.skip_cek_idpln,
             )
         except Exception as e:  # never let one item kill the pool
             ok, message = False, f"Error tak terduga: {str(e)[:120]}"
