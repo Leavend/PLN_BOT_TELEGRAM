@@ -280,9 +280,9 @@ class ExcelQueueManager:
 
     def _save_excel(self):
         """Save DataFrame safely using atomic temporary file write to prevent corruption on Ctrl+C."""
-        tmp_path = self.excel_path + ".tmp"
+        tmp_path = self.excel_path + ".tmp.xlsx"
         try:
-            self.df.to_excel(tmp_path, index=False)
+            self.df.to_excel(tmp_path, engine="openpyxl", index=False)
             if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
                 os.replace(tmp_path, self.excel_path)
                 self._unsaved_count = 0
