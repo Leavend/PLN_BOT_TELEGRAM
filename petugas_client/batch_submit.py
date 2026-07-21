@@ -512,8 +512,13 @@ def submit_single(
 ) -> tuple[bool, str]:
     """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
     try:
-        with _token_lock:
-            token_data = refresh_token_if_needed(token_data, token_file=TOKEN_FILE, exit_on_failure=False)
+        # Use the provided token_data directly — do NOT read from global fasih_token.json
+        # (auto-runner passes per-account tokens; reading from disk would mix accounts)
+        if not is_token_valid(token_data):
+            with _token_lock:
+                # Re-check after acquiring lock (another thread may have refreshed it)
+                if not is_token_valid(token_data):
+                    token_data = refresh_token_if_needed(token_data, token_file=None, exit_on_failure=False)
         headers = get_headers(token_data)
 
         # Determine idpel vs nometer

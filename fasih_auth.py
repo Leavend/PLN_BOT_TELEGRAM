@@ -286,48 +286,47 @@ def is_token_valid(token_data: dict) -> bool:
         return False
 
 def refresh_token_if_needed(token_data: dict, token_file: Optional[str] = None, exit_on_failure: bool = True) -> dict:
-    """Check token expiry and refresh if needed. Retries up to 3 times with backoff."""
+    """Check token expiry and refresh if needed. Retries up to 3 times with backoff.
+    When token_file is explicitly None, operates purely in-memory (no file I/O) —
+    used by auto-runner to prevent cross-account token contamination.
+    """
+    # In-memory mode: no file reads/writes, refresh using provided token_data only
+    in_memory = token_file is None
     target_file = token_file or TOKEN_FILE
-    
-    with FileLock(target_file):
-        if os.path.exists(target_file):
-            try:
-                with open(target_file, "r") as f:
-                    token_data = json.load(f)
-            except Exception:
-                pass
-                
+
+    import logging
+    logger = logging.getLogger(__name__)
+
+    def _do_refresh():
         if is_token_valid(token_data):
             return token_data
-        
-        import logging
-        logger = logging.getLogger(__name__)
+
         logger.info("Token kedaluwarsa atau tidak valid, memperbarui token...")
-        
+
         token_url = f"{SSO_BASE}/auth/realms/{REALM_EKSTERNAL}/protocol/openid-connect/token"
-        
         max_retries = 3
         last_error = None
-        
+        current_td = token_data
+
         for attempt in range(max_retries):
-            if attempt > 0 and os.path.exists(target_file):
+            if not in_memory and attempt > 0 and os.path.exists(target_file):
                 try:
                     with open(target_file, "r") as f:
-                        token_data = json.load(f)
-                    if is_token_valid(token_data):
+                        current_td = json.load(f)
+                    if is_token_valid(current_td):
                         logger.info("Token was refreshed by another process, reusing valid token from disk.")
-                        return token_data
+                        return current_td
                 except Exception:
                     pass
-            
-            refresh_token = token_data.get("refresh_token")
+
+            refresh_token = current_td.get("refresh_token")
             if not refresh_token:
                 msg = "Tidak ada refresh token tersedia."
                 if exit_on_failure:
                     print(f"[-] {msg}")
                     sys.exit(1)
                 raise Exception(msg)
-            
+
             try:
                 session = get_sso_session()
                 resp = session.post(token_url, data={
@@ -337,16 +336,17 @@ def refresh_token_if_needed(token_data: dict, token_file: Optional[str] = None, 
                 }, timeout=30)
                 if resp.status_code == 200:
                     new_token = resp.json()
-                    dir_name = os.path.dirname(target_file) or "."
-                    fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix="token_tmp_")
-                    try:
-                        with os.fdopen(fd, "w") as f:
-                            json.dump(new_token, f, indent=2)
-                        os.replace(tmp_path, target_file)
-                    except Exception:
-                        if os.path.exists(tmp_path):
-                            os.remove(tmp_path)
-                        raise
+                    if not in_memory:
+                        dir_name = os.path.dirname(target_file) or "."
+                        fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix="token_tmp_")
+                        try:
+                            with os.fdopen(fd, "w") as f:
+                                json.dump(new_token, f, indent=2)
+                            os.replace(tmp_path, target_file)
+                        except Exception:
+                            if os.path.exists(tmp_path):
+                                os.remove(tmp_path)
+                            raise
                     logger.info(f"Token refreshed successfully on attempt {attempt+1}.")
                     return new_token
                 last_error = f"status {resp.status_code}"
@@ -358,14 +358,31 @@ def refresh_token_if_needed(token_data: dict, token_file: Optional[str] = None, 
             except Exception as e:
                 last_error = str(e)
                 logger.warning(f"Token refresh attempt {attempt+1}/{max_retries} network error: {e}")
-            
+
             if attempt < max_retries - 1:
                 backoff = 3 * (attempt + 1)
                 logger.info(f"Retrying token refresh in {backoff}s...")
                 time.sleep(backoff)
-        
+
         if exit_on_failure:
             print(f"[-] Gagal memperbarui token setelah {max_retries} percobaan: {last_error}")
             sys.exit(1)
         else:
             raise Exception(f"Gagal memperbarui token setelah {max_retries} percobaan: {last_error}")
+
+    if in_memory:
+        return _do_refresh()
+    else:
+        # File-backed mode: read from disk first, then refresh
+        with FileLock(target_file):
+            if os.path.exists(target_file):
+                try:
+                    with open(target_file, "r") as f:
+                        disk_td = json.load(f)
+                    if is_token_valid(disk_td):
+                        return disk_td
+                    # Use disk token_data for refresh (has latest refresh_token)
+                    token_data.update(disk_td)
+                except Exception:
+                    pass
+            return _do_refresh()
