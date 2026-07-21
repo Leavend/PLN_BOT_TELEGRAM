@@ -254,10 +254,27 @@ class ExcelQueueManager:
         if os.path.getsize(self.excel_path) == 0:
             raise ValueError(f"File Excel '{self.excel_path}' berukuran 0 byte (kosong/corrupt). Harap gunakan file Excel yang valid!")
 
-        try:
-            self.df = pd.read_excel(self.excel_path)
-        except Exception as e:
-            raise ValueError(f"Gagal membaca format file Excel '{self.excel_path}': {e}")
+        cache_path = self.excel_path + ".cache.pkl"
+        excel_mtime = os.path.getmtime(self.excel_path)
+        loaded_from_cache = False
+
+        if os.path.exists(cache_path) and os.path.getmtime(cache_path) >= excel_mtime:
+            try:
+                self.df = pd.read_pickle(cache_path)
+                loaded_from_cache = True
+                logger.info(f"⚡ Loaded Excel cache instantly: {cache_path}")
+            except Exception:
+                pass
+
+        if not loaded_from_cache:
+            try:
+                self.df = pd.read_excel(self.excel_path)
+                try:
+                    self.df.to_pickle(cache_path)
+                except Exception:
+                    pass
+            except Exception as e:
+                raise ValueError(f"Gagal membaca format file Excel '{self.excel_path}': {e}")
 
         cols = list(self.df.columns)
 
@@ -379,6 +396,10 @@ class ExcelQueueManager:
             df_copy.to_excel(tmp_path, engine="openpyxl", index=False)
             if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
                 os.replace(tmp_path, self.excel_path)
+                try:
+                    df_copy.to_pickle(self.excel_path + ".cache.pkl")
+                except Exception:
+                    pass
                 with _excel_lock:
                     self._unsaved_count = 0
                     self._last_save_time = time.time()
@@ -399,6 +420,10 @@ class ExcelQueueManager:
             self.df.to_excel(tmp_path, engine="openpyxl", index=False)
             if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
                 os.replace(tmp_path, self.excel_path)
+                try:
+                    self.df.to_pickle(self.excel_path + ".cache.pkl")
+                except Exception:
+                    pass
                 self._unsaved_count = 0
                 self._last_save_time = time.time()
         except Exception as e:
@@ -491,27 +516,29 @@ class AutonomousRunner:
             if email in self.user_caches:
                 return self.user_caches[email]
 
-            sc = _load_survey_cache(email)
-            if not sc:
-                headers = get_headers(token_data)
-                logger.info(f"📊 Initializing survey caches for user: {email}")
-                surveys = fetch_surveys(headers)
-                sc = {}
-                for s in surveys:
-                    sname = (s.get("name") or "").upper()
-                    skey = "PASCABAYAR" if "PASCA" in sname else "PRABAYAR" if "PRA" in sname else "DEFAULT"
-                    active_p = next((p for p in s.get("listPeriode", []) if p.get("isActive")), None)
-                    if active_p:
-                        tl = (s.get("templateLookup") or [{}])[0]
-                        tm = fetch_template_mapping(headers, tl.get("templateId", ""), tl.get("templateVersion", "")) if tl else {}
-                        sc[skey] = {
-                            "survey": s,
-                            "periode": active_p,
-                            "template_mapping": tm,
-                            "assignments": fetch_all_assignments(headers, active_p["id"]),
-                            "regions": fetch_regions(headers, active_p["id"])
-                        }
-                _save_survey_cache(email, sc)
+        sc = _load_survey_cache(email)
+        if not sc:
+            headers = get_headers(token_data)
+            logger.info(f"📊 Initializing survey caches for user: {email}")
+            surveys = fetch_surveys(headers)
+            sc = {}
+            for s in surveys:
+                sname = (s.get("name") or "").upper()
+                skey = "PASCABAYAR" if "PASCA" in sname else "PRABAYAR" if "PRA" in sname else "DEFAULT"
+                active_p = next((p for p in s.get("listPeriode", []) if p.get("isActive")), None)
+                if active_p:
+                    tl = (s.get("templateLookup") or [{}])[0]
+                    tm = fetch_template_mapping(headers, tl.get("templateId", ""), tl.get("templateVersion", "")) if tl else {}
+                    sc[skey] = {
+                        "survey": s,
+                        "periode": active_p,
+                        "template_mapping": tm,
+                        "assignments": fetch_all_assignments(headers, active_p["id"]),
+                        "regions": fetch_regions(headers, active_p["id"])
+                    }
+            _save_survey_cache(email, sc)
+
+        with self._cache_lock:
             self.user_caches[email] = sc
             return sc
 
