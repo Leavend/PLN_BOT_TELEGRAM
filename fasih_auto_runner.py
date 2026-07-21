@@ -167,13 +167,12 @@ class AccountManager:
                     except Exception:
                         pass
 
-    def set_cooldown(self, email: str, seconds: int = 30):
-        """Set a temporary cooldown on an account for transient 429 rate limit without corrupting used_today."""
+    def set_cooldown(self, email: str, seconds: int = 60):
+        """Set a temporary cooldown on an account for transient 429 burst rate limit without corrupting used_today."""
         with _quota_lock:
             for acc in self.accounts:
                 if (acc.get("email") or "").lower() == email.lower():
                     acc["cooldown_until"] = time.time() + seconds
-                    logger.warning(f"⏳ Akun {email} dimasukkan ke cooldown sementara {seconds}s (Rate Limit BPS 429).")
                     break
 
     def get_available_account(
@@ -182,7 +181,9 @@ class AccountManager:
         account_end: Optional[int] = None,
         selected_emails: Optional[List[str]] = None
     ) -> Any:
-        """Find an active account within range or selected emails list with remaining quota."""
+        """Find an active account within range or selected emails list with remaining quota.
+        Returns: dict (account), "IN_COOLDOWN" (all valid accounts temporarily cooling down), or None (all at 400/400).
+        """
         with _quota_lock:
             today = datetime.date.today().isoformat()
             if selected_emails:
@@ -192,6 +193,9 @@ class AccountManager:
                 start_idx = max(0, account_start - 1)
                 end_idx = account_end if (account_end is not None and account_end > 0) else len(self.accounts)
                 subset = self.accounts[start_idx:end_idx]
+
+            now = time.time()
+            any_in_cooldown = False
 
             for acc in subset:
                 if acc.get("last_date") != today:
@@ -203,6 +207,11 @@ class AccountManager:
                 used = acc.get("used_today", 0)
                 quota = acc.get("daily_quota", 400)
                 if used < quota:
+                    # Skip accounts currently in temporary cooldown
+                    if acc.get("cooldown_until") and now < acc["cooldown_until"]:
+                        any_in_cooldown = True
+                        continue
+
                     # Auto login check if token is missing
                     if not acc.get("token_data") and acc.get("email") and acc.get("password"):
                         try:
@@ -214,6 +223,8 @@ class AccountManager:
                     if acc.get("token_data"):
                         return acc
 
+            if any_in_cooldown:
+                return "IN_COOLDOWN"  # Some accounts still have quota but temporarily cooling down from burst 429
             return None  # All selected accounts really reached 400/400 daily quota
 
     def increment_usage(self, email: str):
@@ -258,13 +269,22 @@ class AccountManager:
                 self.save_accounts()
 
     def mark_quota_exhausted(self, email: str):
-        """Mark account daily quota as exhausted (400/400) immediately in users.json when 429 Rate Limit occurs."""
+        """Smart 429 handler: if used_today < 380, it's burst concurrency rate limit (cooldown 60s).
+        If used_today >= 380, it's likely real daily quota exhaustion (set 400/400)."""
         with _quota_lock:
             for acc in self.accounts:
                 if (acc.get("email") or "").lower() == email.lower():
+                    used = acc.get("used_today", 0)
                     quota = acc.get("daily_quota", 400)
-                    acc["used_today"] = quota
-                    logger.warning(f"⛔ Akun {email} terkena 429 Rate Limit — JATAH CEK IDPEL HABIS. Otomatis diubah ke 400/400 di users.json!")
+                    # ponytail: threshold 380 — adjust if BPS changes daily limit
+                    if used >= (quota - 20):
+                        # Genuinely close to or at daily limit → mark as exhausted
+                        acc["used_today"] = quota
+                        logger.warning(f"⛔ Akun {email} KUOTA HARIAN HABIS ({quota}/{quota}) — di-lock di users.json.")
+                    else:
+                        # Burst concurrency 429 — NOT real daily exhaustion, just cooldown
+                        acc["cooldown_until"] = time.time() + 60
+                        logger.warning(f"⏳ Akun {email} terkena 429 burst rate limit (terpakai: {used}/{quota}). Cooldown 60s — BUKAN kuota habis.")
                     break
             self.save_accounts()
 
@@ -581,14 +601,24 @@ class AutonomousRunner:
             return
 
         # Acquire an available user account within specified range or selected email list
-        if self.stop_event.is_set():
-            return
-
-        acc = self.account_mgr.get_available_account(
-            account_start=self.account_start,
-            account_end=self.account_end,
-            selected_emails=self.selected_emails
-        )
+        acc = None
+        for _wait in range(24):  # 24 * 5s = 2min max wait for cooldown
+            if self.stop_event.is_set():
+                return
+            res = self.account_mgr.get_available_account(
+                account_start=self.account_start,
+                account_end=self.account_end,
+                selected_emails=self.selected_emails
+            )
+            if isinstance(res, dict):
+                acc = res
+                break
+            elif res == "IN_COOLDOWN":
+                if _wait == 0:
+                    logger.info("⏳ Akun sedang cooldown dari burst 429. Menunggu akun tersedia kembali...")
+                time.sleep(5.0)
+            else:
+                break  # None = all at 400/400
 
         if not acc:
             if not self.stop_event.is_set():
@@ -670,10 +700,9 @@ class AutonomousRunner:
                     self.excel_mgr.update_row(idx, "NON_RESIDENTIAL", retry_count, email, msg)
                     break
                 elif is_rate_limited:
-                    logger.warning(f"⛔ Akun {email} terkena 429 Rate Limit — JATAH CEK IDPEL HABIS! Otomatis diubah ke 400/400 di users.json...")
+                    # mark_quota_exhausted will auto-detect burst vs real quota
                     self.account_mgr.mark_quota_exhausted(email)
-                    self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Rate Limit 429 (Kuota 400/400 Habis): {msg}")
-                    time.sleep(1.0)
+                    self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"429 Rate Limit: {msg}")
                     break
                 elif is_no_assignment:
                     logger.error(f"⛔ Akun {email} tidak memiliki tugas/sampel BPS di wilayah ini! Otomatis beralih ke akun berikutnya...")
@@ -772,7 +801,7 @@ class AutonomousRunner:
                     try:
                         idx = next(pending_iter)
                         active_futures.add(executor.submit(self.process_item, idx))
-                        time.sleep(0.1)
+                        time.sleep(0.5)  # Stagger workers to avoid burst 429
                     except StopIteration:
                         break
 
