@@ -301,12 +301,15 @@ def _cek(fn, *args, skip_cek_idpln: bool = False) -> dict:
     except Exception as e:
         msg = str(e)
         if "429" in msg or "RATE_LIMIT_EXCEEDED" in msg or "terlampaui" in msg:
-            # Re-raise rate limit error so batch submission aborts cleanly with BPS reset message
-            raise e
+            if _cek_state["enabled"]:
+                _cek_state["enabled"] = False
+                logger.warning("⏭️  CEK IDPel BPS terkena 429 Rate Limit — CEK dinonaktifkan otomatis. Submit tetap berjalan & TERDATA via paradata.")
+            return {}
         msg_lower = msg.lower()
         if any(t in msg_lower for t in ("timed out", "timeout", "max retries", "connection")):
-            _cek_state["enabled"] = False
-            logger.warning("⏭️  CEK dinonaktifkan (BPS timeout/koneksi) — submit tetap jalan & TERDATA lewat paradata")
+            if _cek_state["enabled"]:
+                _cek_state["enabled"] = False
+                logger.warning("⏭️  CEK dinonaktifkan (BPS timeout/koneksi) — submit tetap jalan & TERDATA lewat paradata")
         else:
             logger.warning(f"CEK gagal: {e}")
         return {}
@@ -591,7 +594,10 @@ def submit_single(
         # Anti-dupe FIRST (before PLN lookup): for a known idpel a single check-idpln
         # says if it's already registered — skip tercatat without wasting a PLN lookup
         # (also lowers CEK/PLN load, which feeds the 429 that would disable CEK).
-        # Nometer-only items resolve idpel via PLN below and are CEK'd there.
+        # For resubmit modes (reject/open/reopen), assignment ID is already known on BPS so CEK is skipped.
+        if resubmit_reject or resubmit_open or resubmit_reopen:
+            skip_cek_idpln = True
+
         import uuid
         aid = target.get("id") if target else str(uuid.uuid4())
         d_idpln = _cek(check_idpln, headers, aid, idpel_val) if (idpel_val and not skip_cek_idpln) else {}
