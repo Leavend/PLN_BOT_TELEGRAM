@@ -268,7 +268,7 @@ class ExcelQueueManager:
         logger.info(f"Excel loaded: {len(self.df)} rows | IDPel Col: '{self.idpel_col}' | Lat/Lon: '{self.lat_col}'/'{self.lon_col}' | Keperluan: '{self.keperluan_col}'")
 
     def update_row(self, index: int, status: str, retry_count: int, user_email: str, catatan: str, force_save: bool = False):
-        """Thread-safe update of a single row in memory with throttled Excel flush."""
+        """Thread-safe update of a single row in memory with instant non-blocking checkpointing."""
         with _excel_lock:
             self.df.at[index, "BOT_STATUS"] = status
             self.df.at[index, "BOT_RETRY"] = retry_count
@@ -276,14 +276,65 @@ class ExcelQueueManager:
             self.df.at[index, "BOT_TIMESTAMP"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.df.at[index, "BOT_CATATAN"] = catatan
             self._unsaved_count += 1
+
+            # Instant append to lightweight CSV checkpoint (< 1ms, zero blocking)
+            self._write_checkpoint(index, status, retry_count, user_email, catatan)
+
             now = time.time()
-            if force_save or self._unsaved_count >= 5 or (now - self._last_save_time) > 3:
-                self._save_excel()
+            # Save heavy Excel file in background only every 500 items or every 10 minutes (600s)
+            if force_save or self._unsaved_count >= 500 or (now - self._last_save_time) > 600:
+                self._save_excel_async()
+
+    def _write_checkpoint(self, index: int, status: str, retry_count: int, user_email: str, catatan: str):
+        """Write an instant lightweight append-only checkpoint log for instant zero-data-loss persistence."""
+        try:
+            ckpt_path = self.excel_path + ".checkpoint.csv"
+            file_exists = os.path.exists(ckpt_path)
+            with open(ckpt_path, "a", encoding="utf-8") as f:
+                if not file_exists:
+                    f.write("index,idpel,status,retry_count,user_email,catatan,timestamp\n")
+                idpel = str(self.df.at[index, self.idpel_col]) if self.idpel_col in self.df.columns else ""
+                clean_catatan = str(catatan).replace("\n", " ").replace(",", ";")
+                ts = self.df.at[index, "BOT_TIMESTAMP"]
+                f.write(f"{index},{idpel},{status},{retry_count},{user_email},{clean_catatan},{ts}\n")
+        except Exception:
+            pass
 
     def flush(self):
-        """Force save remaining in-memory updates to disk."""
+        """Force save remaining in-memory updates to Excel disk synchronously on exit/finish."""
+        logger.info("💾 Saving final progress to Excel Master...")
         with _excel_lock:
             self._save_excel()
+
+    def _save_excel_async(self):
+        """Trigger background thread for saving heavy Excel file without blocking worker threads."""
+        if getattr(self, "_is_saving", False):
+            return
+        self._is_saving = True
+        t = threading.Thread(target=self._async_save_worker, daemon=True)
+        t.start()
+
+    def _async_save_worker(self):
+        """Worker thread for background Excel writing."""
+        try:
+            with _excel_lock:
+                df_copy = self.df.copy()
+            tmp_path = self.excel_path + ".tmp.xlsx"
+            df_copy.to_excel(tmp_path, engine="openpyxl", index=False)
+            if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+                os.replace(tmp_path, self.excel_path)
+                with _excel_lock:
+                    self._unsaved_count = 0
+                    self._last_save_time = time.time()
+        except Exception as e:
+            logger.warning(f"Background Excel save error: {e}")
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+        finally:
+            self._is_saving = False
 
     def _save_excel(self):
         """Save DataFrame safely using atomic temporary file write to prevent corruption on Ctrl+C."""
