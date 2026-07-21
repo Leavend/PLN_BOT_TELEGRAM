@@ -473,6 +473,8 @@ class AutonomousRunner:
         self.user_caches: Dict[str, dict] = {}
         self._cache_lock = threading.Lock()
         self.stop_event = threading.Event()
+        self.processed_indices = set()
+        self._processed_lock = threading.Lock()
 
     def _get_user_caches(self, token_data: dict, email: str) -> dict:
         """Load or build survey caches for a specific BPS user account."""
@@ -571,6 +573,9 @@ class AutonomousRunner:
             resubmit_reopen=resubmit_reopen,
             skip_cek_idpln=self.mode_args.get("skip_cek_idpln", False)
         )
+
+        with self._processed_lock:
+            self.processed_indices.add(idx)
 
         if ok:
             logger.info(f"✅ {idpel} SUCCESS via {email}: {msg}")
@@ -681,7 +686,7 @@ class AutonomousRunner:
         finally:
             self.excel_mgr.flush()
 
-        # Generate CSV report identical to fasih-submit-batch format
+        # Generate CSV report containing ONLY IDPels processed during this session
         try:
             import csv
             report_dir = os.path.join("Folder-Runner", "report")
@@ -689,21 +694,39 @@ class AutonomousRunner:
             report_filename = f"batch_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             report_file = os.path.join(report_dir, report_filename)
             report_rows = []
-            for idx, row in self.excel_mgr.df.iterrows():
-                report_rows.append({
-                    "val": str(row.get(self.excel_mgr.idpel_col) or ""),
-                    "status": str(row.get("BOT_STATUS") or ""),
-                    "message": str(row.get("BOT_CATATAN") or ""),
-                    "petugas": str(row.get("BOT_PETUGAS") or ""),
-                    "timestamp": str(row.get("BOT_TIMESTAMP") or "")
-                })
+            
+            with _excel_lock:
+                target_indices = sorted(self.processed_indices) if getattr(self, "processed_indices", None) else []
+                if target_indices:
+                    for idx in target_indices:
+                        if idx < len(self.excel_mgr.df):
+                            row = self.excel_mgr.df.iloc[idx]
+                            report_rows.append({
+                                "val": str(row.get(self.excel_mgr.idpel_col) or ""),
+                                "status": str(row.get("BOT_STATUS") or ""),
+                                "message": str(row.get("BOT_CATATAN") or ""),
+                                "petugas": str(row.get("BOT_PETUGAS") or ""),
+                                "timestamp": str(row.get("BOT_TIMESTAMP") or "")
+                            })
+                else:
+                    # Fallback: include all non-PENDING rows if processed_indices was empty
+                    for idx, row in self.excel_mgr.df.iterrows():
+                        st = str(row.get("BOT_STATUS") or "").upper()
+                        if st and st != "PENDING":
+                            report_rows.append({
+                                "val": str(row.get(self.excel_mgr.idpel_col) or ""),
+                                "status": str(row.get("BOT_STATUS") or ""),
+                                "message": str(row.get("BOT_CATATAN") or ""),
+                                "petugas": str(row.get("BOT_PETUGAS") or ""),
+                                "timestamp": str(row.get("BOT_TIMESTAMP") or "")
+                            })
 
             with open(report_file, "w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=["val", "status", "message", "petugas", "timestamp"])
                 writer.writeheader()
                 writer.writerows(report_rows)
 
-            logger.info(f"📄 Report CSV berhasil dibuat: {report_file}")
+            logger.info(f"📄 Report CSV berhasil dibuat ({len(report_rows)} baris): {report_file}")
 
             # Print summary table
             success_cnt = sum(1 for r in report_rows if r["status"] == "SUCCESS")
