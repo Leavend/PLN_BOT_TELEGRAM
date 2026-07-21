@@ -270,12 +270,13 @@ else
 fi
 EOF
 
-# fasih-update: pull latest code
+# fasih-update: pull latest code and re-install shortcut commands automatically
 cat > "$BIN/fasih-update" << EOF
 #!/bin/bash
 cd "$REPO"
 git pull
-echo "✅ Updated!"
+bash petugas_client/install_commands.sh
+echo "✅ Script & Shortcut Commands Berhasil Di-update!"
 EOF
 
 # fasih-status: check config
