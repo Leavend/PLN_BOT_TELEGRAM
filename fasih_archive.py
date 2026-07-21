@@ -4,11 +4,10 @@ import shutil
 import subprocess
 
 def prepare_staging(assignment_id: str, data_json_encrypted: str, work_dir: str, principal_data: dict = None) -> str:
-    """Prepares the staging directory and writes the encrypted data.json and companion files."""
-    staging_parent = os.path.join(work_dir, "staging")
-    if os.path.exists(staging_parent):
-        shutil.rmtree(staging_parent)
-    staging_dir = os.path.join(staging_parent, assignment_id)
+    """Prepares the staging directory and writes the encrypted data.json and companion files safely for parallel workers."""
+    staging_dir = os.path.join(work_dir, "staging", assignment_id)
+    if os.path.exists(staging_dir):
+        shutil.rmtree(staging_dir, ignore_errors=True)
     os.makedirs(staging_dir, exist_ok=True)
     with open(os.path.join(staging_dir, "data.json"), "w", encoding="utf-8") as f:
         f.write(data_json_encrypted)
@@ -76,6 +75,16 @@ def create_7z_archive(data_json_encrypted: str, assignment_id: str, work_dir: st
     staging_dir = prepare_staging(assignment_id, data_json_encrypted, work_dir, principal_data)
     archive_path = os.path.join(work_dir, f"{assignment_id}.7z")
     if os.path.exists(archive_path):
-        os.remove(archive_path)
-    run_compress(archive_path, staging_dir)
+        try:
+            os.remove(archive_path)
+        except Exception:
+            pass
+    try:
+        run_compress(archive_path, staging_dir)
+    finally:
+        if os.path.exists(staging_dir):
+            try:
+                shutil.rmtree(staging_dir, ignore_errors=True)
+            except Exception:
+                pass
     return archive_path
