@@ -279,13 +279,21 @@ class ExcelQueueManager:
             self._save_excel()
 
     def _save_excel(self):
-        """Save DataFrame to Excel file."""
+        """Save DataFrame safely using atomic temporary file write to prevent corruption on Ctrl+C."""
+        tmp_path = self.excel_path + ".tmp"
         try:
-            self.df.to_excel(self.excel_path, index=False)
-            self._unsaved_count = 0
-            self._last_save_time = time.time()
+            self.df.to_excel(tmp_path, index=False)
+            if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+                os.replace(tmp_path, self.excel_path)
+                self._unsaved_count = 0
+                self._last_save_time = time.time()
         except Exception as e:
             logger.warning(f"Error saving Excel file: {e}")
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
     def get_pending_items(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None) -> List[Tuple[int, Dict[str, Any]]]:
         """Get list of (index, row_dict) for rows that need processing."""
