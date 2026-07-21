@@ -69,3 +69,19 @@ Samarinda_Photos/
 
 # runtime submit reports (berisi PII pelanggan) — jangan commit ke repo publik
 batch_report_*.csv
+
+# Script runtime output and runner directories
+.fasih_survey_cache_*
+*.7z
+photo_*.webp
+extract_*
+extracted_upload_*
+Logs-Runner/
+Folder-Runner/
+HAR_*
+*.har
+*_template.json
+*_validation.json
+staging/
+
+
