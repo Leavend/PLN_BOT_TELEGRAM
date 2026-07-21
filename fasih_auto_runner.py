@@ -143,13 +143,23 @@ class AccountManager:
             except Exception as e:
                 logger.warning(f"Failed saving accounts to {self.users_file}: {e}")
 
-    def get_available_account(self, account_start: int = 1, account_end: Optional[int] = None) -> Optional[Dict[str, Any]]:
-        """Find an active account within range [account_start, account_end] (1-indexed) with remaining quota."""
+    def get_available_account(
+        self,
+        account_start: int = 1,
+        account_end: Optional[int] = None,
+        selected_emails: Optional[List[str]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Find an active account within range or selected emails list with remaining quota."""
         with _quota_lock:
             today = datetime.date.today().isoformat()
-            start_idx = max(0, account_start - 1)
-            end_idx = account_end if (account_end is not None and account_end > 0) else len(self.accounts)
-            subset = self.accounts[start_idx:end_idx]
+            if selected_emails:
+                email_set = set(e.lower() for e in selected_emails)
+                subset = [acc for acc in self.accounts if (acc.get("email") or "").lower() in email_set]
+            else:
+                start_idx = max(0, account_start - 1)
+                end_idx = account_end if (account_end is not None and account_end > 0) else len(self.accounts)
+                subset = self.accounts[start_idx:end_idx]
+
             for acc in subset:
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
@@ -311,13 +321,23 @@ class ExcelQueueManager:
 class AutonomousRunner:
     """Main orchestrator running 20 parallel workers."""
 
-    def __init__(self, excel_path: str, users_file: str, max_workers: int = 20, mode_args: dict = None, account_start: int = 1, account_end: Optional[int] = None):
+    def __init__(
+        self,
+        excel_path: str,
+        users_file: str,
+        max_workers: int = 20,
+        mode_args: dict = None,
+        account_start: int = 1,
+        account_end: Optional[int] = None,
+        selected_emails: Optional[List[str]] = None
+    ):
         self.excel_mgr = ExcelQueueManager(excel_path)
         self.account_mgr = AccountManager(users_file)
         self.max_workers = max_workers
         self.mode_args = mode_args or {}
         self.account_start = account_start
         self.account_end = account_end
+        self.selected_emails = selected_emails
 
         # Cache of initialized survey caches per user email
         self.user_caches: Dict[str, dict] = {}
@@ -363,8 +383,12 @@ class AutonomousRunner:
             self.excel_mgr.update_row(idx, "INVALID_IDPEL", retry_count, "", "IDPel tidak valid (bukan angka 12 digit)")
             return
 
-        # Acquire an available user account within specified range
-        acc = self.account_mgr.get_available_account(self.account_start, self.account_end)
+        # Acquire an available user account within specified range or selected email list
+        acc = self.account_mgr.get_available_account(
+            account_start=self.account_start,
+            account_end=self.account_end,
+            selected_emails=self.selected_emails
+        )
         if not acc:
             logger.warning(f"⚠️ No active accounts with remaining daily quota for item {idpel}")
             return
@@ -761,26 +785,48 @@ def interactive_main_menu(args):
             mgr = AccountManager(args.users_file)
             total_accs = len(mgr.accounts)
 
-            print("\n" + "-" * 60)
-            print("📍 KONFIGURASI AWAAN DATA EXCEL & RANGING AKUN BPS")
-            print("-" * 60)
+            print("\n" + "=" * 65)
+            print("👥 DAFTAR AKUN BPS TERDAFTAR (users.json):")
+            print("=" * 65)
+            for idx, acc in enumerate(mgr.accounts, 1):
+                status = "✅ Active" if not acc.get("is_disabled") else "❌ Disabled"
+                used = acc.get("used_today", 0)
+                print(f"  {idx:2d}. {acc['email']:<38} [{status}] (Terpakai: {used}/300)")
 
-            # Account range selection
-            acc_start = getattr(args, "account_start", 1) or 1
-            acc_end = getattr(args, "account_end", None)
+            print("-" * 65)
+            print("📌 PILIHAN AKUN BPS YANG AKAN DIGUNAKAN:")
+            print("  • Masukkan nomor urutan (misal: 12 atau rentang 5-15)")
+            print("  • ATAU masukkan/paste Email BPS (misal: sahidmalaba7@gmail.com)")
+            print(f"  • ATAU Tekan ENTER untuk menggunakan SEMUA AKUN (1 - {total_accs})")
+            print("-" * 65)
 
-            if total_accs > 0:
-                print(f"👥 Pool Akun BPS Terdaftar: {total_accs} Akun (Urutan #1 s.d. #{total_accs})")
-                astart_inp = input(f"   Mulai dari Akun BPS ke- (1 - {total_accs}, default {acc_start}): ").strip()
-                if astart_inp.isdigit():
-                    acc_start = max(1, min(total_accs, int(astart_inp)))
+            acc_inp = input("Pilihan Akun BPS (Nomor / Rentang / Email / ENTER): ").strip()
 
-                default_aend_str = str(acc_end) if acc_end else str(total_accs)
-                aend_inp = input(f"   Sampai Akun BPS ke- ({acc_start} - {total_accs}, default {default_aend_str}): ").strip()
+            acc_start = 1
+            acc_end = None
+            selected_emails = None
+
+            if "@" in acc_inp:
+                # Email(s) input
+                emails = [e.strip() for e in acc_inp.replace(",", " ").replace(";", " ").split() if "@" in e]
+                if emails:
+                    selected_emails = emails
+                    print(f"✅ Dipilih {len(selected_emails)} akun spesifik berdasarkan Email: {', '.join(selected_emails)}")
+            elif "-" in acc_inp and acc_inp.replace("-", "").isdigit():
+                parts = acc_inp.split("-")
+                acc_start = max(1, min(total_accs, int(parts[0])))
+                acc_end = max(acc_start, min(total_accs, int(parts[1])))
+                print(f"✅ Dipilih akun rentang urutan #{acc_start} s.d. #{acc_end}.")
+            elif acc_inp.isdigit():
+                acc_start = max(1, min(total_accs, int(acc_inp)))
+                aend_inp = input(f"   Sampai Akun BPS ke- ({acc_start} - {total_accs}, default {total_accs}): ").strip()
                 if aend_inp.isdigit():
                     acc_end = max(acc_start, min(total_accs, int(aend_inp)))
-                elif not acc_end:
+                else:
                     acc_end = total_accs
+                print(f"✅ Dipilih akun rentang urutan #{acc_start} s.d. #{acc_end or total_accs}.")
+            else:
+                print(f"✅ Menggunakan SEMUA akun terdaftar (1 - {total_accs}).")
 
             workers_input = input(f"\n⚡ Jumlah paralel worker (default {args.workers}): ").strip()
             max_workers = int(workers_input) if workers_input.isdigit() and int(workers_input) > 0 else args.workers
@@ -799,7 +845,8 @@ def interactive_main_menu(args):
                 max_workers=max_workers,
                 mode_args=mode_args,
                 account_start=acc_start,
-                account_end=acc_end
+                account_end=acc_end,
+                selected_emails=selected_emails
             )
             runner.run(
                 start_row=args.start_row,
@@ -818,6 +865,7 @@ def main():
     parser.add_argument("--start-idpel", type=str, help="Mulai dari IDPel tertentu di Excel")
     parser.add_argument("--account-start", type=int, default=1, help="Mulai dari urutan nomor akun BPS tertentu di users.json (default: 1)")
     parser.add_argument("--account-end", type=int, help="Sampai urutan nomor akun BPS tertentu di users.json (default: akun terakhir)")
+    parser.add_argument("--emails", nargs="+", help="Filter daftar email BPS tertentu yang akan dijalankan")
     parser.add_argument("--non-interactive", action="store_true", help="Jalankan langsung tanpa sesi interaktif")
     parser.add_argument("--resubmit-reject", action="store_true", help="Mode perbaiki data REJECTED")
     parser.add_argument("--resubmit-open", action="store_true", help="Mode submit data OPEN")
@@ -848,7 +896,8 @@ def main():
         max_workers=args.workers,
         mode_args=mode_args,
         account_start=args.account_start,
-        account_end=args.account_end
+        account_end=args.account_end,
+        selected_emails=args.emails
     )
     runner.run(
         start_row=args.start_row,
