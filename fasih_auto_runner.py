@@ -143,11 +143,14 @@ class AccountManager:
             except Exception as e:
                 logger.warning(f"Failed saving accounts to {self.users_file}: {e}")
 
-    def get_available_account(self) -> Optional[Dict[str, Any]]:
-        """Find an active account that has remaining daily quota (< 300)."""
+    def get_available_account(self, account_start: int = 1, account_end: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Find an active account within range [account_start, account_end] (1-indexed) with remaining quota."""
         with _quota_lock:
             today = datetime.date.today().isoformat()
-            for acc in self.accounts:
+            start_idx = max(0, account_start - 1)
+            end_idx = account_end if (account_end is not None and account_end > 0) else len(self.accounts)
+            subset = self.accounts[start_idx:end_idx]
+            for acc in subset:
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
                     acc["used_today"] = 0
@@ -308,11 +311,13 @@ class ExcelQueueManager:
 class AutonomousRunner:
     """Main orchestrator running 20 parallel workers."""
 
-    def __init__(self, excel_path: str, users_file: str, max_workers: int = 20, mode_args: dict = None):
+    def __init__(self, excel_path: str, users_file: str, max_workers: int = 20, mode_args: dict = None, account_start: int = 1, account_end: Optional[int] = None):
         self.excel_mgr = ExcelQueueManager(excel_path)
         self.account_mgr = AccountManager(users_file)
         self.max_workers = max_workers
         self.mode_args = mode_args or {}
+        self.account_start = account_start
+        self.account_end = account_end
 
         # Cache of initialized survey caches per user email
         self.user_caches: Dict[str, dict] = {}
@@ -358,8 +363,8 @@ class AutonomousRunner:
             self.excel_mgr.update_row(idx, "INVALID_IDPEL", retry_count, "", "IDPel tidak valid (bukan angka 12 digit)")
             return
 
-        # Acquire an available user account with remaining quota
-        acc = self.account_mgr.get_available_account()
+        # Acquire an available user account within specified range
+        acc = self.account_mgr.get_available_account(self.account_start, self.account_end)
         if not acc:
             logger.warning(f"⚠️ No active accounts with remaining daily quota for item {idpel}")
             return
@@ -753,7 +758,31 @@ def interactive_main_menu(args):
             if not excel_path:
                 continue
 
-            workers_input = input(f"Masukkan jumlah paralel worker (default {args.workers}): ").strip()
+            mgr = AccountManager(args.users_file)
+            total_accs = len(mgr.accounts)
+
+            print("\n" + "-" * 60)
+            print("📍 KONFIGURASI AWAAN DATA EXCEL & RANGING AKUN BPS")
+            print("-" * 60)
+
+            # Account range selection
+            acc_start = getattr(args, "account_start", 1) or 1
+            acc_end = getattr(args, "account_end", None)
+
+            if total_accs > 0:
+                print(f"👥 Pool Akun BPS Terdaftar: {total_accs} Akun (Urutan #1 s.d. #{total_accs})")
+                astart_inp = input(f"   Mulai dari Akun BPS ke- (1 - {total_accs}, default {acc_start}): ").strip()
+                if astart_inp.isdigit():
+                    acc_start = max(1, min(total_accs, int(astart_inp)))
+
+                default_aend_str = str(acc_end) if acc_end else str(total_accs)
+                aend_inp = input(f"   Sampai Akun BPS ke- ({acc_start} - {total_accs}, default {default_aend_str}): ").strip()
+                if aend_inp.isdigit():
+                    acc_end = max(acc_start, min(total_accs, int(aend_inp)))
+                elif not acc_end:
+                    acc_end = total_accs
+
+            workers_input = input(f"\n⚡ Jumlah paralel worker (default {args.workers}): ").strip()
             max_workers = int(workers_input) if workers_input.isdigit() and int(workers_input) > 0 else args.workers
 
             mode_args = {
@@ -768,7 +797,9 @@ def interactive_main_menu(args):
                 excel_path=excel_path,
                 users_file=args.users_file,
                 max_workers=max_workers,
-                mode_args=mode_args
+                mode_args=mode_args,
+                account_start=acc_start,
+                account_end=acc_end
             )
             runner.run(
                 start_row=args.start_row,
@@ -785,6 +816,8 @@ def main():
     parser.add_argument("--workers", type=int, default=20, help="Jumlah paralel worker (default: 20)")
     parser.add_argument("--start-row", type=int, help="Mulai dari nomor baris Excel tertentu (misal: 1500)")
     parser.add_argument("--start-idpel", type=str, help="Mulai dari IDPel tertentu di Excel")
+    parser.add_argument("--account-start", type=int, default=1, help="Mulai dari urutan nomor akun BPS tertentu di users.json (default: 1)")
+    parser.add_argument("--account-end", type=int, help="Sampai urutan nomor akun BPS tertentu di users.json (default: akun terakhir)")
     parser.add_argument("--non-interactive", action="store_true", help="Jalankan langsung tanpa sesi interaktif")
     parser.add_argument("--resubmit-reject", action="store_true", help="Mode perbaiki data REJECTED")
     parser.add_argument("--resubmit-open", action="store_true", help="Mode submit data OPEN")
@@ -813,7 +846,9 @@ def main():
         excel_path=args.excel,
         users_file=args.users_file,
         max_workers=args.workers,
-        mode_args=mode_args
+        mode_args=mode_args,
+        account_start=args.account_start,
+        account_end=args.account_end
     )
     runner.run(
         start_row=args.start_row,
