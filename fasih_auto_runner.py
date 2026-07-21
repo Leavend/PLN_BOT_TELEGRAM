@@ -543,15 +543,21 @@ class AutonomousRunner:
         logger.info("🎉 EKSEKUSI BOT SELESAI. Semua progress tersimpan di Excel Master.")
 
 
-def scan_excel_files(search_dir: str = ".") -> List[str]:
-    """Scan current working directory for Excel files (.xlsx, .xls)."""
+def scan_excel_files(target_dir: str = "Folder-Runner") -> List[str]:
+    """Scan target directory (Folder-Runner) and fallback to '.' for Excel files (.xlsx, .xls)."""
     files = []
-    try:
-        for f in os.listdir(search_dir):
-            if f.endswith((".xlsx", ".xls")) and not f.startswith("~$") and not f.startswith("batch_report_"):
-                files.append(f)
-    except Exception:
-        pass
+    dirs_to_check = [target_dir, "."] if os.path.exists(target_dir) else ["."]
+    seen = set()
+    for d in dirs_to_check:
+        try:
+            for f in os.listdir(d):
+                if f.endswith((".xlsx", ".xls")) and not f.startswith("~$") and not f.startswith("batch_report_"):
+                    filepath = os.path.join(d, f) if d != "." else f
+                    if filepath not in seen:
+                        seen.add(filepath)
+                        files.append(filepath)
+        except Exception:
+            pass
     files.sort()
     return files
 
@@ -667,16 +673,17 @@ def manage_accounts_interactive(users_file: str = "users.json"):
 
 
 def select_excel_interactive() -> Optional[str]:
-    """Interactively scan and list Excel files in current working directory."""
-    excel_files = scan_excel_files(".")
+    """Interactively scan and list Excel files in Folder-Runner/ and current directory."""
+    excel_files = scan_excel_files("Folder-Runner")
     print("\n" + "=" * 60)
     print("📂 PILIH FILE MASTER EXCEL")
     print("=" * 60)
     if excel_files:
-        print("Ditemukan file Excel di folder ini:")
+        print("Ditemukan file Excel di folder ini (diutamakan dari Folder-Runner/):")
         for idx, f in enumerate(excel_files, 1):
             size_mb = os.path.getsize(f) / (1024 * 1024)
-            print(f"   [{idx}] {f} ({size_mb:.2f} MB)")
+            folder_tag = "📁 Folder-Runner" if f.startswith("Folder-Runner") else "📄 Root"
+            print(f"   [{idx}] {f} ({size_mb:.2f} MB) [{folder_tag}]")
         print("   [0] Input path file manual")
         print("-" * 60)
         choice = input(f"Pilih file (1-{len(excel_files)} / 0): ").strip()
