@@ -851,10 +851,12 @@
       "scope": "email profile"
     },
     "daily_quota": 130,
-    "used_today": 0,
+    "used_today": 75,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "hits_429": 0,
+    "cooldown_until": 0
   },
   {
     "email": "apliana1804@gmail.com",
