@@ -23,9 +23,12 @@ import tempfile
 import shutil
 import threading
 import csv
+import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Tuple
+
 
 # Add repo root to path
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -165,18 +168,51 @@ def _resolve_all_pln_urls() -> list[str]:
 PLN_API_URLS = _resolve_all_pln_urls()
 
 
+# High-performance HTTP Session with connection pooling across workers
+_HTTP_SESSION = requests.Session()
+adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=1)
+_HTTP_SESSION.mount("http://", adapter)
+_HTTP_SESSION.mount("https://", adapter)
+
+# Fast-path cache for working PLN server URL and API Key
+_FAST_PLN_URL: Optional[str] = None
+_FAST_PLN_KEY: Optional[str] = None
+_DEAD_PLN_URLS: Dict[str, float] = {}  # URL -> expiry_timestamp
+_FAST_LOCK = threading.Lock()
+
+
 def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
-    """Fetch PLN data from server API with multi-server AP2T and multi-key failover."""
-    urls_to_try = _resolve_all_pln_urls()
-    if not urls_to_try:
-        logger.warning("PLN_API_URL not set — skipping PLN enrichment")
-        return None
+    """Fetch PLN data from server API with connection pooling, fast working-server caching, and dead tunnel blacklisting."""
+    global _FAST_PLN_URL, _FAST_PLN_KEY
 
     params = {}
     if idpel:
         params["idpel"] = idpel
     if nometer:
         params["nometer"] = nometer
+
+    now = time.time()
+    with _FAST_LOCK:
+        fast_url, fast_key = _FAST_PLN_URL, _FAST_PLN_KEY
+
+    # 1. Fast Path: Try cached working URL and Key first with 2.5s timeout (hits in ~30ms)
+    if fast_url and fast_key:
+        try:
+            resp = _HTTP_SESSION.get(f"{fast_url}/api/lookup", params=params, headers={"X-API-Key": fast_key}, timeout=2.5)
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception:
+            pass  # Fast cache missed or server temporarily slow, fall through to multi-server lookup
+
+    # 2. Multi-Server & Multi-Key Failover (skipping known dead tunnels)
+    urls_to_try = _resolve_all_pln_urls()
+    if not urls_to_try:
+        return None
+
+    # Filter out dead URLs (blacklisted for 5 min)
+    valid_urls = [u for u in urls_to_try if _DEAD_PLN_URLS.get(u, 0) < now]
+    if not valid_urls:
+        valid_urls = urls_to_try
 
     keys_to_try = []
     if PLN_API_KEY:
@@ -185,21 +221,25 @@ def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
         if k not in keys_to_try:
             keys_to_try.append(k)
 
-    for base_url in urls_to_try:
+    for base_url in valid_urls:
         for k in keys_to_try:
             try:
-                resp = req_lib.get(f"{base_url}/api/lookup", params=params, headers={"X-API-Key": k}, timeout=4)
+                resp = _HTTP_SESSION.get(f"{base_url}/api/lookup", params=params, headers={"X-API-Key": k}, timeout=3.0)
                 if resp.status_code == 200:
+                    with _FAST_LOCK:
+                        _FAST_PLN_URL, _FAST_PLN_KEY = base_url, k
                     return resp.json()
                 elif resp.status_code in (401, 403):
                     continue  # Key mismatch for this server, try next key
                 elif resp.status_code == 404:
                     break    # IDPel not on this server DB, try next server
             except Exception:
+                # Blacklist dead tunnel for 5 minutes
+                _DEAD_PLN_URLS[base_url] = now + 300.0
                 break        # Dead tunnel / connection timeout, skip to next server immediately
 
-    logger.warning(f"PLN data not found across all AP2T servers: {idpel or nometer}")
     return None
+
 
 
 

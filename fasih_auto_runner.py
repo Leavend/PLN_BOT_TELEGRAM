@@ -806,8 +806,25 @@ class AutonomousRunner:
 
             with self._processed_lock:
                 self.processed_indices.add(idx)
+                self.completed_cnt = getattr(self, "completed_cnt", 0) + 1
+                cnt = self.completed_cnt
+                tot = getattr(self, "total_pending_cnt", 1)
+                now = time.time()
+                st = getattr(self, "start_time", now)
+                if (now - getattr(self, "_last_progress_log", 0) >= 3.5) or cnt == tot:
+                    self._last_progress_log = now
+                    elapsed = max(0.1, now - st)
+                    speed = cnt / elapsed
+                    remaining = max(0, tot - cnt)
+                    eta_sec = int(remaining / speed) if speed > 0 else 0
+                    m, s = divmod(eta_sec, 60)
+                    h, m = divmod(m, 60)
+                    eta_str = f"{h}j {m}m {s}d" if h > 0 else (f"{m}m {s}d" if m > 0 else f"{s}d")
+                    pct = (cnt / tot * 100) if tot > 0 else 100.0
+                    logger.info(f"⚡ [PROGRESS] {cnt}/{tot} ({pct:.1f}%) | Kecepatan: {speed:.1f} data/s | ETA Sisa Waktu: {eta_str}")
 
             if ok:
+
                 logger.info(f"✅ {idpel} SUCCESS via {email}: {msg}")
                 self.excel_mgr.update_row(idx, "SUCCESS", retry_count + attempt - 1, email, msg)
                 self.account_mgr.increment_usage(email)
@@ -941,13 +958,16 @@ class AutonomousRunner:
             executor = DaemonThreadPoolExecutor(max_workers=self.max_workers)
             active_futures = set()
             pending_iter = iter(pending_indices)
+            self.total_pending_cnt = len(pending_indices)
+            self.completed_cnt = 0
+            self.start_time = time.time()
+            self._last_progress_log = 0.0
 
-            # Prime pool with up to max_workers active tasks
+            # Prime pool with up to max_workers active tasks (instant dispatch)
             while len(active_futures) < self.max_workers and not self.stop_event.is_set():
                 try:
                     idx = next(pending_iter)
                     active_futures.add(executor.submit(self.process_item, idx))
-                    time.sleep(0.1)
                 except StopIteration:
                     break
 
@@ -967,6 +987,7 @@ class AutonomousRunner:
                         active_futures.add(executor.submit(self.process_item, idx))
                     except StopIteration:
                         break
+
         except KeyboardInterrupt:
             logger.warning("\n⚠️ Proses dihentikan oleh pengguna (Ctrl+C). Menyimpan progress terakhir...")
             self.stop_event.set()
