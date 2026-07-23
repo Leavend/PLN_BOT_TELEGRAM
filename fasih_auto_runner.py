@@ -153,11 +153,20 @@ class AccountManager:
 
     def save_accounts(self):
         with _quota_lock:
-            # Merge with on-disk users.json to ensure no accounts added externally are dropped
+            # Merge with on-disk users.json to ensure multi-terminal processes sync seamlessly
             if os.path.exists(self.users_file):
                 try:
                     with open(self.users_file, "r") as f:
                         disk_accounts = json.load(f)
+                    disk_map = { (da.get("email") or "").lower(): da for da in disk_accounts }
+                    for acc in self.accounts:
+                        el = (acc.get("email") or "").lower()
+                        if el in disk_map:
+                            da = disk_map[el]
+                            if da.get("last_date") == acc.get("last_date"):
+                                disk_used = da.get("used_today", 0)
+                                if disk_used > acc.get("used_today", 0):
+                                    acc["used_today"] = disk_used
                     mem_emails = { (a.get("email") or "").lower() for a in self.accounts }
                     for da in disk_accounts:
                         e_l = (da.get("email") or "").lower()
@@ -166,6 +175,7 @@ class AccountManager:
                             mem_emails.add(e_l)
                 except Exception:
                     pass
+
 
             tmp_path = self.users_file + ".tmp"
             try:
