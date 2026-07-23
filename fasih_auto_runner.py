@@ -282,6 +282,31 @@ class AccountManager:
                     break
             self.save_accounts()
 
+    def mark_subset_exhausted(
+        self,
+        account_start: int = 1,
+        account_end: Optional[int] = None,
+        selected_emails: Optional[List[str]] = None
+    ):
+        """Mark active subset of accounts as quota exhausted for today (used_today = daily_quota) so they cannot be used for today."""
+        with _quota_lock:
+            today = datetime.date.today().isoformat()
+            if selected_emails:
+                email_set = set(e.lower() for e in selected_emails)
+                subset = [acc for acc in self.accounts if (acc.get("email") or "").lower() in email_set]
+            else:
+                start_idx = max(0, account_start - 1)
+                end_idx = account_end if (account_end is not None and account_end > 0) else len(self.accounts)
+                subset = self.accounts[start_idx:end_idx]
+
+            for acc in subset:
+                quota = acc.get("daily_quota", 400)
+                acc["used_today"] = quota
+                acc["last_date"] = today
+                logger.warning(f"⛔ Akun {acc.get('email')} ditandai MENCAPAI LIMIT HARIAN ({quota}/{quota}) di users.json & tidak dapat digunakan lagi hari ini.")
+            self.save_accounts()
+
+
 
 class ExcelQueueManager:
     """Manages reading and thread-safe writing of the Master Excel file."""
@@ -316,7 +341,10 @@ class ExcelQueueManager:
 
         if not loaded_from_cache:
             try:
-                self.df = pd.read_excel(self.excel_path)
+                try:
+                    self.df = pd.read_excel(self.excel_path, engine="calamine")
+                except Exception:
+                    self.df = pd.read_excel(self.excel_path)
                 try:
                     self.df.to_pickle(cache_path)
                 except Exception:
@@ -365,21 +393,27 @@ class ExcelQueueManager:
         logger.info(f"Excel loaded: {len(self.df)} rows | IDPel Col: '{self.idpel_col}' | Lat/Lon: '{self.lat_col}'/'{self.lon_col}' | Keperluan: '{self.keperluan_col}'")
 
     def _apply_checkpoint_if_exists(self):
-        """Apply any un-flushed progress from checkpoint CSV file on load."""
+        """Apply any un-flushed progress from checkpoint CSV file on load (optimized vector/dict recovery)."""
         ckpt_path = self.excel_path + ".checkpoint.csv"
         if os.path.exists(ckpt_path):
             try:
                 ckpt_df = pd.read_csv(ckpt_path)
+                if ckpt_df.empty or "index" not in ckpt_df.columns:
+                    return
                 applied_cnt = 0
-                for _, row in ckpt_df.iterrows():
+                max_len = len(self.df)
+                for row in ckpt_df.itertuples(index=False):
                     try:
-                        idx = int(row["index"])
-                        if 0 <= idx < len(self.df):
-                            self.df.at[idx, "BOT_STATUS"] = str(row["status"])
-                            self.df.at[idx, "BOT_RETRY"] = int(row["retry_count"])
-                            self.df.at[idx, "BOT_PETUGAS"] = str(row["user_email"])
-                            self.df.at[idx, "BOT_CATATAN"] = str(row["catatan"])
-                            self.df.at[idx, "BOT_TIMESTAMP"] = str(row["timestamp"])
+                        idx_val = getattr(row, "index")
+                        if pd.isna(idx_val):
+                            continue
+                        i = int(idx_val)
+                        if 0 <= i < max_len:
+                            self.df.at[i, "BOT_STATUS"] = str(getattr(row, "status", ""))
+                            self.df.at[i, "BOT_RETRY"] = int(getattr(row, "retry_count", 0))
+                            self.df.at[i, "BOT_PETUGAS"] = str(getattr(row, "user_email", ""))
+                            self.df.at[i, "BOT_CATATAN"] = str(getattr(row, "catatan", ""))
+                            self.df.at[i, "BOT_TIMESTAMP"] = str(getattr(row, "timestamp", ""))
                             applied_cnt += 1
                     except Exception:
                         pass
@@ -499,7 +533,8 @@ class ExcelQueueManager:
                 logger.info(f"📍 Menyetel baris awal eksekusi dari baris Excel #{start_row} (DF index {target_start_idx})")
 
             status_series = self.df["BOT_STATUS"].astype(str).str.upper()
-            mask = ~status_series.isin(["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL"])
+            terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL", "FAILED_PLN", "FAILED"]
+            mask = ~status_series.isin(terminal_statuses)
             if target_start_idx > 0:
                 mask.iloc[:target_start_idx] = False
 
@@ -606,13 +641,28 @@ class AutonomousRunner:
             )
             if isinstance(res, dict):
                 acc = res
+                with self._processed_lock:
+                    self._cooldown_log_count = 0
                 break
             elif res == "IN_COOLDOWN":
                 with self._processed_lock:
                     now = time.time()
                     if now - getattr(self, "_last_cooldown_log", 0) > 15.0:
-                        logger.info("⏳ Akun BPS sedang dalam cooldown 429 rate-limit sementara. Menunggu akun tersedia...")
+                        cnt = getattr(self, "_cooldown_log_count", 0) + 1
+                        self._cooldown_log_count = cnt
                         self._last_cooldown_log = now
+                        logger.info(f"⏳ Akun BPS sedang dalam cooldown 429 rate-limit sementara ({cnt}/5). Menunggu akun tersedia...")
+                        if cnt >= 5:
+                            logger.warning("⛔ Telah mencapai 5x pesan tunggu cooldown rate-limit 429!")
+                            logger.warning("⛔ Otomatis menyetel akun di users.json agar tidak dapat digunakan lagi hari ini & menghentikan eksekusi...")
+                            self.account_mgr.mark_subset_exhausted(
+                                account_start=self.account_start,
+                                account_end=self.account_end,
+                                selected_emails=self.selected_emails
+                            )
+                            if not self.stop_event.is_set():
+                                self.stop_event.set()
+                            return
                 time.sleep(5.0)
             else:
                 break
@@ -620,7 +670,7 @@ class AutonomousRunner:
         if not acc:
             if not self.stop_event.is_set():
                 self.stop_event.set()
-                logger.warning("⛔ SEMUA AKUN BPS YANG DIGUNAKAN TELAH MENCAPAI LIMIT KUOTA HARIAN (400/400). Menghentikan eksekusi...")
+                logger.warning("⛔ SEMUA AKUN BPS YANG DIGUNAKAN TELAH MENCAPAI LIMIT KUOTA HARIAN. Menghentikan eksekusi...")
             return
 
         email = acc["email"]
@@ -731,7 +781,8 @@ class AutonomousRunner:
         """Interactive startup prompt to let user select start row or IDPel."""
         df = self.excel_mgr.df
         total_rows = len(df)
-        completed_cnt = sum(1 for status in df["BOT_STATUS"] if str(status).upper() in ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL"])
+        terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL", "FAILED_PLN", "FAILED"]
+        completed_cnt = sum(1 for status in df["BOT_STATUS"] if str(status).upper() in terminal_statuses)
         pending_cnt = total_rows - completed_cnt
 
         print("\n" + "=" * 65)
@@ -785,7 +836,7 @@ class AutonomousRunner:
         logger.info(f"📋 Total IDPel pending yang akan diproses: {len(pending_indices)}")
 
         if not pending_indices:
-            logger.info("✅ Semua IDPel di Excel sudah diproses (STATUS = SUCCESS / NON_RESIDENTIAL / INVALID_IDPEL).")
+            logger.info("✅ Semua IDPel di Excel sudah diproses (STATUS = SUCCESS / NON_RESIDENTIAL / INVALID_IDPEL / FAILED_PLN / FAILED).")
             return
 
         try:

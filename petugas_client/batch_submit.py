@@ -514,6 +514,12 @@ def submit_single(
     skip_cek_idpln: bool = False,
 ) -> tuple[bool, str]:
     """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
+    # Own a scratch dir when the caller passes none (auto-runner path) so the
+    # downloaded photo + the .7z archive land in a temp dir we clean up, not CWD.
+    # Callers that pass temp_dir (fasih-submit-batch) keep managing their own dir.
+    _owns_temp = not temp_dir
+    if _owns_temp:
+        temp_dir = tempfile.mkdtemp(prefix="fasih_submit_")
     try:
         # Use the provided token_data directly — do NOT read from global fasih_token.json
         # (auto-runner passes per-account tokens; reading from disk would mix accounts)
@@ -528,10 +534,15 @@ def submit_single(
         if not survey_caches:
             return False, "❌ Akun BPS ini tidak memiliki survey aktif (0 survey / belum ditugaskan sampel)."
 
+        # Early validation: skip invalid IDPel / NoMeter (must be 8-15 characters)
+        val_clean = (val or "").strip()
+        if not val_clean or len(val_clean) < 8 or len(val_clean) > 15:
+            return True, f"⚠️ IDPel / NoMeter '{val_clean}' tidak valid (panjang < 8 atau > 15 karakter) — dilewati."
+
         # Determine idpel vs nometer
-        is_idpel = len(val) == 12
-        idpel_val = val if is_idpel else ""
-        nometer_val = "" if is_idpel else val
+        is_idpel = len(val_clean) == 12
+        idpel_val = val_clean if is_idpel else ""
+        nometer_val = "" if is_idpel else val_clean
 
         # Search ALL surveys' assignments for existing match
         target = None
@@ -546,7 +557,7 @@ def submit_single(
             for a in sc["assignments"]:
                 v_idpel = (a.get(idpel_slot) or "").strip()
                 v_nometer = (a.get(nometer_slot) or "").strip()
-                if (is_idpel and v_idpel == val) or (not is_idpel and v_nometer == val):
+                if (is_idpel and v_idpel == val_clean) or (not is_idpel and v_nometer == val_clean):
                     target = a
                     matched_key = skey
                     break
@@ -602,12 +613,13 @@ def submit_single(
             if not target or ("OPEN" not in alias_u and "PERNAH DIBUKA" not in alias_u):
                 return True, "Bukan data OPEN / PERNAH DIBUKA (status berubah / tak ketemu) — dilewati."
 
-        # Anti-dupe FIRST (before PLN lookup): for a known idpel a single check-idpln
-        # says if it's already registered — skip tercatat without wasting a PLN lookup
-        # (also lowers CEK/PLN load, which feeds the 429 that would disable CEK).
-        # For resubmit modes (reject/open/reopen), assignment ID is already known on BPS so CEK is skipped.
-        if resubmit_reject or resubmit_open or resubmit_reopen:
+
+
+        # For --resubmit-reject, assignment ID is already known and REJECTED on BPS so check-idpln is automatically skipped to save BPS daily quota.
+        # --resubmit-open / --resubmit-reopen STILL perform check-idpln to check BPS status (unless user explicitly passed --no-cek).
+        if resubmit_reject:
             skip_cek_idpln = True
+
 
         import uuid
         aid = target.get("id") if target else str(uuid.uuid4())
@@ -615,16 +627,23 @@ def submit_single(
         if d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
             return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
 
-        # Step 5: PLN lookup via server API
+        # Step 5: PLN lookup via server API (Retry 3x if not found / transient error)
         lat, lon = None, None
-        pln_data = pln_lookup(idpel=idpel_val, nometer=nometer_val)
+        pln_data = None
+        for attempt in range(1, 4):
+            pln_data = pln_lookup(idpel=idpel_val, nometer=nometer_val)
+            if pln_data:
+                break
+            if attempt < 3:
+                time.sleep(1.0)
+
         photo_path = None
 
         # GUARD: never submit without valid PLN data. Without it the survey
         # (Prabayar/Pascabayar), nama, alamat & coords all fall back to
         # placeholders → junk record in the wrong survey. Abort instead.
         if not pln_data:
-            return False, "❌ Data PLN tidak ditemukan / server PLN tak terjangkau (cek fasih-status). Item dilewati agar tidak kirim data placeholder."
+            return False, "❌ Data PLN tidak ditemukan setelah 3x percobaan (cek fasih-status). Item dilewati agar tidak kirim data placeholder."
 
         # BLOK III (r301) region cascade cocoknya lewat fullcode dari kd_kel. Kalau
         # --workers tinggi, tunnel PLN bisa balikin baris PARSIAL (nama ada, kd_kel
@@ -634,11 +653,7 @@ def submit_single(
         def _kel_ok(d):
             k = str((d or {}).get("kd_kel") or "").strip()
             return len(k) == 10 and k.isdigit()
-        for attempt in range(1, 4):
-            if _kel_ok(pln_data):
-                break
-            logger.warning(f"⚠️ Region PLN parsial/kd_kel kosong untuk {idpel_val or nometer_val} (percobaan {attempt}/3). Retrying...")
-            time.sleep(0.5 * attempt)
+        if not _kel_ok(pln_data):
             pln_data = pln_lookup(idpel=idpel_val, nometer=nometer_val) or pln_data
         if not _kel_ok(pln_data):
             return False, "❌ Region PLN tak lengkap (kd_kel kosong — BLOK III bakal blank) — dilewati, coba lagi. Kalau sering: turunkan --workers (tunnel PLN overload)."
@@ -760,18 +775,34 @@ def submit_single(
         pid = sc["periode"]["id"]
 
         # Step 8 prep: Resolve region key early for decryption & encryption
-        region_id = (target.get("region") or {}).get("id", "")
+        target_region = target.get("region")
+        if isinstance(target_region, dict):
+            region_id = target_region.get("id") or target_region.get("region_id") or ""
+        else:
+            region_id = str(target_region or target.get("region_id") or target.get("regionId") or "")
+
         wrapped_key = None
-        for r in cached_regions:
-            if r.get("region_id") == region_id or (r.get("region") or {}).get("id") == region_id:
-                wrapped_key = r.get("wrappedDatakey")
-                break
-        if not wrapped_key:
-            wrapped_key = STATIC_LEGACY_KEY
-        try:
-            key_bytes = base64.b64decode(wrapped_key.encode("utf-8"))
-        except Exception:
-            key_bytes = STATIC_LEGACY_KEY.encode("utf-8")
+        if cached_regions:
+            for r in cached_regions:
+                r_id = r.get("region_id") or r.get("id") or (r.get("region") or {}).get("id")
+                if r_id and r_id == region_id:
+                    wrapped_key = r.get("wrappedDatakey")
+                    break
+            if not wrapped_key and len(cached_regions) > 0:
+                wrapped_key = cached_regions[0].get("wrappedDatakey")
+
+        key_bytes = None
+        if wrapped_key:
+            try:
+                kb = base64.b64decode(wrapped_key.encode("utf-8"))
+                if len(kb) in (16, 24, 32):
+                    key_bytes = kb
+            except Exception:
+                pass
+
+        if not key_bytes:
+            key_bytes = hashlib.sha256(STATIC_LEGACY_KEY.encode("utf-8")).digest()
+
 
         # RESUBMIT-REJECT / RESUBMIT-OPEN: download & decrypt original archive using region key
         orig_data = None
@@ -782,20 +813,20 @@ def submit_single(
 
             bp = target.get("basePath")
             if bp:
-                logger.info(f"Mengunduh arsip original dari S3 untuk mengambil tanggal pembuatan...")
+                logger.info(f"Mengunduh arsip original dari S3 untuk verifikasi data...")
                 try:
                     orig_data = fetch_and_decrypt_original(headers, target["id"], pid, bp, key_bytes)
-                    if orig_data and orig_data.get("createdAt"):
-                        target["createdAt"] = orig_data["createdAt"]
-                        logger.info(f"Berhasil memuat tanggal pembuatan original: {target['createdAt']}")
+                    logger.info("Berhasil memverifikasi arsip original S3. Menggunakan stempel waktu jam kerja aktif hari ini.")
                 except Exception as ex:
-                    logger.warning(f"Gagal memuat tanggal pembuatan original dari S3: {ex}. Menggunakan fallback.")
+                    logger.warning(f"Gagal memuat arsip original dari S3: {ex}. Lanjut resubmit.")
+
 
         # CEK NIK (pemadanan) — companion verification, best-effort (see _cek)
         nik_val = direct_args.get("nik") or ""
-        nikpln_data = _cek(check_nikpln, headers, aid, nik_val) if nik_val else {}
+        nikpln_data = _cek(check_nikpln, headers, aid, nik_val, skip_cek_idpln=skip_cek_idpln) if (nik_val and not skip_cek_idpln) else {}
         if nik_val and nikpln_data and not nikpln_data.get("exists"):
             logger.warning(f"CEK NIK {nik_val}: exists=false (tidak padan) di BPS")
+
 
         # Step 6: Build answers
         answers = build_dynamic_answers(target, direct_args, cached_template_mapping)
@@ -994,6 +1025,9 @@ def submit_single(
                            "perbaiki reject ini lewat app FASIH.")
         logger.error(f"Submit error for {val}: {msg}")
         return False, f"Error: {msg}"
+    finally:
+        if _owns_temp:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 # --- Main ---
@@ -1010,7 +1044,7 @@ def _reject_idpels(survey_caches: dict) -> list[str]:
         for a in sc.get("assignments") or []:
             if "REJECT" in ((a.get("assignmentStatusAlias") or "").upper()):
                 idp = (a.get(idpel_slot) or "").strip()
-                if idp and idp not in seen:
+                if idp and 8 <= len(idp) <= 15 and idp not in seen:
                     seen.add(idp)
                     out.append(idp)
     return out
@@ -1028,13 +1062,16 @@ def _open_idpels(survey_caches: dict) -> list[str]:
             if "OPEN" in alias or "PERNAH DIBUKA" in alias:
                 idp = (a.get(idpel_slot) or "").strip()
                 nom = (a.get(nometer_slot) or "").strip()
-                if idp and idp not in seen:
+                if idp and 8 <= len(idp) <= 15 and idp not in seen:
                     seen.add(idp)
                     out.append(idp)
-                if nom and nom not in seen:
+                if nom and 8 <= len(nom) <= 15 and nom not in seen:
                     seen.add(nom)
                     out.append(nom)
     return out
+
+
+
 
 
 def _reopen_idpels(survey_caches: dict) -> list[str]:
@@ -1107,9 +1144,10 @@ def main():
     if args.resubmit_reject:
         print("🩹 Mode: RESUBMIT-REJECT (perbaiki data REJECT — CEK IDPel otomatis diskip)")
     if args.resubmit_open:
-        print("📂 Mode: RESUBMIT-OPEN (submit data OPEN — CEK IDPel otomatis diskip)")
+        print("📂 Mode: RESUBMIT-OPEN (submit data OPEN / BELUM DIBUKA — menjalankan CEK IDPel BPS)")
     if args.resubmit_reopen:
-        print("📂 Mode: RESUBMIT-REOPEN (submit data OPEN/PERNAH DIBUKA — CEK IDPel otomatis diskip)")
+        print("📂 Mode: RESUBMIT-REOPEN (submit data OPEN / BELUM DIBUKA — menjalankan CEK IDPel BPS)")
+
     if args.no_cek:
         print("⏭️  Mode: NO-CEK (skip CEK IDPel/NIK — data tetap terdata via paradata)")
         print("   ⚠️  Tanpa CEK, guard anti-dupe mati. Pakai list yang SUDAH difilter (belum saja).")

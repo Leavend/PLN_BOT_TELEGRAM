@@ -925,16 +925,25 @@ def get_encryption_key(headers: dict, target: dict, region_id: str) -> bytes:
     pid = target.get("surveyPeriodId")
     regions = fetch_regions(headers, pid)
     wrapped_key = None
-    for r in regions:
-        if r.get("region_id") == region_id or (r.get("region") or {}).get("id") == region_id:
-            wrapped_key = r.get("wrappedDatakey")
-            break
-    if not wrapped_key:
-        wrapped_key = STATIC_LEGACY_KEY
-    try:
-        return base64.b64decode(wrapped_key.encode("utf-8"))
-    except Exception:
-        return STATIC_LEGACY_KEY.encode("utf-8")
+    if regions:
+        for r in regions:
+            r_id = r.get("region_id") or r.get("id") or (r.get("region") or {}).get("id")
+            if r_id and r_id == region_id:
+                wrapped_key = r.get("wrappedDatakey")
+                break
+        if not wrapped_key and len(regions) > 0:
+            wrapped_key = regions[0].get("wrappedDatakey")
+
+    if wrapped_key:
+        try:
+            kb = base64.b64decode(wrapped_key.encode("utf-8"))
+            if len(kb) in (16, 24, 32):
+                return kb
+        except Exception:
+            pass
+
+    return hashlib.sha256(STATIC_LEGACY_KEY.encode("utf-8")).digest()
+
 
 def get_user_name_from_headers(headers: dict) -> str:
     try:
