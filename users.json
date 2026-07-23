@@ -937,12 +937,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 0,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 2,
-    "cooldown_until": 1784806835.7523992
+    "hits_429": 5,
+    "cooldown_until": 1784806960.236602
   },
   {
     "email": "apliana1804@gmail.com",
@@ -958,12 +958,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 131,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 1784806835.769365,
-    "hits_429": 1
+    "cooldown_until": 1784806961.077714,
+    "hits_429": 5
   },
   {
     "email": "fennyirawati141@gmail.com",
@@ -979,12 +979,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 171,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": null,
-    "hits_429": 0
+    "cooldown_until": 1784806888.057847,
+    "hits_429": 6
   },
   {
     "email": "evisumanti1994@gmail.com",
@@ -1000,12 +1000,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 195,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": null,
-    "hits_429": 0
+    "cooldown_until": 1784807083.78981,
+    "hits_429": 5
   },
   {
     "email": "lenaity8@gmail.com",
@@ -1021,12 +1021,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 168,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": null,
-    "hits_429": 0
+    "cooldown_until": 1784807085.069698,
+    "hits_429": 5
   },
   {
     "email": "ahoilihan0@gmail.com",
@@ -1042,12 +1042,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 175,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": null,
-    "hits_429": 0
+    "cooldown_until": 1784807195.187871,
+    "hits_429": 5
   },
   {
     "email": "peleni1980@gmail.com",
@@ -1063,12 +1063,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 190,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": null,
-    "hits_429": 0
+    "cooldown_until": 1784807197.337316,
+    "hits_429": 11
   },
   {
     "email": "raniarden7@gmail.com",
@@ -1084,12 +1084,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 203,
+    "used_today": 404,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": null,
-    "hits_429": 0
+    "cooldown_until": 1784807214.301503,
+    "hits_429": 8
   },
   {
     "email": "widiaastuti23062003@gmail.com",
@@ -1105,12 +1105,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 180,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": null,
-    "hits_429": 0
+    "cooldown_until": 1784807240.895212,
+    "hits_429": 10
   },
   {
     "email": "risjuati8@gmail.com",
@@ -1126,12 +1126,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 88,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": null,
-    "hits_429": 0
+    "cooldown_until": 1784807242.977638,
+    "hits_429": 7
   },
   {
     "email": "dtseniputtusau@gmail.com",
@@ -1159,12 +1159,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 89,
+    "used_today": 412,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 0,
-    "cooldown_until": null
+    "hits_429": 5,
+    "cooldown_until": 1784807416.0815098
   },
   {
     "email": "cendranataliabulandtsen@gmail.com",
@@ -1180,7 +1180,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 111,
+    "used_today": 252,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",

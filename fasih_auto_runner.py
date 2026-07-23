@@ -317,7 +317,30 @@ class AccountManager:
 
 
 
+def parse_combined_coord(val: Any) -> Tuple[Optional[float], Optional[float]]:
+    """Parse combined coordinate string e.g. '2.1521711111,117.4891911111' or '117.4891, 2.1521' into (Lat, Lon)."""
+    if not val or pd.isna(val):
+        return None, None
+    val_str = str(val).strip().replace(";", ",").replace("\t", ",").replace(" ", ",")
+    parts = [p.strip() for p in val_str.split(",") if p.strip()]
+    if len(parts) >= 2:
+        try:
+            v1 = float(parts[0])
+            v2 = float(parts[1])
+            # Indonesia Latitude is between -12 and 10, Longitude is between 90 and 145.
+            if -12.0 <= v1 <= 10.0 and 90.0 <= v2 <= 145.0:
+                return v1, v2
+            elif -12.0 <= v2 <= 10.0 and 90.0 <= v1 <= 145.0:
+                return v2, v1
+            else:
+                return v1, v2
+        except (ValueError, TypeError):
+            pass
+    return None, None
+
+
 class ExcelQueueManager:
+
     """Manages reading and thread-safe writing of the Master Excel file."""
 
     def __init__(self, excel_path: str):
@@ -326,8 +349,14 @@ class ExcelQueueManager:
         self.idpel_col: Optional[str] = None
         self.lat_col: Optional[str] = None
         self.lon_col: Optional[str] = None
+        self.coord_col: Optional[str] = None
         self.keperluan_col: Optional[str] = None
+
+
         self._load_excel()
+        self._auto_detect_columns()
+
+
 
     def _load_excel(self):
         if not os.path.exists(self.excel_path):
@@ -370,13 +399,16 @@ class ExcelQueueManager:
                 if os.path.exists(cache_path):
                     try:
                         self.df = pd.read_pickle(cache_path)
-                        loaded_from_cache = True
                         logger.info(f"🛡️ [RECOVERY SUCCESS] File Excel .xlsx bermasalah ({excel_err}), tetapi berhasil dipulihkan secara otomatis dari Cache Pickle ({len(self.df)} baris)!")
                     except Exception as ex_pickle_fallback:
                         raise ValueError(f"Gagal membaca format file Excel '{self.excel_path}': {excel_err} (Cache pickle juga gagal: {ex_pickle_fallback})")
                 else:
                     raise ValueError(f"Gagal membaca format file Excel '{self.excel_path}': {excel_err}")
 
+
+    def _auto_detect_columns(self):
+        if self.df is None:
+            return
 
         cols = list(self.df.columns)
 
@@ -389,6 +421,8 @@ class ExcelQueueManager:
                 self.lat_col = c
             if not self.lon_col and any(k in cu for k in ["LONGITUDE", "KOORDINAT_X", "KOORDINAT X", "KOORD_X", "KOORD X", "LON_X", "LONGITUDE_X", "LON", "LONG", "KOORDINAT_LON", "X_KOORDINAT"]):
                 self.lon_col = c
+            if not self.coord_col and any(k in cu for k in ["TITIK KOORDINAT", "TITIK_KOORDINAT", "KOORDINAT", "LAT_LON", "LAT_LONG", "COORDINATE", "COORDINATES", "LATITUDE_LONGITUDE"]):
+                self.coord_col = c
             if not self.keperluan_col and any(k in cu for k in ["KET_KEPERLUAN", "KEPERLUAN", "KD_KEPERLUAN"]):
                 self.keperluan_col = c
 
@@ -416,7 +450,7 @@ class ExcelQueueManager:
 
         self._unsaved_count = 0
         self._last_save_time = time.time()
-        logger.info(f"Excel loaded: {len(self.df)} rows | IDPel Col: '{self.idpel_col}' | Lat/Lon: '{self.lat_col}'/'{self.lon_col}' | Keperluan: '{self.keperluan_col}'")
+        logger.info(f"Excel loaded: {len(self.df)} rows | IDPel Col: '{self.idpel_col}' | Lat/Lon: '{self.lat_col}'/'{self.lon_col}' | Combined Coord: '{self.coord_col}' | Keperluan: '{self.keperluan_col}'")
 
     def _apply_checkpoint_if_exists(self):
         """Apply any un-flushed progress from checkpoint CSV file on load (optimized vector/dict recovery)."""
@@ -577,13 +611,24 @@ class ExcelQueueManager:
         """Fetch item dict lazily on demand for a single row index."""
         with _excel_lock:
             row = self.df.iloc[idx]
+            lat = row.get(self.lat_col) if self.lat_col else None
+            lon = row.get(self.lon_col) if self.lon_col else None
+
+            # Fallback to combined coordinate column if lat/lon empty or single combined string
+            coord_raw = row.get(self.coord_col) if self.coord_col else (lat if (isinstance(lat, str) and ("," in lat or " " in lat)) else None)
+            if coord_raw and pd.notna(coord_raw) and str(coord_raw).strip():
+                parsed_lat, parsed_lon = parse_combined_coord(coord_raw)
+                if parsed_lat is not None and parsed_lon is not None:
+                    lat, lon = parsed_lat, parsed_lon
+
             return {
                 "idpel": str(row.get(self.idpel_col) or "").strip(),
-                "lat": row.get(self.lat_col) if self.lat_col else None,
-                "lon": row.get(self.lon_col) if self.lon_col else None,
+                "lat": lat,
+                "lon": lon,
                 "keperluan": str(row.get(self.keperluan_col) or "").strip() if self.keperluan_col else "",
                 "retry_count": int(row.get("BOT_RETRY", 0)),
             }
+
 
 
 class AutonomousRunner:
@@ -1030,6 +1075,11 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
         emoji = group_emojis.get(grp_name, "📁 ")
         indices = [it[0] for it in items]
         group_indices[grp_name] = indices
+        if grp_name == "TANJUNG REDEB":
+            group_indices["TJR"] = indices
+            group_indices["TANJUNG"] = indices
+            group_indices["TANJUNG_REDEB"] = indices
+
         min_idx, max_idx = min(indices), max(indices)
 
         print("\n" + "=" * 65)
