@@ -397,10 +397,29 @@ class ExcelQueueManager:
         if not loaded_from_cache:
             excel_err = None
             try:
+                sheet_dict = None
                 try:
-                    self.df = pd.read_excel(self.excel_path, engine="calamine")
+                    sheet_dict = pd.read_excel(self.excel_path, sheet_name=None, engine="calamine")
                 except Exception:
-                    self.df = pd.read_excel(self.excel_path)
+                    sheet_dict = pd.read_excel(self.excel_path, sheet_name=None)
+
+                if isinstance(sheet_dict, dict):
+                    valid_dfs = []
+                    sheet_names = list(sheet_dict.keys())
+                    for s_name, s_df in sheet_dict.items():
+                        if isinstance(s_df, pd.DataFrame) and not s_df.empty:
+                            if "SHEET_NAME" not in s_df.columns:
+                                s_df["SHEET_NAME"] = s_name
+                            valid_dfs.append(s_df)
+                    if valid_dfs:
+                        self.df = pd.concat(valid_dfs, ignore_index=True)
+                        if len(sheet_names) > 1:
+                            logger.info(f"📊 Menemukan {len(sheet_names)} Sheet ({', '.join(sheet_names)}) — Menggabungkan total {len(self.df)} baris data!")
+                    else:
+                        self.df = pd.DataFrame()
+                elif isinstance(sheet_dict, pd.DataFrame):
+                    self.df = sheet_dict
+
                 # Re-save fresh cache
                 try:
                     self.df.to_pickle(cache_path)
@@ -408,6 +427,7 @@ class ExcelQueueManager:
                     pass
             except Exception as e:
                 excel_err = e
+
 
             # Strategy 3: Fallback Recovery — if Excel reading failed (e.g. Bad magic number / zip corrupt), try reading pickle cache regardless of timestamp!
             if excel_err:
