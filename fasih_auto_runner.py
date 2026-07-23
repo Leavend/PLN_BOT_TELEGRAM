@@ -20,8 +20,10 @@ import logging
 import threading
 import argparse
 import datetime
+import collections
 import pandas as pd
 from typing import Optional, Dict, Any, List, Tuple
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
@@ -967,14 +969,25 @@ class AutonomousRunner:
             with self._processed_lock:
                 self.processed_indices.add(idx)
                 self.completed_cnt = getattr(self, "completed_cnt", 0) + 1
+                now = time.time()
+                if not hasattr(self, "_completed_timestamps"):
+                    self._completed_timestamps = collections.deque(maxlen=100)
+                self._completed_timestamps.append(now)
+
                 cnt = self.completed_cnt
                 tot = getattr(self, "total_pending_cnt", 1)
-                now = time.time()
                 st = getattr(self, "start_time", now)
                 if (now - getattr(self, "_last_progress_log", 0) >= 3.5) or cnt == tot:
                     self._last_progress_log = now
-                    elapsed = max(0.1, now - st)
-                    speed = cnt / elapsed
+                    # Calculate active sliding window speed (over last 100 items or since active run start)
+                    if len(self._completed_timestamps) > 1:
+                        win_elapsed = max(0.1, now - self._completed_timestamps[0])
+                        win_items = len(self._completed_timestamps) - 1
+                        speed = win_items / win_elapsed
+                    else:
+                        elapsed = max(0.1, now - st)
+                        speed = cnt / elapsed
+
                     remaining = max(0, tot - cnt)
                     eta_sec = int(remaining / speed) if speed > 0 else 0
                     m, s = divmod(eta_sec, 60)
@@ -982,6 +995,7 @@ class AutonomousRunner:
                     eta_str = f"{h}j {m}m {s}d" if h > 0 else (f"{m}m {s}d" if m > 0 else f"{s}d")
                     pct = (cnt / tot * 100) if tot > 0 else 100.0
                     logger.info(f"⚡ [PROGRESS] {cnt}/{tot} ({pct:.1f}%) | Kecepatan: {speed:.1f} data/s | ETA Sisa Waktu: {eta_str}")
+
 
             if ok:
 
@@ -1091,7 +1105,11 @@ class AutonomousRunner:
         if not non_interactive and sys.stdin.isatty() and start_row is None and not start_idpel:
             start_row, start_idpel = self.prompt_interactive_start()
 
+        self.start_time = time.time()
+        self._completed_timestamps = collections.deque(maxlen=100)
+
         logger.info(f"⚡ MEMULAI AUTONOMOUS RUNNER — Workers: {self.max_workers}")
+
         pending_indices = self.excel_mgr.get_pending_indices(start_row=start_row, start_idpel=start_idpel)
         logger.info(f"📋 Total IDPel pending yang akan diproses: {len(pending_indices)}")
 
