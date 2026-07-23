@@ -13,7 +13,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 120,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "cooldown_until": null,
@@ -34,7 +34,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 141,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -55,7 +55,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 135,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -76,7 +76,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 152,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -97,7 +97,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 150,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -118,7 +118,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 151,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -139,7 +139,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 141,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -160,7 +160,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 143,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -181,7 +181,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 168,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -202,7 +202,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 136,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -223,7 +223,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 170,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -244,7 +244,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 161,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -265,7 +265,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 141,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -286,7 +286,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 139,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -307,7 +307,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 141,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -328,7 +328,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 145,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -349,7 +349,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 153,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -370,7 +370,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 170,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -391,7 +391,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 174,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -412,7 +412,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 138,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -433,7 +433,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 172,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -454,7 +454,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 144,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -475,7 +475,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 171,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -496,7 +496,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 162,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -517,7 +517,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 152,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -538,7 +538,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 165,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -664,7 +664,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 150,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "cooldown_until": null,
@@ -685,7 +685,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 151,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -706,7 +706,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 147,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -727,7 +727,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 152,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -748,7 +748,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 159,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -769,7 +769,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 143,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -790,7 +790,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 135,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -811,7 +811,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 161,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -832,7 +832,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 142,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -853,7 +853,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 151,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -874,7 +874,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 160,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -895,7 +895,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 173,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -916,7 +916,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 147,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "PALUKOTA",
@@ -937,12 +937,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 400,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 6,
-    "cooldown_until": 1784798243.535903
+    "hits_429": 2,
+    "cooldown_until": 1784806835.7523992
   },
   {
     "email": "apliana1804@gmail.com",
@@ -958,12 +958,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 400,
+    "used_today": 131,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 1784798585.497494,
-    "hits_429": 5
+    "cooldown_until": 1784806835.769365,
+    "hits_429": 1
   },
   {
     "email": "fennyirawati141@gmail.com",
@@ -979,7 +979,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 423,
+    "used_today": 171,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1000,7 +1000,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 426,
+    "used_today": 195,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1021,7 +1021,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 425,
+    "used_today": 168,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1042,7 +1042,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 426,
+    "used_today": 175,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1063,7 +1063,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 424,
+    "used_today": 190,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1084,7 +1084,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 425,
+    "used_today": 203,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1105,7 +1105,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 419,
+    "used_today": 180,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1126,19 +1126,19 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 400,
+    "used_today": 88,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 1784799937.122564,
-    "hits_429": 24
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "dtseniputtusau@gmail.com",
     "password": "nusadaya123",
     "token_data": null,
     "daily_quota": 400,
-    "used_today": 130,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1159,7 +1159,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 415,
+    "used_today": 89,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1180,7 +1180,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 420,
+    "used_today": 111,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1192,7 +1192,7 @@
     "password": "nusadaya123",
     "token_data": null,
     "daily_quota": 400,
-    "used_today": 130,
+    "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1213,7 +1213,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 240,
+    "used_today": 172,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
@@ -1234,7 +1234,7 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 150,
+    "used_today": 142,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",

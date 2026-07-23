@@ -245,6 +245,9 @@ class AccountManager:
             counts = {}
             if df is not None and "BOT_STATUS" in df.columns and "BOT_PETUGAS" in df.columns:
                 success_mask = df["BOT_STATUS"].astype(str).str.upper() == "SUCCESS"
+                if "BOT_CATATAN" in df.columns:
+                    cat_series = df["BOT_CATATAN"].fillna("").astype(str)
+                    success_mask = success_mask & (~cat_series.str.contains("anti-dupe|skip", case=False))
                 if success_mask.any():
                     sub_df = df[success_mask]
                     petugas_series = sub_df["BOT_PETUGAS"].fillna("").astype(str).str.strip().str.lower()
@@ -563,7 +566,7 @@ class ExcelQueueManager:
                 logger.info(f"📍 Menyetel baris awal eksekusi dari baris Excel #{start_row} (DF index {target_start_idx})")
 
             status_series = self.df["BOT_STATUS"].astype(str).str.upper()
-            terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL", "FAILED_PLN", "FAILED"]
+            terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL"]
             mask = ~status_series.isin(terminal_statuses)
             if target_start_idx > 0:
                 mask.iloc[:target_start_idx] = False
@@ -801,7 +804,7 @@ class AutonomousRunner:
         """Interactive startup prompt to let user select start row or IDPel."""
         df = self.excel_mgr.df
         total_rows = len(df)
-        terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL", "FAILED_PLN", "FAILED"]
+        terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL"]
         completed_cnt = sum(1 for status in df["BOT_STATUS"] if str(status).upper() in terminal_statuses)
         pending_cnt = total_rows - completed_cnt
 
