@@ -300,12 +300,12 @@ session = RotatingProxySession(proxy_list)
 
 # Configure resilient connection pooling and retries with backoff
 retries = Retry(
-    total=3,
-    backoff_factor=1,
+    total=2,
+    backoff_factor=0.3,
     status_forcelist=[500, 502, 503, 504],
     raise_on_status=False
 )
-adapter = HTTPAdapter(pool_connections=25, pool_maxsize=25, max_retries=retries)
+adapter = HTTPAdapter(pool_connections=50, pool_maxsize=50, max_retries=retries)
 session.mount("https://", adapter)
 session.mount("http://", adapter)
 
@@ -491,7 +491,7 @@ def check_idpln(headers: dict, assignment_id: str, idpel: str) -> dict:
         f"{BASE_URL}/mobile/connector/api/hit/check-idpln",
         headers=headers,
         json={"assignmentId": assignment_id, "body": {"id_pelanggan_pln": idpel}},
-        timeout=30,
+        timeout=15,
     )
     if resp.status_code == 429:
         try:
@@ -511,7 +511,7 @@ def check_nikpln(headers: dict, assignment_id: str, nik: str) -> dict:
         f"{BASE_URL}/mobile/connector/api/hit/check-nikpln",
         headers=headers,
         json={"assignmentId": assignment_id, "body": {"nik": nik}},
-        timeout=30,
+        timeout=15,
     )
     resp.raise_for_status()
     return resp.json()
