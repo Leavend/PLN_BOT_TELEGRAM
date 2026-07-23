@@ -521,7 +521,7 @@ class ExcelQueueManager:
         logger.info(f"Excel loaded: {len(self.df)} rows | IDPel Col: '{self.idpel_col}' | Lat/Lon: '{self.lat_col}'/'{self.lon_col}' | Combined Coord: '{self.coord_col}' | Keperluan: '{self.keperluan_col}'")
 
     def _apply_checkpoint_if_exists(self):
-        """Apply any un-flushed progress from checkpoint CSV files on load (matching by IDPel and index)."""
+        """Apply any un-flushed progress from checkpoint CSV files on load (matching by IDPel and index across all sheets)."""
         ckpt_paths = [self.excel_path + ".checkpoint.csv"]
 
         # Check for related checkpoint files in same directory (e.g. BOT DTSEN TJR.xlsx.checkpoint.csv)
@@ -536,14 +536,14 @@ class ExcelQueueManager:
             except Exception:
                 pass
 
-        # Build IDPel -> Row Index mapping for self.df
-        idpel_to_idx = {}
+        # Build IDPel -> List of Row Indices mapping for self.df (cross-sheet/row mapping)
+        idpel_to_indices = {}
         if self.idpel_col and self.idpel_col in self.df.columns:
             for idx, val in enumerate(self.df[self.idpel_col]):
                 if pd.notna(val):
                     clean_id = str(val).strip()
                     if clean_id:
-                        idpel_to_idx[clean_id] = idx
+                        idpel_to_indices.setdefault(clean_id, []).append(idx)
 
         applied_cnt = 0
         max_len = len(self.df)
@@ -558,21 +558,21 @@ class ExcelQueueManager:
 
                 for row in ckpt_df.itertuples(index=False):
                     try:
-                        target_i = None
+                        target_indices = []
 
                         # 1. Match by IDPel if available (most reliable across files/sheets)
                         idpel_val = str(getattr(row, "idpel", "")).strip()
-                        if idpel_val and idpel_val in idpel_to_idx:
-                            target_i = idpel_to_idx[idpel_val]
+                        if idpel_val and idpel_val in idpel_to_indices:
+                            target_indices = idpel_to_indices[idpel_val]
                         # 2. Match by direct index if cp is the exact same file checkpoint
                         elif cp == (self.excel_path + ".checkpoint.csv"):
                             idx_val = getattr(row, "index", None)
                             if idx_val is not None and not pd.isna(idx_val):
                                 i = int(idx_val)
                                 if 0 <= i < max_len:
-                                    target_i = i
+                                    target_indices = [i]
 
-                        if target_i is not None:
+                        for target_i in target_indices:
                             st = str(getattr(row, "status", ""))
                             curr_st = str(self.df.at[target_i, "BOT_STATUS"]).upper()
                             if curr_st not in ("SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL") or st in ("SUCCESS", "NON_RESIDENTIAL"):
@@ -588,18 +588,32 @@ class ExcelQueueManager:
                 logger.warning(f"Failed loading checkpoint file {cp}: {e}")
 
         if applied_cnt > 0:
-            logger.info(f"🔄 Checkpoint recovery: Applied {applied_cnt} recent updates from checkpoint log.")
+            logger.info(f"🔄 Checkpoint recovery: Applied {applied_cnt} recent updates from checkpoint log (cross-sheet synced).")
 
 
     def update_row(self, index: int, status: str, retry_count: int, user_email: str, catatan: str, force_save: bool = False):
-        """Thread-safe update of a single row in memory with instant non-blocking checkpointing."""
+        """Thread-safe update of a single row in memory with instant cross-sheet deduplication & non-blocking checkpointing."""
         with _excel_lock:
+            ts_now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.df.at[index, "BOT_STATUS"] = status
             self.df.at[index, "BOT_RETRY"] = retry_count
             self.df.at[index, "BOT_PETUGAS"] = user_email
-            self.df.at[index, "BOT_TIMESTAMP"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.df.at[index, "BOT_TIMESTAMP"] = ts_now
             self.df.at[index, "BOT_CATATAN"] = catatan
             self._unsaved_count += 1
+
+            # Instant cross-sheet/row status sync in memory for identical IDPels
+            if self.idpel_col and self.idpel_col in self.df.columns:
+                target_idpel = str(self.df.at[index, self.idpel_col] or "").strip()
+                if target_idpel:
+                    matching_indices = self.df.index[self.df[self.idpel_col].astype(str).str.strip() == target_idpel]
+                    for match_idx in matching_indices:
+                        if match_idx != index:
+                            self.df.at[match_idx, "BOT_STATUS"] = status
+                            self.df.at[match_idx, "BOT_RETRY"] = retry_count
+                            self.df.at[match_idx, "BOT_PETUGAS"] = user_email
+                            self.df.at[match_idx, "BOT_TIMESTAMP"] = ts_now
+                            self.df.at[match_idx, "BOT_CATATAN"] = catatan
 
             # Instant append to lightweight CSV checkpoint (< 1ms, zero blocking)
             self._write_checkpoint(index, status, retry_count, user_email, catatan)
@@ -693,7 +707,7 @@ class ExcelQueueManager:
 
 
     def get_pending_indices(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None) -> List[int]:
-        """Get list of row indices that need processing (instant <1ms)."""
+        """Get list of row indices that need processing with automatic cross-sheet IDPel deduplication (instant <1ms)."""
         with _excel_lock:
             target_start_idx = 0
             if start_idpel:
@@ -714,7 +728,23 @@ class ExcelQueueManager:
             if target_start_idx > 0:
                 mask.iloc[:target_start_idx] = False
 
-            return self.df.index[mask].tolist()
+            raw_pending = self.df.index[mask].tolist()
+            
+            # Instant Deduplication by IDPel: only yield 1 pending index per unique IDPel
+            pending_list = []
+            seen_pending_idpels = set()
+            if self.idpel_col and self.idpel_col in self.df.columns:
+                for idx in raw_pending:
+                    id_val = str(self.df.at[idx, self.idpel_col] or "").strip()
+                    if id_val:
+                        if id_val in seen_pending_idpels:
+                            continue
+                        seen_pending_idpels.add(id_val)
+                    pending_list.append(idx)
+            else:
+                pending_list = raw_pending
+
+            return pending_list
 
     def get_item(self, idx: int) -> dict:
         """Fetch item dict lazily on demand for a single row index."""
