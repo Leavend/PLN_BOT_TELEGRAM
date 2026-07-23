@@ -1034,10 +1034,11 @@
     "password": "nusadaya123",
     "token_data": null,
     "daily_quota": 130,
-    "used_today": 0,
+    "used_today": 130,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "hits_429": 5
   },
   {
     "email": "baunlaingdtsen@gmail.com",
@@ -1086,10 +1087,11 @@
     "password": "nusadaya123",
     "token_data": null,
     "daily_quota": 130,
-    "used_today": 0,
+    "used_today": 130,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "hits_429": 5
   },
   {
     "email": "dtsenipingnjau@gmail.com",
