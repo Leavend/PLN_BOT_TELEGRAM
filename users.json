@@ -851,12 +851,12 @@
       "scope": "email profile"
     },
     "daily_quota": 130,
-    "used_today": 75,
+    "used_today": 130,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 0,
-    "cooldown_until": 0
+    "hits_429": 6,
+    "cooldown_until": 1784793086.020538
   },
   {
     "email": "apliana1804@gmail.com",
@@ -872,7 +872,7 @@
       "scope": "email profile"
     },
     "daily_quota": 125,
-    "used_today": 0,
+    "used_today": 154,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
@@ -891,7 +891,7 @@
       "scope": "email profile"
     },
     "daily_quota": 135,
-    "used_today": 0,
+    "used_today": 161,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
@@ -910,7 +910,7 @@
       "scope": "email profile"
     },
     "daily_quota": 130,
-    "used_today": 0,
+    "used_today": 157,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
@@ -929,7 +929,7 @@
       "scope": "email profile"
     },
     "daily_quota": 128,
-    "used_today": 0,
+    "used_today": 155,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
@@ -948,7 +948,7 @@
       "scope": "email profile"
     },
     "daily_quota": 132,
-    "used_today": 0,
+    "used_today": 161,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
@@ -967,7 +967,7 @@
       "scope": "email profile"
     },
     "daily_quota": 130,
-    "used_today": 0,
+    "used_today": 158,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
@@ -986,7 +986,7 @@
       "scope": "email profile"
     },
     "daily_quota": 125,
-    "used_today": 0,
+    "used_today": 154,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
@@ -1005,7 +1005,7 @@
       "scope": "email profile"
     },
     "daily_quota": 135,
-    "used_today": 0,
+    "used_today": 163,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
@@ -1024,7 +1024,7 @@
       "scope": "email profile"
     },
     "daily_quota": 130,
-    "used_today": 0,
+    "used_today": 159,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
@@ -1053,10 +1053,12 @@
       "scope": "email profile"
     },
     "daily_quota": 125,
-    "used_today": 0,
+    "used_today": 125,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "hits_429": 30,
+    "cooldown_until": 1784794940.66191
   },
   {
     "email": "cendranataliabulandtsen@gmail.com",
@@ -1072,10 +1074,12 @@
       "scope": "email profile"
     },
     "daily_quota": 135,
-    "used_today": 0,
+    "used_today": 135,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "hits_429": 30,
+    "cooldown_until": 1784795018.858143
   },
   {
     "email": "dtsentriowibowo@gmail.com",
@@ -1101,7 +1105,7 @@
       "scope": "email profile"
     },
     "daily_quota": 128,
-    "used_today": 0,
+    "used_today": 141,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
@@ -1120,7 +1124,7 @@
       "scope": "email profile"
     },
     "daily_quota": 132,
-    "used_today": 0,
+    "used_today": 150,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU"
