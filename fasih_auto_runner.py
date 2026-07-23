@@ -997,6 +997,52 @@ def scan_excel_files(target_dir: str = "Folder-Runner") -> List[str]:
     return files
 
 
+def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int]]:
+    """Print registered BPS accounts in users.json grouped by region/group sections.
+    Returns a dictionary mapping uppercase group names to their list of 1-based account indices.
+    """
+    groups_map = {}
+    for idx, acc in enumerate(accounts, 1):
+        grp = str(acc.get("group") or acc.get("region") or "PALUKOTA").strip().upper()
+        if grp not in groups_map:
+            groups_map[grp] = []
+        groups_map[grp].append((idx, acc))
+
+    group_indices = {}
+    group_emojis = {
+        "PALUKOTA": "🏙️ ",
+        "MALINAU": "🏔️ ",
+        "SAMARINDA": "🌏 ",
+        "BALIKPAPAN": "🌊 ",
+        "BONTAG": "🏗️ ",
+        "BONTANG": "🏗️ ",
+        "BERAU": "🌲 ",
+    }
+
+    for grp_name, items in groups_map.items():
+        emoji = group_emojis.get(grp_name, "📁 ")
+        indices = [it[0] for it in items]
+        group_indices[grp_name] = indices
+        min_idx, max_idx = min(indices), max(indices)
+
+        print("\n" + "=" * 65)
+        print(f"{emoji} AKUN WILAYAH / ULP: {grp_name} (Urutan #{min_idx} - #{max_idx} · {len(items)} Akun)")
+        print("=" * 65)
+        for idx, acc in items:
+            if acc.get("is_disabled"):
+                status_str = "❌ Disabled"
+            elif acc.get("used_today", 0) >= acc.get("daily_quota", 400):
+                status_str = "❌ Limit"
+            else:
+                status_str = "✅ Active"
+            email = acc.get("email") or "Unknown"
+            used = acc.get("used_today", 0)
+            quota = acc.get("daily_quota", 400)
+            print(f"  {idx:2d}. {email:<38} [{status_str}] (Terpakai: {used}/{quota})")
+
+    return group_indices
+
+
 def manage_accounts_interactive(users_file: str = "users.json"):
     """Interactive menu for managing BPS accounts in users.json."""
     mgr = AccountManager(users_file)
@@ -1008,19 +1054,10 @@ def manage_accounts_interactive(users_file: str = "users.json"):
             print("⚠️ Belum ada akun di users.json (menggunakan fallback fasih_token.json jika ada).")
         else:
             print(f"📋 Total {len(mgr.accounts)} akun terdaftar:")
-            for idx, acc in enumerate(mgr.accounts, 1):
-                if acc.get("is_disabled"):
-                    status_str = "❌ Disabled"
-                elif acc.get("used_today", 0) >= acc.get("daily_quota", 400):
-                    status_str = "❌ Limit"
-                else:
-                    status_str = "✅ Active"
-                email = acc.get("email") or "Unknown"
-                used = acc.get("used_today", 0)
-                quota = acc.get("daily_quota", 400)
-                print(f"   {idx}. {email} [{status_str}] (Kuota terpakai: {used}/{quota})")
+            print_grouped_accounts(mgr.accounts)
 
         print("-" * 60)
+
         print("  [1] ➕ Tambah Akun BPS Baru (Email & Password)")
         print("  [2] 🔑 Test Login & Validasi Tugas Semua Akun (Auto-Disable Akun Kosong)")
         print("  [3] 🗑️ Hapus Akun BPS")
@@ -1220,22 +1257,16 @@ def interactive_main_menu(args):
                 pass
             total_accs = len(mgr.accounts)
 
-            print("\n" + "=" * 65)
-            print("👥 DAFTAR AKUN BPS TERDAFTAR (users.json):")
-            print("=" * 65)
-            for idx, acc in enumerate(mgr.accounts, 1):
-                status = "✅ Active" if not acc.get("is_disabled") else "❌ Disabled"
-                used = acc.get("used_today", 0)
-                quota = acc.get("daily_quota", 400)
-                print(f"  {idx:2d}. {acc['email']:<38} [{status}] (Terpakai: {used}/{quota})")
+            group_indices = print_grouped_accounts(mgr.accounts)
 
             print("-" * 65)
             print("📌 PILIHAN AKUN BPS YANG AKAN DIGUNAKAN:")
-            print("  • Masukkan nomor urutan (misal: 12 atau rentang 5-15)")
+            print("  • Ketik Nama Wilayah (misal: MALINAU atau PALUKOTA)")
+            print("  • ATAU Masukkan nomor urutan (misal: 45 atau rentang 45-60)")
             print("  • ATAU Paste/Ketik Email BPS (satu atau banyak per baris)")
             print(f"  • ATAU Tekan ENTER pada baris kosong untuk menggunakan SEMUA AKUN (1 - {total_accs})")
             print("-" * 65)
-            print("Pilihan Akun BPS (Paste Email / Nomor / ENTER):")
+            print("Pilihan Akun BPS (Ketik Wilayah / Paste Email / Nomor / ENTER):")
 
             acc_lines = []
             while True:
@@ -1256,7 +1287,13 @@ def interactive_main_menu(args):
             acc_end = None
             selected_emails = None
 
-            if "@" in acc_inp:
+            acc_inp_upper = acc_inp.upper()
+            if acc_inp_upper in group_indices:
+                indices = group_indices[acc_inp_upper]
+                acc_start = min(indices)
+                acc_end = max(indices)
+                print(f"\n✅ Dipilih seluruh akun Wilayah {acc_inp_upper} (Urutan #{acc_start} s.d. #{acc_end} — Total {len(indices)} akun).")
+            elif "@" in acc_inp:
                 # Email(s) input
                 emails = [e.strip() for e in acc_inp.replace(",", " ").replace(";", " ").replace("\t", " ").split() if "@" in e]
                 if emails:
@@ -1279,6 +1316,7 @@ def interactive_main_menu(args):
                 print(f"\n✅ Dipilih akun rentang urutan #{acc_start} s.d. #{acc_end or total_accs}.")
             else:
                 print(f"\n✅ Menggunakan SEMUA akun terdaftar (1 - {total_accs}).")
+
 
             workers_input = input(f"\n⚡ Jumlah paralel worker (default {args.workers}): ").strip()
             max_workers = int(workers_input) if workers_input.isdigit() and int(workers_input) > 0 else args.workers
