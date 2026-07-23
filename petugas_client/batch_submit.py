@@ -729,7 +729,7 @@ def submit_single(
                 d_idpln = {}
         prelist = (d_idpln.get("prelist_source") or "").strip().upper()
         if d_idpln and not d_idpln.get("exists"):
-            logger.warning(f"CEK IDPel {idpel_val}: exists=false di BPS")
+            logger.warning(f"CEK IDPel {idpel_val}{email_tag}: exists=false di BPS")
 
         # DEDUP GUARD (global, anti-dupe) — the single check-idpln above is the source
         # of truth for "already registered in FASIH". Skip anything tercatat unless the
@@ -768,7 +768,7 @@ def submit_single(
                     template_pool = fallback_sc[matched_key]["assignments"]
 
             if not template_pool:
-                return False, f"❌ Akun BPS ini belum memiliki tugas/assignment di survey {matched_key} (0 tugas). Admin BPS harus menugaskan minimal 1 sampel ke akun ini di Web Monitoring BPS."
+                return False, f"❌ Akun BPS ini ({email_user}) belum memiliki tugas/assignment di survey {matched_key} (0 tugas). Admin BPS harus menugaskan minimal 1 sampel ke akun ini di Web Monitoring BPS."
             template_assignment = _find_template_for_region(template_pool, pln_data)
             target = build_new_assignment_target(
                 template_assignment, idpel_val, nometer_val, sc["template_mapping"])
@@ -834,7 +834,7 @@ def submit_single(
         nik_val = direct_args.get("nik") or ""
         nikpln_data = _cek(check_nikpln, headers, aid, nik_val, skip_cek_idpln=skip_cek_idpln) if (nik_val and not skip_cek_idpln) else {}
         if nik_val and nikpln_data and not nikpln_data.get("exists"):
-            logger.warning(f"CEK NIK {nik_val}: exists=false (tidak padan) di BPS")
+            logger.warning(f"CEK NIK {nik_val} (IDPel: {idpel_val}{email_tag}): exists=false (tidak padan) di BPS")
 
 
         # Step 6: Build answers
