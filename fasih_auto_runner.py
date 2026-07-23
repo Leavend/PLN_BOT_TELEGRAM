@@ -636,7 +636,17 @@ class ExcelQueueManager:
                 if parsed_lat is not None and parsed_lon is not None:
                     lat, lon = parsed_lat, parsed_lon
 
+            # Ensure correct Latitude (-15 to 15) and Longitude (90 to 145) in Indonesia
+            if lat is not None and lon is not None:
+                try:
+                    lat_f, lon_f = float(lat), float(lon)
+                    if (lat_f > 50 or lat_f < -50) and (-15 <= lon_f <= 15):
+                        lat, lon = lon_f, lat_f
+                except (ValueError, TypeError):
+                    pass
+
             return {
+
                 "idpel": str(row.get(self.idpel_col) or "").strip(),
                 "lat": lat,
                 "lon": lon,
