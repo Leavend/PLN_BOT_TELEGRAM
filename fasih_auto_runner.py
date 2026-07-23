@@ -1098,8 +1098,12 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
 
     group_indices = {}
     group_emojis = {
+
         "PALUKOTA": "🏙️ ",
         "MALINAU": "🏔️ ",
+        "TANJUNG REDEB": "📁 ",
+        "DONGGALA": "⛵ ",
+        "BUNGKU": "🌴 ",
         "SAMARINDA": "🌏 ",
         "BALIKPAPAN": "🌊 ",
         "BONTAG": "🏗️ ",
@@ -1115,6 +1119,11 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
             group_indices["TJR"] = indices
             group_indices["TANJUNG"] = indices
             group_indices["TANJUNG_REDEB"] = indices
+        elif grp_name == "DONGGALA":
+            group_indices["DGL"] = indices
+        elif grp_name == "BUNGKU":
+            group_indices["BGK"] = indices
+
 
         min_idx, max_idx = min(indices), max(indices)
 

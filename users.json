@@ -1254,11 +1254,13 @@
       "session_state": "36b2e9a8-57a8-4bb4-8018-201097e21da1",
       "scope": "email profile"
     },
-    "daily_quota": 150,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "hits_429": 20,
+    "cooldown_until": 1784813397.632816
   },
   {
     "email": "Hasna.wi4@gmail.com",
@@ -1273,11 +1275,13 @@
       "session_state": "94519eaa-9df5-44cd-8a4e-81dec0d9f9f8",
       "scope": "email profile"
     },
-    "daily_quota": 165,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": 1784813634.61769,
+    "hits_429": 5
   },
   {
     "email": "Medesipuspita@gmail.com",
@@ -1292,11 +1296,13 @@
       "session_state": "800641d3-33b6-4a6c-8bd2-9e9a7973ef89",
       "scope": "email profile"
     },
-    "daily_quota": 180,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": 1784813731.55626,
+    "hits_429": 5
   },
   {
     "email": "aldyrivaldo6@gmail.com",
@@ -1311,11 +1317,13 @@
       "session_state": "dc49f8f0-f5a4-4127-8fe7-814daccdb445",
       "scope": "email profile"
     },
-    "daily_quota": 175,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": 1784813700.889314,
+    "hits_429": 5
   },
   {
     "email": "vozzerv@gmail.com",
@@ -1330,11 +1338,13 @@
       "session_state": "33871c20-49bf-4e45-aeff-a8724f1fb7fe",
       "scope": "email profile"
     },
-    "daily_quota": 160,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": 1784813702.5021179,
+    "hits_429": 5
   },
   {
     "email": "ferariardiansyah@gmail.com",
@@ -1349,11 +1359,13 @@
       "session_state": "84e490cc-543b-4009-9069-f5c645a9510f",
       "scope": "email profile"
     },
-    "daily_quota": 190,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": 1784813733.393256,
+    "hits_429": 5
   },
   {
     "email": "bisar2039@gmail.com",
@@ -1368,21 +1380,25 @@
       "session_state": "49acb394-2a71-4638-87d5-91d0aec451bb",
       "scope": "email profile"
     },
-    "daily_quota": 170,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 401,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": 1784813871.3003159,
+    "hits_429": 10
   },
   {
     "email": "rinorosyadi15@gmail.com",
     "password": "Pln@123",
     "token_data": null,
-    "daily_quota": 185,
+    "daily_quota": 400,
     "used_today": 0,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "tyo1618@gmail.com",
@@ -1397,11 +1413,13 @@
       "session_state": "c61a4353-3c21-467a-893a-713a1c7740fe",
       "scope": "email profile"
     },
-    "daily_quota": 155,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 407,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": 1784814319.272007,
+    "hits_429": 6
   },
   {
     "email": "dyanfitryaaa@gmail.com",
@@ -1416,11 +1434,13 @@
       "session_state": "72100aa2-edef-4b65-af79-b696a8fc57c4",
       "scope": "email profile"
     },
-    "daily_quota": 200,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "hits_429": 7,
+    "cooldown_until": 1784814343.1625412
   },
   {
     "email": "echi.izzati@gmail.com",
@@ -1435,11 +1455,13 @@
       "session_state": "9767b438-b30e-4ab3-bf04-34b27c82054f",
       "scope": "email profile"
     },
-    "daily_quota": 165,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 184,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "wahyuhidayanto51@gmail.com",
@@ -1454,11 +1476,13 @@
       "session_state": "47e776a4-496a-4851-b66e-58eecba9290f",
       "scope": "email profile"
     },
-    "daily_quota": 175,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 127,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "Csp280613@Gmail.com",
@@ -1473,11 +1497,13 @@
       "session_state": "d9a04d30-96a8-4d7d-93f3-b88421c3f9c4",
       "scope": "email profile"
     },
-    "daily_quota": 180,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 110,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "Bayuhandoyo00@gmail.com",
@@ -1492,11 +1518,13 @@
       "session_state": "e26da8c1-202d-4b07-a4a0-b46b2e612dda",
       "scope": "email profile"
     },
-    "daily_quota": 190,
-    "used_today": 0,
+    "daily_quota": 400,
+    "used_today": 142,
     "last_date": "2026-07-23",
     "group": "TANJUNG REDEB",
-    "is_disabled": false
+    "is_disabled": false,
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "nurulha1995@gmail.com",
@@ -1511,10 +1539,174 @@
       "session_state": "7dbeb47c-ee46-4610-a346-95274b9f8510",
       "scope": "email profile"
     },
+    "daily_quota": 400,
+    "used_today": 116,
+    "last_date": "2026-07-23",
+    "group": "TANJUNG REDEB",
+    "is_disabled": false,
+    "cooldown_until": null,
+    "hits_429": 0
+  },
+  {
+    "email": "sakarid861@gmail.com",
+    "password": "Pln123",
+    "token_data": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiIzNThlMTRkNy1kYzk1LTRhNGItYjBhNy1mMzQ1NThkM2QwNTkiLCJleHAiOjE3ODc0MDY0NjYsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDY2LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6IjBiNmMyZjljLTEyYTAtNGIyYi05NzNiLTdmMmZlZTE5MTVhMiIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiNTg2N2Q5ZjgtMjk4Yy00YzVlLWI3MTEtZDJhODBmN2JlN2I4IiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IkRBVklEIiwicHJlZmVycmVkX3VzZXJuYW1lIjoic2FrYXJpZDg2MUBnbWFpbC5jb20iLCJnaXZlbl9uYW1lIjoiIiwiZmFtaWx5X25hbWUiOiJEQVZJRCIsImVtYWlsIjoic2FrYXJpZDg2MUBnbWFpbC5jb20ifQ.VqDckpCdk3NkHbUrD72O2H1ADeuJkwnVboLypjR6hSf77AW-HAoaq3IPhk5o7eJ9AXmxMSXIYVI4fJx0gkZC2ReUD6NzzEHt_wmH2iC1bx85HYnIzKnEhaLIjn-pZHVRF1PbOp6a5VwPtNSPLA6y-T1UVmEEhY18gsJs9JM5ksnQ-ZiTu9bAAgS0M-HeErc_HONEmGqc6C9sx5VUv38ePfDaDcM-b7DzaKsctAjo18-dR9t0gC5xteR0naIhDsea3wlKZQsVGBVMSM5eFy5sQw8zzC7feje7KBtvn5NrCnzi6-FxZKMzYXhsBUiwy0FyM-D3fDszkIg57YqHm2wYhA",
+      "expires_in": 2592000,
+      "refresh_expires_in": 172800,
+      "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3ZWI1OWI5Ni0yZDZjLTQ5ODctOGZhYi03ZmQwZDg5NWE5YzIifQ.eyJqdGkiOiIzNzQ2OGUyMi0xYmMzLTRkZGYtOTFlOS1kNzA3ODVkZWFmZjEiLCJleHAiOjE3ODQ5ODcyNjYsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDY2LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiaHR0cHM6Ly9zc28uYnBzLmdvLmlkL2F1dGgvcmVhbG1zL2Vrc3Rlcm5hbCIsInN1YiI6IjBiNmMyZjljLTEyYTAtNGIyYi05NzNiLTdmMmZlZTE5MTVhMiIsInR5cCI6IlJlZnJlc2giLCJhenAiOiIwMzMxMC1pY3NjYXBpLWswOSIsImF1dGhfdGltZSI6MCwic2Vzc2lvbl9zdGF0ZSI6IjU4NjdkOWY4LTI5OGMtNGM1ZS1iNzExLWQyYTgwZjdiZTdiOCIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJlbWFpbCBwcm9maWxlIn0.9eH8y2U_JJPWPSbvcsLzpTwx1HsTqCMEbq2jRvGC5zc",
+      "token_type": "bearer",
+      "not-before-policy": 1654138451,
+      "session_state": "5867d9f8-298c-4c5e-b711-d2a80f7be7b8",
+      "scope": "email profile"
+    },
     "daily_quota": 160,
     "used_today": 0,
     "last_date": "2026-07-23",
-    "group": "TANJUNG REDEB",
+    "group": "DONGGALA",
+    "is_disabled": false
+  },
+  {
+    "email": "wiljanaija@gmail.com",
+    "password": "Wiljana01$",
+    "token_data": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiIyODdjMDI5My1kYzk5LTQyN2UtYTI2OS01OWFhM2YwM2JkZGMiLCJleHAiOjE3ODc0MDY0NjYsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDY2LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6IjU0ZjUyMTAzLTk3YWYtNDE3Zi1hMTc2LWUxYWVjOThhOGQ2ZCIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiMjlkYjE2OWItZTY2ZC00NzI1LTlmMGItM2RmYmVhYjI5MDhlIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsIm5hbWUiOiJXaWxqYW5hIiwicHJlZmVycmVkX3VzZXJuYW1lIjoid2lsamFuYWlqYUBnbWFpbC5jb20iLCJnaXZlbl9uYW1lIjoiIiwiZmFtaWx5X25hbWUiOiJXaWxqYW5hIiwiZW1haWwiOiJ3aWxqYW5haWphQGdtYWlsLmNvbSJ9.CBCONy8ILvAvsxWw1hyUJbluAkAC5nCkjUYhk5T_1JdnduKQtyxW7INIlk6eeGrJ2IJE-o76uPZ7vTi0ZeBl41Csh8Sf-C0OR1GuOhqqxbc1q-8v1V1ReNsRrt9e9V_DqyapcSoNQeaRrs8qeZ0wJUNooAFKK-2exa_Uje9TCteKrNjFsSbWE-QJ7Z6mBQGY8jIuy351IOuEtsaBzqeXL_cw0DlzPnM1_Si8ASWLQX_4u01-kwLZ7TtbNrKbrlmHlySjLLSNfzJd4WyoLMLbtmBWx-lYwaJXCvko0JgLs3l5uSrJJdBzQePImYkwpiwocyyQBcYdNVXFAehQkyh7xA",
+      "expires_in": 2592000,
+      "refresh_expires_in": 172800,
+      "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3ZWI1OWI5Ni0yZDZjLTQ5ODctOGZhYi03ZmQwZDg5NWE5YzIifQ.eyJqdGkiOiJlYjYxZDhiNy03YjM3LTQwZGYtODcyNy1iMjEzMmM2YmI5OWUiLCJleHAiOjE3ODQ5ODcyNjYsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDY2LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiaHR0cHM6Ly9zc28uYnBzLmdvLmlkL2F1dGgvcmVhbG1zL2Vrc3Rlcm5hbCIsInN1YiI6IjU0ZjUyMTAzLTk3YWYtNDE3Zi1hMTc2LWUxYWVjOThhOGQ2ZCIsInR5cCI6IlJlZnJlc2giLCJhenAiOiIwMzMxMC1pY3NjYXBpLWswOSIsImF1dGhfdGltZSI6MCwic2Vzc2lvbl9zdGF0ZSI6IjI5ZGIxNjliLWU2NmQtNDcyNS05ZjBiLTNkZmJlYWIyOTA4ZSIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJlbWFpbCBwcm9maWxlIn0.KI0wb6Q8YNzkRJD6dOCc0osDAARFXoaQ67P-KejaRQ0",
+      "token_type": "bearer",
+      "not-before-policy": 1654138451,
+      "session_state": "29db169b-e66d-4725-9f0b-3dfbeab2908e",
+      "scope": "email profile"
+    },
+    "daily_quota": 175,
+    "used_today": 0,
+    "last_date": "2026-07-23",
+    "group": "DONGGALA",
+    "is_disabled": false
+  },
+  {
+    "email": "kevinmarco000@gmail.com",
+    "password": "Pln123",
+    "token_data": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiI3ZGM5YzdkYy1iNTg3LTQxZmEtOWU3MC1lNDU1ODYwNDlhZDIiLCJleHAiOjE3ODc0MDY0NjcsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDY3LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6IjAzMGUyOTgyLTlkODQtNDNkOS1hYjJjLTU2YTU4MjYwN2Y2YiIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiNTFkNjVmYjEtMmEwMC00MDcwLTkzYmUtZmZmMDUyNTg3ZDYxIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IktldmluTWFyY28gUGFwYXJhbmciLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJrZXZpbm1hcmNvMDAwQGdtYWlsLmNvbSIsImdpdmVuX25hbWUiOiJLZXZpbk1hcmNvIiwiZmFtaWx5X25hbWUiOiJQYXBhcmFuZyIsImVtYWlsIjoia2V2aW5tYXJjbzAwMEBnbWFpbC5jb20ifQ.Zuoi8mnPs8qBwYoctMmzPBKZKoHBwav_Fe7SMkyhza5gEwXz5NZ9V6B9fzA_L06T-gtKEMNWPcGaKB99QqloNaF2jffOtpZ_dDv5R1EI5r8-L0hElisyeSk7-q5gca7LIelgcLQha-CC4AokxCIcd-JKYiAepEWoN3dviyDUg_W6tR5qJ4u8Z0kZgmUDSIVwwya_87xsHlHV75ymwe8Sqwj45KNnK_Cfe_KrSSkOt9WhtMq1JhWChrlxQ0wFmw2sdqYEoVZaqSKL0b2KqddfHMMnJU0CaMSwA4e4aiCLASnkPiN4PejKeWkePKrmsuBr57fRu7wcnLBZ77JcLCU1-Q",
+      "expires_in": 2592000,
+      "refresh_expires_in": 172800,
+      "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3ZWI1OWI5Ni0yZDZjLTQ5ODctOGZhYi03ZmQwZDg5NWE5YzIifQ.eyJqdGkiOiI5YzU5NGU3MC1iMTcxLTQ4MGMtODUxZi1lOGQyNmM2ZDJiMjkiLCJleHAiOjE3ODQ5ODcyNjcsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDY3LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiaHR0cHM6Ly9zc28uYnBzLmdvLmlkL2F1dGgvcmVhbG1zL2Vrc3Rlcm5hbCIsInN1YiI6IjAzMGUyOTgyLTlkODQtNDNkOS1hYjJjLTU2YTU4MjYwN2Y2YiIsInR5cCI6IlJlZnJlc2giLCJhenAiOiIwMzMxMC1pY3NjYXBpLWswOSIsImF1dGhfdGltZSI6MCwic2Vzc2lvbl9zdGF0ZSI6IjUxZDY1ZmIxLTJhMDAtNDA3MC05M2JlLWZmZjA1MjU4N2Q2MSIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJlbWFpbCBwcm9maWxlIn0._aor7jwgHOTNPUO1N4w83HwwRvzuvycMpMlxs8WQyfU",
+      "token_type": "bearer",
+      "not-before-policy": 1654138451,
+      "session_state": "51d65fb1-2a00-4070-93be-fff052587d61",
+      "scope": "email profile"
+    },
+    "daily_quota": 190,
+    "used_today": 0,
+    "last_date": "2026-07-23",
+    "group": "DONGGALA",
+    "is_disabled": false
+  },
+  {
+    "email": "geraldymanginsihi12@gmail.com",
+    "password": "Pln123",
+    "token_data": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiJkYzI1ZGQzNi0yZmVjLTRlNmUtODg2Ni1lZWUxYjcwYThkNTkiLCJleHAiOjE3ODc0MDY0NjcsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDY3LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6IjAxMTI4M2FhLTgzODktNDMxMy05ZjAzLTgyZGEwYTE5ZTVjNCIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiOGM2ZWJhYTgtNmQxMi00MTFiLTg3MzgtNjc0NjI2NjliZGNmIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IkdlcmFsZHkgYW5hcmt5IiwicHJlZmVycmVkX3VzZXJuYW1lIjoiZ2VyYWxkeW1hbmdpbnNpaGkxMkBnbWFpbC5jb20iLCJnaXZlbl9uYW1lIjoiR2VyYWxkeSIsImZhbWlseV9uYW1lIjoiYW5hcmt5IiwiZW1haWwiOiJnZXJhbGR5bWFuZ2luc2loaTEyQGdtYWlsLmNvbSJ9.S8WeeJY6_9zGs1c0ALSVc0JR9DYKP-GbdNmUtgih1n9eUoAeRHj7-9O8eXtDLhFHblUPWQX6D_sVDY5zS3RaS3KfzIkYOEqEPEZ3_l4sFZRqMpU5x9W7Fa7gvAXB3J5FN-HyX2NIM1mfpvZh3ORU8SE-vP-QYEOqdAC2ua9CkCDA-Xo5CMRb0VydrzTfxQhuqiCc07vOZVEg0MSl5tAnNTfZdR46622R8b28bTAQVYtZ55M4CMvnwAGOFxRtyJcQQWtEdajZiADHx0z35FNFGzbcgtEV1SvTSeBCZfEp84H7R7wyFQ-JTG7Y0TCV_5G-Ozfx2Kns9Kp0_bySeETCNw",
+      "expires_in": 2592000,
+      "refresh_expires_in": 172800,
+      "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3ZWI1OWI5Ni0yZDZjLTQ5ODctOGZhYi03ZmQwZDg5NWE5YzIifQ.eyJqdGkiOiJkZTMyNzE4Ny0wNmNkLTQ0MTgtYWViYS04MzAxYTBjMjE1NWMiLCJleHAiOjE3ODQ5ODcyNjcsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDY3LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiaHR0cHM6Ly9zc28uYnBzLmdvLmlkL2F1dGgvcmVhbG1zL2Vrc3Rlcm5hbCIsInN1YiI6IjAxMTI4M2FhLTgzODktNDMxMy05ZjAzLTgyZGEwYTE5ZTVjNCIsInR5cCI6IlJlZnJlc2giLCJhenAiOiIwMzMxMC1pY3NjYXBpLWswOSIsImF1dGhfdGltZSI6MCwic2Vzc2lvbl9zdGF0ZSI6IjhjNmViYWE4LTZkMTItNDExYi04NzM4LTY3NDYyNjY5YmRjZiIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJlbWFpbCBwcm9maWxlIn0.oqsDXb5B2BMDYbrH6pgD0U1Bf3NJo8c9IXSp_Chl-_g",
+      "token_type": "bearer",
+      "not-before-policy": 1654138451,
+      "session_state": "8c6ebaa8-6d12-411b-8738-67462669bdcf",
+      "scope": "email profile"
+    },
+    "daily_quota": 180,
+    "used_today": 0,
+    "last_date": "2026-07-23",
+    "group": "DONGGALA",
+    "is_disabled": false
+  },
+  {
+    "email": "muhalee20@gmail.com",
+    "password": "Pln@123",
+    "token_data": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiJkY2RhMzcwMy1kOTEyLTQwOGYtOTNmYi0zMDc4OTIyZDcxYWUiLCJleHAiOjE3ODc0MDY0NjgsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDY4LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6ImU4NGQ5MDJjLWUwOWQtNDdmYS05NDg3LTAxM2VmNGQ5YmY4NyIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiZmQzMmE0ZTktYWQ1Zi00M2NkLWE0ZTEtODBjMGU2MDExMDkwIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IlJBREFUIE1BU1VMSUxJIiwicHJlZmVycmVkX3VzZXJuYW1lIjoibXVoYWxlZTIwQGdtYWlsLmNvbSIsImdpdmVuX25hbWUiOiJSQURBVCIsImZhbWlseV9uYW1lIjoiTUFTVUxJTEkiLCJlbWFpbCI6Im11aGFsZWUyMEBnbWFpbC5jb20ifQ.mUV0l41SKNn9AqoDa5jcpZMztabojHLfIBRWuQ_WZGUdMkyVFDbUN5YHXIXWxXyuge2xrPrH2xLIS-Du8yXQdZ3PHVbDwX5oHDoXTz4RJh0KHOJVHP4C16ADNOY2h5KX9eg_wjLwh3rgjBHTSPWGPAmOaoyvlWCxZ7Dtc86ebARvs9BXuIp2c7av1D-JNqm6Mo1w6TJ2wCHQgBmltVYKs1Yz66YNqj81MDmSILt7W9MV2gpPVoBergH4U-AVDqQkxuYqMOYoMl1Zm_gMd0jtZAdjPniByTAGFUhxMQrQb7-n70HGutEczwWv3k3PmxYdmbIgo3kDdGr3YwFwRMmzCg",
+      "expires_in": 2592000,
+      "refresh_expires_in": 172800,
+      "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3ZWI1OWI5Ni0yZDZjLTQ5ODctOGZhYi03ZmQwZDg5NWE5YzIifQ.eyJqdGkiOiJmOTc4MDQyOC04MGFmLTQxMzctODc5Ny03ODBkNzI5YzcwOTIiLCJleHAiOjE3ODQ5ODcyNjgsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDY4LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiaHR0cHM6Ly9zc28uYnBzLmdvLmlkL2F1dGgvcmVhbG1zL2Vrc3Rlcm5hbCIsInN1YiI6ImU4NGQ5MDJjLWUwOWQtNDdmYS05NDg3LTAxM2VmNGQ5YmY4NyIsInR5cCI6IlJlZnJlc2giLCJhenAiOiIwMzMxMC1pY3NjYXBpLWswOSIsImF1dGhfdGltZSI6MCwic2Vzc2lvbl9zdGF0ZSI6ImZkMzJhNGU5LWFkNWYtNDNjZC1hNGUxLTgwYzBlNjAxMTA5MCIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJlbWFpbCBwcm9maWxlIn0._KzI2cFhwsDRIwYQt_KhBdaanXt_PN7HBg5IiegweHc",
+      "token_type": "bearer",
+      "not-before-policy": 1654138451,
+      "session_state": "fd32a4e9-ad5f-43cd-a4e1-80c0e6011090",
+      "scope": "email profile"
+    },
+    "daily_quota": 165,
+    "used_today": 0,
+    "last_date": "2026-07-23",
+    "group": "BUNGKU",
+    "is_disabled": false
+  },
+  {
+    "email": "farhanhidayatinadjo@gmail.com",
+    "password": "Pln@123",
+    "token_data": null,
+    "daily_quota": 170,
+    "used_today": 0,
+    "last_date": "2026-07-23",
+    "group": "BUNGKU",
+    "is_disabled": false
+  },
+  {
+    "email": "ahmadalex2807@gmail.com",
+    "password": "Pln@123",
+    "token_data": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiI4ZDdmZmNlMy05M2Y4LTQ5M2YtOGI3ZC1mZWIzZmUwYTcxZmUiLCJleHAiOjE3ODc0MDY0NzAsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDcwLCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6IjRiYWRiYjY2LWEzMmQtNGJkMy05Y2JlLTlkNzE4YmU3OGJmMSIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiNWM4YzE0OGQtMzViOS00NjlkLTkzNzAtMGU2OGJiY2NjOTQzIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IkFobWFkIE1hdWxhbmEiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJhaG1hZGFsZXgyODA3QGdtYWlsLmNvbSIsImdpdmVuX25hbWUiOiJBaG1hZCIsImZhbWlseV9uYW1lIjoiTWF1bGFuYSIsImVtYWlsIjoiYWhtYWRhbGV4MjgwN0BnbWFpbC5jb20ifQ.YeaXjrjwm9WOO1XV2CsLr9mSMAmDbUHXn99nVfeYJXsm1juo05gEeyR_MgD3rG8HFVW8tp1vtJupeSEtmaLO3gFIODHY_k0e67d_A4--4Wgj6cEKA9eVEi36asWOU_fGxtwZUmPQkAK1laep0vzKJueSNW_-U5TXw_8h4dOxKva2Ftpm2LtLZ4MLKwxQc3SC0BN6RPLOIXkIhk9BDegDAbTsoJiclvE-9HzhAZGHDx5-PDoHSeCvxC0Bmqodn8DqAql33ykg3dlh1q_Ada9Mms36I5_VydM94sQEVc34Swiw42H20RUNgLq40BQB5UfWVwr9QUlvlMcImK6Q1h3OQA",
+      "expires_in": 2592000,
+      "refresh_expires_in": 172800,
+      "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3ZWI1OWI5Ni0yZDZjLTQ5ODctOGZhYi03ZmQwZDg5NWE5YzIifQ.eyJqdGkiOiIxNDRjYjg0My0wN2MxLTQ0YWYtOGEwNS1iMmQyNWY3MjAxODYiLCJleHAiOjE3ODQ5ODcyNzAsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDcwLCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiaHR0cHM6Ly9zc28uYnBzLmdvLmlkL2F1dGgvcmVhbG1zL2Vrc3Rlcm5hbCIsInN1YiI6IjRiYWRiYjY2LWEzMmQtNGJkMy05Y2JlLTlkNzE4YmU3OGJmMSIsInR5cCI6IlJlZnJlc2giLCJhenAiOiIwMzMxMC1pY3NjYXBpLWswOSIsImF1dGhfdGltZSI6MCwic2Vzc2lvbl9zdGF0ZSI6IjVjOGMxNDhkLTM1YjktNDY5ZC05MzcwLTBlNjhiYmNjYzk0MyIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJlbWFpbCBwcm9maWxlIn0.qzl36Ifh2Csd8Q1OQzwjnPUhikoX0lfCslhDDT1UATE",
+      "token_type": "bearer",
+      "not-before-policy": 1654138451,
+      "session_state": "5c8c148d-35b9-469d-9370-0e68bbccc943",
+      "scope": "email profile"
+    },
+    "daily_quota": 185,
+    "used_today": 0,
+    "last_date": "2026-07-23",
+    "group": "BUNGKU",
+    "is_disabled": false
+  },
+  {
+    "email": "ml2250306@gmail.com",
+    "password": "Pln@123",
+    "token_data": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiJhNTI1Mzg1Ni0yNzNkLTQ3N2UtOGQxNC1mNjY1YTExZDk3ODIiLCJleHAiOjE3ODc0MDY0NzAsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDcwLCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6ImQ0YTI1MmE3LWZjZjItNDQzZS05Zjc4LWM1MGFjOTM4MzE1NSIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiMDZjMTQyYzgtYTNiOS00MjEzLTg0YWYtNDc4ZGM4MDczOGEyIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik1PSC5TQVRSSUEgUEFLQVdBUlUiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJtbDIyNTAzMDZAZ21haWwuY29tIiwiZ2l2ZW5fbmFtZSI6Ik1PSC5TQVRSSUEiLCJmYW1pbHlfbmFtZSI6IlBBS0FXQVJVIiwiZW1haWwiOiJtbDIyNTAzMDZAZ21haWwuY29tIn0.F55qDnery3W92FaAb02T1-kFQktreJslrcqAXinc75nUeiCr_AEF814vNo7QO_lMhl3hZRxaGveqoCg8sfFKplgYyPiF8vFmMOs9G3fw95pNvsglhiR9WX-WDOJ4s_BPk5p8q0-3RrHIYPeionEcgWbHWieA66R6NXYGJtifTLh_7totOJsXjTA875pK2EcFYvpvmwY-V3BEZyQhUfE36dC5v2usiwqt-Im-FaTY3qIf1uJzsS5pPCp7nBNi99qB2TfepCAKs564u2OYifHLhU63mOpGFIGKrMoOznVh21sDUJXYiwIRXLzJBOSAQaMj7QfuZ-gr624I_2v8DTZIew",
+      "expires_in": 2592000,
+      "refresh_expires_in": 172800,
+      "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3ZWI1OWI5Ni0yZDZjLTQ5ODctOGZhYi03ZmQwZDg5NWE5YzIifQ.eyJqdGkiOiI4OWYyMTVmZi0yYTEzLTRlNTMtYjYwNy1iMTJkNDlhMWFjZjgiLCJleHAiOjE3ODQ5ODcyNzAsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDcwLCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiaHR0cHM6Ly9zc28uYnBzLmdvLmlkL2F1dGgvcmVhbG1zL2Vrc3Rlcm5hbCIsInN1YiI6ImQ0YTI1MmE3LWZjZjItNDQzZS05Zjc4LWM1MGFjOTM4MzE1NSIsInR5cCI6IlJlZnJlc2giLCJhenAiOiIwMzMxMC1pY3NjYXBpLWswOSIsImF1dGhfdGltZSI6MCwic2Vzc2lvbl9zdGF0ZSI6IjA2YzE0MmM4LWEzYjktNDIxMy04NGFmLTQ3OGRjODA3MzhhMiIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJlbWFpbCBwcm9maWxlIn0.sjmZ8hxb7Cj8MSO22_YE6QPlCxhfiN2ydPM3N6nycs8",
+      "token_type": "bearer",
+      "not-before-policy": 1654138451,
+      "session_state": "06c142c8-a3b9-4213-84af-478dc80738a2",
+      "scope": "email profile"
+    },
+    "daily_quota": 195,
+    "used_today": 0,
+    "last_date": "2026-07-23",
+    "group": "BUNGKU",
+    "is_disabled": false
+  },
+  {
+    "email": "rahmaruning@gmail.com",
+    "password": "RahmaTiwy@27",
+    "token_data": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiIwNWE3YjhiMS0xNDc1LTRhYzYtODZiMy02MmZjMDFiZmNjNDMiLCJleHAiOjE3ODc0MDY0NzEsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDcxLCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6IjFjMTRmOWM3LTA3ZDUtNDRmMi1iNTQ3LTcwMTFlNDY2OWJjNiIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiODc3NTY5YzAtZDUwZC00YTgzLWJhYjctZTczY2NhZjBhMzcyIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik51clJhaG1hIFBlcnRpd2kiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJyYWhtYXJ1bmluZ0BnbWFpbC5jb20iLCJnaXZlbl9uYW1lIjoiTnVyUmFobWEiLCJmYW1pbHlfbmFtZSI6IlBlcnRpd2kiLCJlbWFpbCI6InJhaG1hcnVuaW5nQGdtYWlsLmNvbSJ9.Qv_rWdJ3ZZtVHpyU3Zr7_bgLaRQSJMphD8WRwJvefgS_1F5k4iSG1RQhr_5n8OuM6GADBUjJdfSR2Z2Xlpv0ZDGjb2DD770ePh8bJWZrkTfDCxUTL-7KFtNmzV3keVWH2LjOCmCJt6_LH8GwBKsI-J6V_1-xbH6RkelQsJqkE0QwUEqlNTqWhDfJZiLuWRXdSO6xuMRYLggxDrLO6LS9ZuDo7PdbRUQxwbJK4hvHhqiCKXW1v94hLIsQ0iRLLdozLnaW8SyUIauardPdM_pY6pYyznzHeSs9HO_vcQFPs1jxS0YqPn5sKqyFKmDGxw74as96EMF-A6aQzG48ORr8pQ",
+      "expires_in": 2592000,
+      "refresh_expires_in": 172800,
+      "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3ZWI1OWI5Ni0yZDZjLTQ5ODctOGZhYi03ZmQwZDg5NWE5YzIifQ.eyJqdGkiOiI4Y2VjMjNiZi1lYTBhLTQ0YjItYTg4MS03YmE1MTgzYjYwNTYiLCJleHAiOjE3ODQ5ODcyNzEsIm5iZiI6MCwiaWF0IjoxNzg0ODE0NDcxLCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiaHR0cHM6Ly9zc28uYnBzLmdvLmlkL2F1dGgvcmVhbG1zL2Vrc3Rlcm5hbCIsInN1YiI6IjFjMTRmOWM3LTA3ZDUtNDRmMi1iNTQ3LTcwMTFlNDY2OWJjNiIsInR5cCI6IlJlZnJlc2giLCJhenAiOiIwMzMxMC1pY3NjYXBpLWswOSIsImF1dGhfdGltZSI6MCwic2Vzc2lvbl9zdGF0ZSI6Ijg3NzU2OWMwLWQ1MGQtNGE4My1iYWI3LWU3M2NjYWYwYTM3MiIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJlbWFpbCBwcm9maWxlIn0.yES94ePwlHjjG5Y-1k9CV1mFBLji9GjuPBXe7LQjd7w",
+      "token_type": "bearer",
+      "not-before-policy": 1654138451,
+      "session_state": "877569c0-d50d-4a83-bab7-e73ccaf0a372",
+      "scope": "email profile"
+    },
+    "daily_quota": 175,
+    "used_today": 0,
+    "last_date": "2026-07-23",
+    "group": "BUNGKU",
     "is_disabled": false
   }
 ]
