@@ -243,16 +243,10 @@ class AccountManager:
 
             now = time.time()
             all_quota_full = True
-            n_accs = len(subset)
-            if n_accs == 0:
+            if not subset:
                 return None
 
-            if not hasattr(self, "_rr_counter"):
-                self._rr_counter = 0
-            self._rr_counter = (self._rr_counter + 1) % n_accs
-
-            for offset in range(n_accs):
-                acc = subset[(self._rr_counter + offset) % n_accs]
+            for acc in subset:
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
                     acc["used_today"] = 0
@@ -280,6 +274,7 @@ class AccountManager:
 
                     all_quota_full = False
                     return acc
+
 
 
             if all_quota_full:
