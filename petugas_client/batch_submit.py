@@ -679,12 +679,16 @@ def submit_single(
         if resubmit_reject:
             skip_cek_idpln = True
 
+        # FAST-PATH: If target assignment is already loaded in local survey assignments, skip redundant check-idpln HTTP GET call
+        if target and not resubmit_all and not resubmit_open and not resubmit_reopen:
+            skip_cek_idpln = True
 
         import uuid
         aid = target.get("id") if target else str(uuid.uuid4())
         d_idpln = _cek(check_idpln, headers, aid, idpel_val) if (idpel_val and not skip_cek_idpln) else {}
         if d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
             return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
+
 
         # Step 5: PLN lookup via server API (Retry 3x if not found / transient error)
         lat, lon = None, None
