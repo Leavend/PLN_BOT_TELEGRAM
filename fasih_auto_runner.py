@@ -278,13 +278,17 @@ class AccountManager:
 
 
     def increment_usage(self, email: str):
-        """Increment daily usage for account after successful submit."""
+        """Increment daily usage for account after successful submit (non-blocking in-memory update)."""
         with _quota_lock:
             for acc in self.accounts:
                 if acc.get("email") == email:
                     acc["used_today"] = acc.get("used_today", 0) + 1
                     break
-            self.save_accounts()
+            now = time.time()
+            if (now - getattr(self, "_last_account_save", 0)) > 15.0:
+                self._last_account_save = now
+                self.save_accounts()
+
 
     def sync_usage_from_excel(self, df: pd.DataFrame):
         """Automatically synchronize used_today counts for all accounts based on Excel Master data for today."""
@@ -514,11 +518,22 @@ class ExcelQueueManager:
         self.df["BOT_STATUS"] = self.df["BOT_STATUS"].fillna("PENDING")
         self.df["BOT_RETRY"] = self.df["BOT_RETRY"].fillna(0).astype(int)
 
+        self._build_idpel_index_map()
         self._apply_checkpoint_if_exists()
 
         self._unsaved_count = 0
         self._last_save_time = time.time()
         logger.info(f"Excel loaded: {len(self.df)} rows | IDPel Col: '{self.idpel_col}' | Lat/Lon: '{self.lat_col}'/'{self.lon_col}' | Combined Coord: '{self.coord_col}' | Keperluan: '{self.keperluan_col}'")
+
+    def _build_idpel_index_map(self):
+        """Pre-build IDPel -> List[int] index map for O(1) instant lookup in <0.001ms."""
+        self.idpel_to_indices_map = {}
+        if self.idpel_col and self.idpel_col in self.df.columns:
+            for idx, val in enumerate(self.df[self.idpel_col]):
+                if pd.notna(val):
+                    clean_id = str(val).strip()
+                    if clean_id:
+                        self.idpel_to_indices_map.setdefault(clean_id, []).append(idx)
 
     def _apply_checkpoint_if_exists(self):
         """Apply any un-flushed progress from checkpoint CSV files on load (matching by IDPel and index across all sheets)."""
@@ -537,13 +552,7 @@ class ExcelQueueManager:
                 pass
 
         # Build IDPel -> List of Row Indices mapping for self.df (cross-sheet/row mapping)
-        idpel_to_indices = {}
-        if self.idpel_col and self.idpel_col in self.df.columns:
-            for idx, val in enumerate(self.df[self.idpel_col]):
-                if pd.notna(val):
-                    clean_id = str(val).strip()
-                    if clean_id:
-                        idpel_to_indices.setdefault(clean_id, []).append(idx)
+        idpel_to_indices = self.idpel_to_indices_map if hasattr(self, "idpel_to_indices_map") else {}
 
         applied_cnt = 0
         max_len = len(self.df)
@@ -602,18 +611,18 @@ class ExcelQueueManager:
             self.df.at[index, "BOT_CATATAN"] = catatan
             self._unsaved_count += 1
 
-            # Instant cross-sheet/row status sync in memory for identical IDPels
-            if self.idpel_col and self.idpel_col in self.df.columns:
+            # Instant O(1) cross-sheet/row status sync in memory for identical IDPels
+            if self.idpel_col and hasattr(self, "idpel_to_indices_map"):
                 target_idpel = str(self.df.at[index, self.idpel_col] or "").strip()
-                if target_idpel:
-                    matching_indices = self.df.index[self.df[self.idpel_col].astype(str).str.strip() == target_idpel]
-                    for match_idx in matching_indices:
+                if target_idpel and target_idpel in self.idpel_to_indices_map:
+                    for match_idx in self.idpel_to_indices_map[target_idpel]:
                         if match_idx != index:
                             self.df.at[match_idx, "BOT_STATUS"] = status
                             self.df.at[match_idx, "BOT_RETRY"] = retry_count
                             self.df.at[match_idx, "BOT_PETUGAS"] = user_email
                             self.df.at[match_idx, "BOT_TIMESTAMP"] = ts_now
                             self.df.at[match_idx, "BOT_CATATAN"] = catatan
+
 
             # Instant append to lightweight CSV checkpoint (< 1ms, zero blocking)
             self._write_checkpoint(index, status, retry_count, user_email, catatan)
