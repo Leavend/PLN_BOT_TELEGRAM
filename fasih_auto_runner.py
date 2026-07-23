@@ -243,7 +243,16 @@ class AccountManager:
 
             now = time.time()
             all_quota_full = True
-            for acc in subset:
+            n_accs = len(subset)
+            if n_accs == 0:
+                return None
+
+            if not hasattr(self, "_rr_counter"):
+                self._rr_counter = 0
+            self._rr_counter = (self._rr_counter + 1) % n_accs
+
+            for offset in range(n_accs):
+                acc = subset[(self._rr_counter + offset) % n_accs]
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
                     acc["used_today"] = 0
@@ -271,6 +280,7 @@ class AccountManager:
 
                     all_quota_full = False
                     return acc
+
 
             if all_quota_full:
                 return None  # All selected accounts really reached daily quota
@@ -844,10 +854,22 @@ class AutonomousRunner:
                             "assignments": fetch_all_assignments(headers, active_p["id"]),
                             "regions": fetch_regions(headers, active_p["id"])
                         }
-                _save_survey_cache(email, sc)
+            # Pre-build assignment_by_idpel map for O(1) instant lookup inside submit_single
+            if sc:
+                for skey, s_data in sc.items():
+                    if "assignment_by_idpel" not in s_data:
+                        idmap = {}
+                        tm = s_data.get("template_mapping") or {}
+                        idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
+                        for a in s_data.get("assignments") or []:
+                            v_idpel = (a.get(idpel_slot) or "").strip()
+                            if v_idpel:
+                                idmap[v_idpel] = a
+                        s_data["assignment_by_idpel"] = idmap
 
             self.user_caches[email] = sc
             return sc
+
 
     def process_item(self, idx: int, item: Optional[dict] = None):
         """Worker task for processing a single IDPel item."""

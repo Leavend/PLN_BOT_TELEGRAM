@@ -602,6 +602,13 @@ def submit_single(
         template_assignment_id = None
 
         for skey, sc in survey_caches.items():
+            # Fast O(1) hash map lookup if available
+            idpel_map = sc.get("assignment_by_idpel")
+            if idpel_map and is_idpel and val_clean in idpel_map:
+                target = idpel_map[val_clean]
+                matched_key = skey
+                break
+
             tm = sc["template_mapping"]
             idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
             nometer_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
@@ -614,6 +621,7 @@ def submit_single(
                     break
             if target:
                 break
+
 
         direct_args = {
             "idpel": idpel_val, "nometer": nometer_val,
