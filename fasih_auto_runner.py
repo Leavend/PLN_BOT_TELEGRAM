@@ -205,11 +205,6 @@ class AccountManager:
                 used = acc.get("used_today", 0)
                 quota = acc.get("daily_quota", 400)
                 if used < quota:
-                    all_quota_full = False
-                    # Skip accounts currently in 429 temporary cooldown
-                    if acc.get("cooldown_until") and now < acc["cooldown_until"]:
-                        continue
-
                     # Auto login check if token is missing
                     if not acc.get("token_data") and acc.get("email") and acc.get("password"):
                         try:
@@ -218,12 +213,21 @@ class AccountManager:
                                 acc["token_data"] = td
                         except Exception:
                             pass
-                    if acc.get("token_data"):
-                        return acc
+
+                    if not acc.get("token_data"):
+                        continue  # Skip accounts without valid login token
+
+                    if acc.get("cooldown_until") and now < acc["cooldown_until"]:
+                        all_quota_full = False
+                        continue  # Temporarily in 429 cooldown
+
+                    all_quota_full = False
+                    return acc
 
             if all_quota_full:
-                return None  # All selected accounts really reached 400/400 daily quota
+                return None  # All selected accounts really reached daily quota
             return "IN_COOLDOWN"  # Accounts are still valid, but temporarily cooling down from 429
+
 
     def increment_usage(self, email: str):
         """Increment daily usage for account after successful submit."""
