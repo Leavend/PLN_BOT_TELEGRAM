@@ -24,8 +24,14 @@ import pandas as pd
 from typing import Optional, Dict, Any, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
 # Ensure parent directory is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 
 from fasih_auth import get_headers, perform_login
 from fasih_api import fetch_surveys, fetch_all_assignments, fetch_template_mapping, fetch_regions, check_idpln
@@ -153,43 +159,60 @@ class AccountManager:
 
     def save_accounts(self):
         with _quota_lock:
-            # Merge with on-disk users.json to ensure multi-terminal processes sync seamlessly
-            if os.path.exists(self.users_file):
+            lock_path = self.users_file + ".flock"
+            lock_fd = None
+            if fcntl:
                 try:
-                    with open(self.users_file, "r") as f:
-                        disk_accounts = json.load(f)
-                    disk_map = { (da.get("email") or "").lower(): da for da in disk_accounts }
-                    for acc in self.accounts:
-                        el = (acc.get("email") or "").lower()
-                        if el in disk_map:
-                            da = disk_map[el]
-                            if da.get("last_date") == acc.get("last_date"):
-                                disk_used = da.get("used_today", 0)
-                                if disk_used > acc.get("used_today", 0):
-                                    acc["used_today"] = disk_used
-                    mem_emails = { (a.get("email") or "").lower() for a in self.accounts }
-                    for da in disk_accounts:
-                        e_l = (da.get("email") or "").lower()
-                        if e_l and e_l not in mem_emails:
-                            self.accounts.append(da)
-                            mem_emails.add(e_l)
+                    lock_fd = open(lock_path, "w")
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX)
                 except Exception:
                     pass
 
-
-            tmp_path = self.users_file + ".tmp"
             try:
-                with open(tmp_path, "w") as f:
-                    json.dump(self.accounts, f, indent=2)
-                if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
-                    os.replace(tmp_path, self.users_file)
-            except Exception as e:
-                logger.warning(f"Failed saving accounts to {self.users_file}: {e}")
-                if os.path.exists(tmp_path):
+                # Merge with on-disk users.json to ensure multi-terminal processes sync seamlessly
+                if os.path.exists(self.users_file):
                     try:
-                        os.remove(tmp_path)
+                        with open(self.users_file, "r") as f:
+                            disk_accounts = json.load(f)
+                        disk_map = { (da.get("email") or "").lower(): da for da in disk_accounts }
+                        for acc in self.accounts:
+                            el = (acc.get("email") or "").lower()
+                            if el in disk_map:
+                                da = disk_map[el]
+                                if da.get("last_date") == acc.get("last_date"):
+                                    disk_used = da.get("used_today", 0)
+                                    if disk_used > acc.get("used_today", 0):
+                                        acc["used_today"] = disk_used
+                        mem_emails = { (a.get("email") or "").lower() for a in self.accounts }
+                        for da in disk_accounts:
+                            e_l = (da.get("email") or "").lower()
+                            if e_l and e_l not in mem_emails:
+                                self.accounts.append(da)
+                                mem_emails.add(e_l)
                     except Exception:
                         pass
+
+                tmp_path = self.users_file + ".tmp"
+                try:
+                    with open(tmp_path, "w") as f:
+                        json.dump(self.accounts, f, indent=2)
+                    if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+                        os.replace(tmp_path, self.users_file)
+                except Exception as e:
+                    logger.warning(f"Failed saving accounts to {self.users_file}: {e}")
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except Exception:
+                            pass
+            finally:
+                if lock_fd:
+                    try:
+                        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                        lock_fd.close()
+                    except Exception:
+                        pass
+
 
 
     def set_cooldown(self, email: str, seconds: int = 60):
