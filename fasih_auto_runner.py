@@ -153,6 +153,20 @@ class AccountManager:
 
     def save_accounts(self):
         with _quota_lock:
+            # Merge with on-disk users.json to ensure no accounts added externally are dropped
+            if os.path.exists(self.users_file):
+                try:
+                    with open(self.users_file, "r") as f:
+                        disk_accounts = json.load(f)
+                    mem_emails = { (a.get("email") or "").lower() for a in self.accounts }
+                    for da in disk_accounts:
+                        e_l = (da.get("email") or "").lower()
+                        if e_l and e_l not in mem_emails:
+                            self.accounts.append(da)
+                            mem_emails.add(e_l)
+                except Exception:
+                    pass
+
             tmp_path = self.users_file + ".tmp"
             try:
                 with open(tmp_path, "w") as f:
@@ -166,6 +180,7 @@ class AccountManager:
                         os.remove(tmp_path)
                     except Exception:
                         pass
+
 
     def set_cooldown(self, email: str, seconds: int = 60):
         """Set a temporary cooldown on an account for transient 429 rate limit without corrupting used_today."""
