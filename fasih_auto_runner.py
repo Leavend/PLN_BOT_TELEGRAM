@@ -488,34 +488,75 @@ class ExcelQueueManager:
         logger.info(f"Excel loaded: {len(self.df)} rows | IDPel Col: '{self.idpel_col}' | Lat/Lon: '{self.lat_col}'/'{self.lon_col}' | Combined Coord: '{self.coord_col}' | Keperluan: '{self.keperluan_col}'")
 
     def _apply_checkpoint_if_exists(self):
-        """Apply any un-flushed progress from checkpoint CSV file on load (optimized vector/dict recovery)."""
-        ckpt_path = self.excel_path + ".checkpoint.csv"
-        if os.path.exists(ckpt_path):
+        """Apply any un-flushed progress from checkpoint CSV files on load (matching by IDPel and index)."""
+        ckpt_paths = [self.excel_path + ".checkpoint.csv"]
+
+        # Check for related checkpoint files in same directory (e.g. BOT DTSEN TJR.xlsx.checkpoint.csv)
+        dir_name = os.path.dirname(self.excel_path) or "."
+        if os.path.exists(dir_name):
             try:
-                ckpt_df = pd.read_csv(ckpt_path)
-                if ckpt_df.empty or "index" not in ckpt_df.columns:
-                    return
-                applied_cnt = 0
-                max_len = len(self.df)
+                for f in os.listdir(dir_name):
+                    if f.endswith(".checkpoint.csv"):
+                        p = os.path.join(dir_name, f)
+                        if p not in ckpt_paths:
+                            ckpt_paths.append(p)
+            except Exception:
+                pass
+
+        # Build IDPel -> Row Index mapping for self.df
+        idpel_to_idx = {}
+        if self.idpel_col and self.idpel_col in self.df.columns:
+            for idx, val in enumerate(self.df[self.idpel_col]):
+                if pd.notna(val):
+                    clean_id = str(val).strip()
+                    if clean_id:
+                        idpel_to_idx[clean_id] = idx
+
+        applied_cnt = 0
+        max_len = len(self.df)
+
+        for cp in ckpt_paths:
+            if not os.path.exists(cp):
+                continue
+            try:
+                ckpt_df = pd.read_csv(cp)
+                if ckpt_df.empty:
+                    continue
+
                 for row in ckpt_df.itertuples(index=False):
                     try:
-                        idx_val = getattr(row, "index")
-                        if pd.isna(idx_val):
-                            continue
-                        i = int(idx_val)
-                        if 0 <= i < max_len:
-                            self.df.at[i, "BOT_STATUS"] = str(getattr(row, "status", ""))
-                            self.df.at[i, "BOT_RETRY"] = int(getattr(row, "retry_count", 0))
-                            self.df.at[i, "BOT_PETUGAS"] = str(getattr(row, "user_email", ""))
-                            self.df.at[i, "BOT_CATATAN"] = str(getattr(row, "catatan", ""))
-                            self.df.at[i, "BOT_TIMESTAMP"] = str(getattr(row, "timestamp", ""))
-                            applied_cnt += 1
+                        target_i = None
+
+                        # 1. Match by IDPel if available (most reliable across files/sheets)
+                        idpel_val = str(getattr(row, "idpel", "")).strip()
+                        if idpel_val and idpel_val in idpel_to_idx:
+                            target_i = idpel_to_idx[idpel_val]
+                        # 2. Match by direct index if cp is the exact same file checkpoint
+                        elif cp == (self.excel_path + ".checkpoint.csv"):
+                            idx_val = getattr(row, "index", None)
+                            if idx_val is not None and not pd.isna(idx_val):
+                                i = int(idx_val)
+                                if 0 <= i < max_len:
+                                    target_i = i
+
+                        if target_i is not None:
+                            st = str(getattr(row, "status", ""))
+                            curr_st = str(self.df.at[target_i, "BOT_STATUS"]).upper()
+                            if curr_st not in ("SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL") or st in ("SUCCESS", "NON_RESIDENTIAL"):
+                                self.df.at[target_i, "BOT_STATUS"] = st
+                                self.df.at[target_i, "BOT_RETRY"] = int(getattr(row, "retry_count", 0))
+                                self.df.at[target_i, "BOT_PETUGAS"] = str(getattr(row, "user_email", ""))
+                                self.df.at[target_i, "BOT_CATATAN"] = str(getattr(row, "catatan", ""))
+                                self.df.at[target_i, "BOT_TIMESTAMP"] = str(getattr(row, "timestamp", ""))
+                                applied_cnt += 1
                     except Exception:
                         pass
-                if applied_cnt > 0:
-                    logger.info(f"🔄 Checkpoint recovery: Applied {applied_cnt} recent updates from checkpoint log.")
             except Exception as e:
-                logger.warning(f"Failed loading checkpoint file {ckpt_path}: {e}")
+                logger.warning(f"Failed loading checkpoint file {cp}: {e}")
+
+        if applied_cnt > 0:
+            logger.info(f"🔄 Checkpoint recovery: Applied {applied_cnt} recent updates from checkpoint log.")
+
 
     def update_row(self, index: int, status: str, retry_count: int, user_email: str, catatan: str, force_save: bool = False):
         """Thread-safe update of a single row in memory with instant non-blocking checkpointing."""
