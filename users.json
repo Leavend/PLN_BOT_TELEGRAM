@@ -12,12 +12,13 @@
       "session_state": "e050c807-6d8c-4baa-8b1c-b836b2e0644a",
       "scope": "email profile"
     },
-    "daily_quota": 150,
+    "daily_quota": 400,
     "used_today": 120,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "cooldown_until": 1784776351.063724,
-    "group": "PALUKOTA"
+    "cooldown_until": null,
+    "group": "PALUKOTA",
+    "hits_429": 0
   },
   {
     "email": "ap0620671@gmail.com",
@@ -32,11 +33,13 @@
       "session_state": "1d510995-fdf0-4d18-96c5-fea42f32b289",
       "scope": "email profile"
     },
-    "daily_quota": 117,
+    "daily_quota": 400,
     "used_today": 141,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "akbarpops793@gmail.com",
@@ -51,11 +54,13 @@
       "session_state": "264cb7ca-770e-49fa-bb76-75810b7f5270",
       "scope": "email profile"
     },
-    "daily_quota": 111,
+    "daily_quota": 400,
     "used_today": 135,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "anwarkota5@gmail.com",
@@ -70,11 +75,13 @@
       "session_state": "90376ea1-ff0a-42ec-8c0c-7b6cc88d1e65",
       "scope": "email profile"
     },
-    "daily_quota": 127,
+    "daily_quota": 400,
     "used_today": 152,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "yansaardi729@gmail.com",
@@ -89,11 +96,13 @@
       "session_state": "0ea1e710-9a19-4a70-8a99-3b121f17a523",
       "scope": "email profile"
     },
-    "daily_quota": 125,
+    "daily_quota": 400,
     "used_today": 150,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "awaludinalka87@gmail.com",
@@ -108,11 +117,13 @@
       "session_state": "d1011a06-d6cd-4c0b-8e1e-7008936bdbff",
       "scope": "email profile"
     },
-    "daily_quota": 124,
+    "daily_quota": 400,
     "used_today": 151,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "edhyerianto@gmail.com",
@@ -127,11 +138,13 @@
       "session_state": "77751624-ba4c-466f-a4cc-455176f75b05",
       "scope": "email profile"
     },
-    "daily_quota": 118,
+    "daily_quota": 400,
     "used_today": 141,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "harisplnt4@gmail.com",
@@ -146,11 +159,13 @@
       "session_state": "5f475b21-73b8-45fc-90b6-716117438793",
       "scope": "email profile"
     },
-    "daily_quota": 116,
+    "daily_quota": 400,
     "used_today": 143,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "dewakota112233@gmail.com",
@@ -165,11 +180,13 @@
       "session_state": "96465138-ac9d-456f-bb9f-619bb6b71300",
       "scope": "email profile"
     },
-    "daily_quota": 144,
+    "daily_quota": 400,
     "used_today": 168,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "tiankota2@gmail.com",
@@ -184,11 +201,13 @@
       "session_state": "b80af898-6095-4731-9451-6ecc70379602",
       "scope": "email profile"
     },
-    "daily_quota": 115,
+    "daily_quota": 400,
     "used_today": 136,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "sahidmalaba7@gmail.com",
@@ -203,11 +222,13 @@
       "session_state": "1a332e15-3377-44e1-a391-1cc093d967e3",
       "scope": "email profile"
     },
-    "daily_quota": 147,
+    "daily_quota": 400,
     "used_today": 170,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "rezaputra12091983@gmail.com",
@@ -222,11 +243,13 @@
       "session_state": "3ac7b7a0-a950-4545-adf4-77e721410c98",
       "scope": "email profile"
     },
-    "daily_quota": 137,
+    "daily_quota": 400,
     "used_today": 161,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "mashudinnusadaya@gmail.com",
@@ -241,11 +264,13 @@
       "session_state": "1235dbca-c782-4cce-b951-3136056cdf7b",
       "scope": "email profile"
     },
-    "daily_quota": 112,
+    "daily_quota": 400,
     "used_today": 141,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "iksanmohammad2021@gmail.com",
@@ -260,11 +285,13 @@
       "session_state": "00456dc0-fa3c-419f-a01f-6a538449870d",
       "scope": "email profile"
     },
-    "daily_quota": 111,
+    "daily_quota": 400,
     "used_today": 139,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "morakota891@gmail.com",
@@ -279,11 +306,13 @@
       "session_state": "92a4f795-af5f-4024-bb8c-ddf616ff2435",
       "scope": "email profile"
     },
-    "daily_quota": 115,
+    "daily_quota": 400,
     "used_today": 141,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "abuumarfahmi5@gmail.com",
@@ -298,11 +327,13 @@
       "session_state": "5dd97eaa-ca2a-402b-93bc-011015d2a518",
       "scope": "email profile"
     },
-    "daily_quota": 123,
+    "daily_quota": 400,
     "used_today": 145,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "siswanto.hamid@gmail.com",
@@ -317,11 +348,13 @@
       "session_state": "694c6be2-9d95-4241-b88d-fc11b41a9e73",
       "scope": "email profile"
     },
-    "daily_quota": 124,
+    "daily_quota": 400,
     "used_today": 153,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "sumardoniplnt@gmail.com",
@@ -336,11 +369,13 @@
       "session_state": "f4add609-ebd5-4676-80ca-5e1ad7b84033",
       "scope": "email profile"
     },
-    "daily_quota": 142,
+    "daily_quota": 400,
     "used_today": 170,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "mksutono@gmail.com",
@@ -355,11 +390,13 @@
       "session_state": "4938ab1f-4b78-48ac-aab1-612260689fc8",
       "scope": "email profile"
     },
-    "daily_quota": 148,
+    "daily_quota": 400,
     "used_today": 174,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "usmankota7@gmail.com",
@@ -374,11 +411,13 @@
       "session_state": "6cc9617b-f62e-401b-be8a-bd5a30a0e088",
       "scope": "email profile"
     },
-    "daily_quota": 111,
+    "daily_quota": 400,
     "used_today": 138,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "billmanbillman04@gmail.com",
@@ -393,11 +432,13 @@
       "session_state": "d5183122-5f29-4b23-9e95-303aa4ced6a4",
       "scope": "email profile"
     },
-    "daily_quota": 145,
+    "daily_quota": 400,
     "used_today": 172,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "yusufaliriswandi35@gmail.com",
@@ -412,11 +453,13 @@
       "session_state": "ff1bfd1a-e20f-4cb7-a259-a82f4c135259",
       "scope": "email profile"
     },
-    "daily_quota": 122,
+    "daily_quota": 400,
     "used_today": 144,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "enhalzainal91@gmail.com",
@@ -431,11 +474,13 @@
       "session_state": "bf01a8ef-d7b6-4e9e-afa3-e2e13a4c0444",
       "scope": "email profile"
     },
-    "daily_quota": 144,
+    "daily_quota": 400,
     "used_today": 171,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "zainkota83@gmail.com",
@@ -450,11 +495,13 @@
       "session_state": "3746fe96-2cc4-4d5a-a382-362be29c4c87",
       "scope": "email profile"
     },
-    "daily_quota": 136,
+    "daily_quota": 400,
     "used_today": 162,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "zakirplnt@gmail.com",
@@ -469,11 +516,13 @@
       "session_state": "34b817ad-f300-41a2-9e75-5207f978ddd8",
       "scope": "email profile"
     },
-    "daily_quota": 124,
+    "daily_quota": 400,
     "used_today": 152,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "ridhonurfadillah045@gmail.com",
@@ -488,11 +537,13 @@
       "session_state": "d13c1f9e-2bec-4128-9e54-9b5f6b5a0e79",
       "scope": "email profile"
     },
-    "daily_quota": 138,
+    "daily_quota": 400,
     "used_today": 165,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "mamangalex663@gmail.com",
@@ -507,11 +558,13 @@
       "session_state": "d0a6416d-25a7-42ab-bc4c-3433c9a1db08",
       "scope": "email profile"
     },
-    "daily_quota": 147,
+    "daily_quota": 400,
     "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": true,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "kotatonis@gmail.com",
@@ -526,11 +579,13 @@
       "session_state": "5d284e53-050c-4ae5-9f65-8bab85368e7d",
       "scope": "email profile"
     },
-    "daily_quota": 127,
+    "daily_quota": 400,
     "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": true,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "wahyuwahyuagung708@gmail.com",
@@ -545,11 +600,13 @@
       "session_state": "73b1d31b-2429-484e-9181-2879f5423fba",
       "scope": "email profile"
     },
-    "daily_quota": 110,
+    "daily_quota": 400,
     "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": true,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "marseltambariki21@gmail.com",
@@ -564,11 +621,13 @@
       "session_state": "8717d0e2-1dd8-466f-a84b-e3f6b270c976",
       "scope": "email profile"
     },
-    "daily_quota": 120,
+    "daily_quota": 400,
     "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": true,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "mirandafriska13@gmail.com",
@@ -583,11 +642,13 @@
       "session_state": "d739031f-eabd-448f-ae74-e5c6c0e2c1a7",
       "scope": "email profile"
     },
-    "daily_quota": 137,
+    "daily_quota": 400,
     "used_today": 0,
     "last_date": "2026-07-23",
     "is_disabled": true,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "hupinlisman@gmail.com",
@@ -602,12 +663,13 @@
       "session_state": "61c6903c-0e7e-403e-a6a1-b77a5e65112e",
       "scope": "email profile"
     },
-    "daily_quota": 131,
+    "daily_quota": 400,
     "used_today": 150,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "cooldown_until": 1784642438.054663,
-    "group": "PALUKOTA"
+    "cooldown_until": null,
+    "group": "PALUKOTA",
+    "hits_429": 0
   },
   {
     "email": "dayatwid54@gmail.com",
@@ -622,11 +684,13 @@
       "session_state": "2ce3123b-e5fa-467f-a087-8f047e1f0af0",
       "scope": "email profile"
     },
-    "daily_quota": 127,
+    "daily_quota": 400,
     "used_today": 151,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "emanuel05121994@gmail.com",
@@ -641,11 +705,13 @@
       "session_state": "4f45f2ba-a93c-4ed5-bbfc-f044586ab7ab",
       "scope": "email profile"
     },
-    "daily_quota": 119,
+    "daily_quota": 400,
     "used_today": 147,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "husinbalino@gmail.com",
@@ -660,11 +726,13 @@
       "session_state": "de00fd78-e3cb-4a2f-ab45-e6f69614b0c1",
       "scope": "email profile"
     },
-    "daily_quota": 123,
+    "daily_quota": 400,
     "used_today": 152,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "yapkodal@gmail.com",
@@ -679,11 +747,13 @@
       "session_state": "09d8fb2a-053c-4d38-bfe8-c91aec9891fb",
       "scope": "email profile"
     },
-    "daily_quota": 131,
+    "daily_quota": 400,
     "used_today": 159,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "zanthomonaslaratelarate@gmail.com",
@@ -698,11 +768,13 @@
       "session_state": "941563e7-0a80-4269-b000-355531865d9f",
       "scope": "email profile"
     },
-    "daily_quota": 116,
+    "daily_quota": 400,
     "used_today": 143,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "sulkiplikifli184@gmail.com",
@@ -717,11 +789,13 @@
       "session_state": "9d9187f0-1a90-49cb-b075-5f7a0910fdd3",
       "scope": "email profile"
     },
-    "daily_quota": 115,
+    "daily_quota": 400,
     "used_today": 135,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "allanmetungku@gmail.com",
@@ -736,11 +810,13 @@
       "session_state": "c02fbacc-88ad-4545-b2a7-1e043f1b2cce",
       "scope": "email profile"
     },
-    "daily_quota": 134,
+    "daily_quota": 400,
     "used_today": 161,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "wattimenaengel@gmail.com",
@@ -755,11 +831,13 @@
       "session_state": "8035f8ff-93d8-4f47-852c-7f3e01771919",
       "scope": "email profile"
     },
-    "daily_quota": 116,
+    "daily_quota": 400,
     "used_today": 142,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "epi859907@gmail.com",
@@ -774,11 +852,13 @@
       "session_state": "f359e678-730d-430d-803d-010dd5a9eb3d",
       "scope": "email profile"
     },
-    "daily_quota": 132,
+    "daily_quota": 400,
     "used_today": 151,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "alfadion95@gmail.com",
@@ -793,11 +873,13 @@
       "session_state": "97267f51-2cc7-477d-a398-9ddbef5bc53c",
       "scope": "email profile"
     },
-    "daily_quota": 132,
+    "daily_quota": 400,
     "used_today": 160,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "evannaondey755@gmail.com",
@@ -812,11 +894,13 @@
       "session_state": "71030ed1-30b2-4101-9a98-7d49aa197e3d",
       "scope": "email profile"
     },
-    "daily_quota": 148,
+    "daily_quota": 400,
     "used_today": 173,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "christiantian61284@gmail.com",
@@ -831,11 +915,13 @@
       "session_state": "b634aefa-a08f-405b-992c-d21129747144",
       "scope": "email profile"
     },
-    "daily_quota": 126,
+    "daily_quota": 400,
     "used_today": 147,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "PALUKOTA"
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "aldiii20081999@gmail.com",
@@ -850,13 +936,13 @@
       "session_state": "d96a71bd-9c32-45b6-aa2c-38364d4ad302",
       "scope": "email profile"
     },
-    "daily_quota": 130,
-    "used_today": 130,
+    "daily_quota": 400,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
     "hits_429": 6,
-    "cooldown_until": 1784793086.020538
+    "cooldown_until": 1784798243.535903
   },
   {
     "email": "apliana1804@gmail.com",
@@ -871,11 +957,13 @@
       "session_state": "e81fc738-c625-4e3a-846e-908cb6edf72d",
       "scope": "email profile"
     },
-    "daily_quota": 125,
-    "used_today": 154,
+    "daily_quota": 400,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": 1784798585.497494,
+    "hits_429": 5
   },
   {
     "email": "fennyirawati141@gmail.com",
@@ -890,11 +978,13 @@
       "session_state": "f767862a-0ff6-466a-b476-30e59cb1b603",
       "scope": "email profile"
     },
-    "daily_quota": 135,
-    "used_today": 161,
+    "daily_quota": 400,
+    "used_today": 423,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "evisumanti1994@gmail.com",
@@ -909,11 +999,13 @@
       "session_state": "92d1aea4-daf1-453d-9d1a-ef653e5be545",
       "scope": "email profile"
     },
-    "daily_quota": 130,
-    "used_today": 157,
+    "daily_quota": 400,
+    "used_today": 426,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "lenaity8@gmail.com",
@@ -928,11 +1020,13 @@
       "session_state": "217a66e7-8aeb-4722-bc84-3036cebe23b8",
       "scope": "email profile"
     },
-    "daily_quota": 128,
-    "used_today": 155,
+    "daily_quota": 400,
+    "used_today": 425,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "ahoilihan0@gmail.com",
@@ -947,11 +1041,13 @@
       "session_state": "47ed5260-4fa8-4766-8c58-71cdf68a5157",
       "scope": "email profile"
     },
-    "daily_quota": 132,
-    "used_today": 161,
+    "daily_quota": 400,
+    "used_today": 426,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "peleni1980@gmail.com",
@@ -966,11 +1062,13 @@
       "session_state": "3ea5edd0-ce90-4f6b-a405-d0a624819362",
       "scope": "email profile"
     },
-    "daily_quota": 130,
-    "used_today": 158,
+    "daily_quota": 400,
+    "used_today": 424,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "raniarden7@gmail.com",
@@ -985,11 +1083,13 @@
       "session_state": "93539b19-531c-4840-8c31-3900bf897133",
       "scope": "email profile"
     },
-    "daily_quota": 125,
-    "used_today": 154,
+    "daily_quota": 400,
+    "used_today": 425,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "widiaastuti23062003@gmail.com",
@@ -1004,11 +1104,13 @@
       "session_state": "76d921d4-4079-4af8-835f-ee79202731cc",
       "scope": "email profile"
     },
-    "daily_quota": 135,
-    "used_today": 163,
+    "daily_quota": 400,
+    "used_today": 419,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "risjuati8@gmail.com",
@@ -1023,22 +1125,25 @@
       "session_state": "343b7681-6ae3-4e10-97f7-0340c7a869fd",
       "scope": "email profile"
     },
-    "daily_quota": 130,
-    "used_today": 159,
+    "daily_quota": 400,
+    "used_today": 400,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": 1784799937.122564,
+    "hits_429": 24
   },
   {
     "email": "dtseniputtusau@gmail.com",
     "password": "nusadaya123",
     "token_data": null,
-    "daily_quota": 130,
+    "daily_quota": 400,
     "used_today": 130,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 5
+    "hits_429": 0,
+    "cooldown_until": null
   },
   {
     "email": "baunlaingdtsen@gmail.com",
@@ -1053,13 +1158,13 @@
       "session_state": "ee74b8f3-9367-4b9a-a14b-784567cd597b",
       "scope": "email profile"
     },
-    "daily_quota": 125,
-    "used_today": 125,
+    "daily_quota": 400,
+    "used_today": 415,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 30,
-    "cooldown_until": 1784794940.66191
+    "hits_429": 0,
+    "cooldown_until": null
   },
   {
     "email": "cendranataliabulandtsen@gmail.com",
@@ -1074,24 +1179,25 @@
       "session_state": "754fff60-5b7a-45fc-9928-ef160ea87878",
       "scope": "email profile"
     },
-    "daily_quota": 135,
-    "used_today": 135,
+    "daily_quota": 400,
+    "used_today": 420,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 30,
-    "cooldown_until": 1784795018.858143
+    "hits_429": 0,
+    "cooldown_until": null
   },
   {
     "email": "dtsentriowibowo@gmail.com",
     "password": "nusadaya123",
     "token_data": null,
-    "daily_quota": 130,
+    "daily_quota": 400,
     "used_today": 130,
     "last_date": "2026-07-23",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 5
+    "hits_429": 0,
+    "cooldown_until": null
   },
   {
     "email": "dtsenipingnjau@gmail.com",
@@ -1106,11 +1212,13 @@
       "session_state": "d2078ca0-a1bd-44e7-90e8-ec3e83afd937",
       "scope": "email profile"
     },
-    "daily_quota": 128,
-    "used_today": 141,
+    "daily_quota": 400,
+    "used_today": 240,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": null,
+    "hits_429": 0
   },
   {
     "email": "dtseninggong@gmail.com",
@@ -1125,10 +1233,12 @@
       "session_state": "f6ba952c-ddb9-4c71-9d28-4c454de5fb0c",
       "scope": "email profile"
     },
-    "daily_quota": 132,
+    "daily_quota": 400,
     "used_today": 150,
     "last_date": "2026-07-23",
     "is_disabled": false,
-    "group": "MALINAU"
+    "group": "MALINAU",
+    "cooldown_until": null,
+    "hits_429": 0
   }
 ]

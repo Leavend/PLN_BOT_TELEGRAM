@@ -523,6 +523,8 @@ def submit_single(
     skip_cek_idpln: bool = False,
 ) -> tuple[bool, str]:
     """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
+    email_val = (token_data or {}).get("email") or (token_data or {}).get("preferred_username") or ""
+    email_tag = f" via {email_val}" if email_val else ""
     # Own a scratch dir when the caller passes none (auto-runner path) so the
     # downloaded photo + the .7z archive land in a temp dir we clean up, not CWD.
     # Callers that pass temp_dir (fasih-submit-batch) keep managing their own dir.
