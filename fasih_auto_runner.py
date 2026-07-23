@@ -267,20 +267,22 @@ class AccountManager:
                 self.save_accounts()
 
     def mark_quota_exhausted(self, email: str):
-        """Mark account as quota exhausted ONLY if actual usage reached daily quota or confirmed exhausted."""
+        """Mark account as quota exhausted ONLY if actual usage reached daily quota or confirmed exhausted after repeated 429 errors."""
         with _quota_lock:
             for acc in self.accounts:
                 if (acc.get("email") or "").lower() == email.lower():
                     used = acc.get("used_today", 0)
                     quota = acc.get("daily_quota", 400)
-                    if used >= quota:
+                    acc["hits_429"] = acc.get("hits_429", 0) + 1
+                    if used >= quota or acc["hits_429"] >= 5:
                         acc["used_today"] = quota
-                        logger.warning(f"⛔ Akun {email} ditandai KUOTA HARIAN HABIS ({used}/{quota}).")
+                        logger.warning(f"⛔ Akun {email} ditandai KUOTA HARIAN HABIS ({used}/{quota}) setelah {acc['hits_429']}x limit 429. Beralih ke akun berikutnya...")
                     else:
                         acc["cooldown_until"] = time.time() + 60
-                        logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit (Terpakai: {used}/{quota}). Dimasukkan ke cooldown sementara 60 detik.")
+                        logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit (Hits: {acc['hits_429']}/5, Terpakai: {used}/{quota}). Cooldown 60s & beralih ke akun lain...")
                     break
             self.save_accounts()
+
 
     def mark_subset_exhausted(
         self,
@@ -675,21 +677,11 @@ class AutonomousRunner:
                         cnt = getattr(self, "_cooldown_log_count", 0) + 1
                         self._cooldown_log_count = cnt
                         self._last_cooldown_log = now
-                        logger.info(f"⏳ Akun BPS sedang dalam cooldown 429 rate-limit sementara ({cnt}/5). Menunggu akun tersedia...")
-                        if cnt >= 5:
-                            logger.warning("⛔ Telah mencapai 5x pesan tunggu cooldown rate-limit 429!")
-                            logger.warning("⛔ Otomatis menyetel akun di users.json agar tidak dapat digunakan lagi hari ini & menghentikan eksekusi...")
-                            self.account_mgr.mark_subset_exhausted(
-                                account_start=self.account_start,
-                                account_end=self.account_end,
-                                selected_emails=self.selected_emails
-                            )
-                            if not self.stop_event.is_set():
-                                self.stop_event.set()
-                            return
-                time.sleep(5.0)
+                        logger.info(f"⏳ Akun BPS sedang dalam cooldown 429 rate-limit sementara. Menunggu akun siap...")
+                time.sleep(3.0)
             else:
                 break
+
 
         if not acc:
             if not self.stop_event.is_set():
