@@ -331,26 +331,43 @@ class ExcelQueueManager:
         excel_mtime = os.path.getmtime(self.excel_path)
         loaded_from_cache = False
 
-        if os.path.exists(cache_path) and os.path.getmtime(cache_path) >= excel_mtime:
+        # Strategy 1: Check if valid pickle cache exists and is reasonably recent (mtime >= excel_mtime - 3600)
+        if os.path.exists(cache_path) and os.path.getmtime(cache_path) >= (excel_mtime - 3600):
             try:
                 self.df = pd.read_pickle(cache_path)
                 loaded_from_cache = True
-                logger.info(f"⚡ Loaded Excel cache instantly: {cache_path}")
-            except Exception:
-                pass
+                logger.info(f"⚡ Loaded Excel cache instantly ({len(self.df)} rows): {cache_path}")
+            except Exception as ex_cache:
+                logger.warning(f"Could not read pickle cache {cache_path}: {ex_cache}")
 
+        # Strategy 2: Read Excel (.xlsx / calamine / openpyxl) if cache was not loaded
         if not loaded_from_cache:
+            excel_err = None
             try:
                 try:
                     self.df = pd.read_excel(self.excel_path, engine="calamine")
                 except Exception:
                     self.df = pd.read_excel(self.excel_path)
+                # Re-save fresh cache
                 try:
                     self.df.to_pickle(cache_path)
                 except Exception:
                     pass
             except Exception as e:
-                raise ValueError(f"Gagal membaca format file Excel '{self.excel_path}': {e}")
+                excel_err = e
+
+            # Strategy 3: Fallback Recovery — if Excel reading failed (e.g. Bad magic number / zip corrupt), try reading pickle cache regardless of timestamp!
+            if excel_err:
+                if os.path.exists(cache_path):
+                    try:
+                        self.df = pd.read_pickle(cache_path)
+                        loaded_from_cache = True
+                        logger.info(f"🛡️ [RECOVERY SUCCESS] File Excel .xlsx bermasalah ({excel_err}), tetapi berhasil dipulihkan secara otomatis dari Cache Pickle ({len(self.df)} baris)!")
+                    except Exception as ex_pickle_fallback:
+                        raise ValueError(f"Gagal membaca format file Excel '{self.excel_path}': {excel_err} (Cache pickle juga gagal: {ex_pickle_fallback})")
+                else:
+                    raise ValueError(f"Gagal membaca format file Excel '{self.excel_path}': {excel_err}")
+
 
         cols = list(self.df.columns)
 
@@ -474,14 +491,18 @@ class ExcelQueueManager:
         try:
             with _excel_lock:
                 df_copy = self.df.copy()
+            
+            # Save pickle cache first so state is preserved instantly
+            cache_path = self.excel_path + ".cache.pkl"
+            try:
+                df_copy.to_pickle(cache_path)
+            except Exception:
+                pass
+
             tmp_path = self.excel_path + ".tmp.xlsx"
             df_copy.to_excel(tmp_path, engine="openpyxl", index=False)
             if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
                 os.replace(tmp_path, self.excel_path)
-                try:
-                    df_copy.to_pickle(self.excel_path + ".cache.pkl")
-                except Exception:
-                    pass
                 with _excel_lock:
                     self._unsaved_count = 0
                     self._last_save_time = time.time()
@@ -497,15 +518,17 @@ class ExcelQueueManager:
 
     def _save_excel(self):
         """Save DataFrame safely using atomic temporary file write to prevent corruption on Ctrl+C."""
+        cache_path = self.excel_path + ".cache.pkl"
+        try:
+            self.df.to_pickle(cache_path)
+        except Exception:
+            pass
+
         tmp_path = self.excel_path + ".tmp.xlsx"
         try:
             self.df.to_excel(tmp_path, engine="openpyxl", index=False)
             if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
                 os.replace(tmp_path, self.excel_path)
-                try:
-                    self.df.to_pickle(self.excel_path + ".cache.pkl")
-                except Exception:
-                    pass
                 self._unsaved_count = 0
                 self._last_save_time = time.time()
         except Exception as e:
@@ -515,6 +538,7 @@ class ExcelQueueManager:
                     os.remove(tmp_path)
                 except Exception:
                     pass
+
 
     def get_pending_indices(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None) -> List[int]:
         """Get list of row indices that need processing (instant <1ms)."""
