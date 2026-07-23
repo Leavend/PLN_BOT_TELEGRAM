@@ -685,9 +685,10 @@ def submit_single(
 
         import uuid
         aid = target.get("id") if target else str(uuid.uuid4())
-        d_idpln = _cek(check_idpln, headers, aid, idpel_val) if (idpel_val and not skip_cek_idpln) else {}
-        if d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
+        d_idpln = _cek(check_idpln, headers, aid, idpel_val) if (idpel_val and not skip_cek_idpln) else None
+        if d_idpln and d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
             return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
+
 
 
         # Step 5: PLN lookup via server API (Retry 3x if not found / transient error)
@@ -770,9 +771,8 @@ def submit_single(
                 photo_path = download_photo(pln_data["photo_url"], temp_dir)
 
         # Step 5b: CEK IDPel — reuse the early result; only CEK now if the idpel was
-        # just resolved via PLN (nometer input). prelist_source (BPS's authoritative
-        # Prabayar/Pascabayar) routes create_new; PLN produk is the fallback.
-        if not d_idpln and idpel_val:
+        # just resolved via PLN (nometer input) and not already checked or skipped.
+        if d_idpln is None and idpel_val and not skip_cek_idpln:
             try:
                 d_idpln = _cek(check_idpln, headers, aid, idpel_val, skip_cek_idpln=skip_cek_idpln)
             except Exception as e:
@@ -781,7 +781,10 @@ def submit_single(
                     return False, f"❌ BPS Limit 429: {err_msg}"
                 logger.warning(f"CEK IDPel error: {e}")
                 d_idpln = {}
+        if d_idpln is None:
+            d_idpln = {}
         prelist = (d_idpln.get("prelist_source") or "").strip().upper()
+
         if d_idpln and not d_idpln.get("exists"):
             logger.warning(f"CEK IDPel {idpel_val}{email_tag}: exists=false di BPS")
 
