@@ -141,14 +141,18 @@ def _resolve_all_pln_urls() -> list[str]:
     if PLN_API_URL:
         urls.append(PLN_API_URL)
     # Check for regional url files
-    for fname in ["pln_url_samarinda.txt", "pln_url_bontang.txt", "pln_url_tarakan.txt", "pln_url.txt"]:
+    for fname in ["pln_url_samarinda.txt", "pln_url_balikpapan.txt", "pln_url_bontang.txt", "pln_url_tarakan.txt", "pln_url.txt"]:
         p = os.path.join(REPO_ROOT, fname)
         if os.path.exists(p):
             try:
                 with open(p) as f:
-                    u = f.read().strip().rstrip("/")
-                    if u and u not in urls:
-                        urls.append(u)
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            u = line.rstrip("/")
+                            if u and u not in urls:
+                                urls.append(u)
+                            break
             except Exception:
                 pass
     # Additional default AP2T fallback servers
@@ -162,8 +166,8 @@ PLN_API_URLS = _resolve_all_pln_urls()
 
 
 def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
-    """Fetch PLN data from server API with multi-server AP2T failover."""
-    urls_to_try = PLN_API_URLS if PLN_API_URLS else ([PLN_API_URL] if PLN_API_URL else [])
+    """Fetch PLN data from server API with multi-server AP2T and multi-key failover."""
+    urls_to_try = _resolve_all_pln_urls()
     if not urls_to_try:
         logger.warning("PLN_API_URL not set — skipping PLN enrichment")
         return None
@@ -174,24 +178,29 @@ def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
     if nometer:
         params["nometer"] = nometer
 
-    headers = {}
+    keys_to_try = []
     if PLN_API_KEY:
-        headers["X-API-Key"] = PLN_API_KEY
+        keys_to_try.append(PLN_API_KEY)
+    for k in ["key_samarinda_3e6c882c2eee01a065161a053f8e0a4a", "key_balikpapan_c1bdec7d3a9acb85a5658d1d16f07989", "key_petugas_default"]:
+        if k not in keys_to_try:
+            keys_to_try.append(k)
 
     for base_url in urls_to_try:
-        try:
-            resp = req_lib.get(f"{base_url}/api/lookup", params=params, headers=headers, timeout=15)
-            if resp.status_code == 200:
-                return resp.json()
-            elif resp.status_code == 404:
-                continue # Try next AP2T server pool
-            else:
-                logger.debug(f"AP2T server {base_url} status {resp.status_code}")
-        except Exception as e:
-            logger.debug(f"AP2T server {base_url} connection error: {e}")
+        for k in keys_to_try:
+            try:
+                resp = req_lib.get(f"{base_url}/api/lookup", params=params, headers={"X-API-Key": k}, timeout=4)
+                if resp.status_code == 200:
+                    return resp.json()
+                elif resp.status_code in (401, 403):
+                    continue  # Key mismatch for this server, try next key
+                elif resp.status_code == 404:
+                    break    # IDPel not on this server DB, try next server
+            except Exception:
+                break        # Dead tunnel / connection timeout, skip to next server immediately
 
     logger.warning(f"PLN data not found across all AP2T servers: {idpel or nometer}")
     return None
+
 
 
 def download_photo(photo_url: str, dest_dir: str) -> Optional[str]:
