@@ -651,6 +651,27 @@
     "hits_429": 0
   },
   {
+    "email": "christiantian61284@gmail.com",
+    "password": "PLNPalu2026",
+    "token_data": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiI0M2MxNDA3OC00YzIzLTQ1YzUtYjYzMi1lZTFlMzQxZmQyMTQiLCJleHAiOjE3ODcyMzIzMTAsIm5iZiI6MCwiaWF0IjoxNzg0NjQwMzEwLCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6ImQxMzBkNzg1LWI5ZTktNDFmYy05MGY3LTM2NzJlNTNhYjQ0MSIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiYjYzNGFlZmEtYTA4Zi00MDViLTk5MmMtZDIxMTI5NzQ3MTQ0IiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IktSSVNUSUFOIE5BVEFMSVVTIiwicHJlZmVycmVkX3VzZXJuYW1lIjoiY2hyaXN0aWFudGlhbjYxMjg0QGdtYWlsLmNvbSIsImdpdmVuX25hbWUiOiJLUklTVElBTiIsImZhbWlseV9uYW1lIjoiTkFUQUxJVVMiLCJlbWFpbCI6ImNocmlzdGlhbnRpYW42MTI4NEBnbWFpbC5jb20ifQ.pAnJ6PDh0Oh_FWVCPnp21jzYhYn91vT7KM1qgWgnM8YBKYqBWzDdsJuldpwkdODa92Nz-_NEHdukgEBAxw92c8uUP1BzaQDpAVONAtrD-VfCWOlSFjnBPnJQAvQ1nSxbhFviMIMrRq1QcCgjI7rRdU1RivI4W-JoN1xCpbohWCZonIrZ49grqK8QpnyTvMfX4yuiURZxSqmmC4fzSodzWQ3j2PQw0rmcu8aU6PQE-S33pAf3rz9yKPbwbQTc9CIySNkpFybt4_o5BNnGGvpS5E4Xk5LVNhQ6Q9DufDeW_CxvyXemMKGR8_OcmLkcKx_wEu8qvr0PuAFdgfOZawaXYA",
+      "expires_in": 2592000,
+      "refresh_expires_in": 172800,
+      "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3ZWI1OWI5Ni0yZDZjLTQ5ODctOGZhYi03ZmQwZDg5NWE5YzIifQ.eyJqdGkiOiI3MTk0NjhkNy0zNWM1LTRkNzAtYjk0Ny02ZTA4YmEwNmZlYmIiLCJleHAiOjE3ODQ4MTMxMTAsIm5iZiI6MCwiaWF0IjoxNzg0NjQwMzEwLCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiaHR0cHM6Ly9zc28uYnBzLmdvLmlkL2F1dGgvcmVhbG1zL2Vrc3Rlcm5hbCIsInN1YiI6ImQxMzBkNzg1LWI5ZTktNDFmYy05MGY3LTM2NzJlNTNhYjQ0MSIsInR5cCI6IlJlZnJlc2giLCJhenAiOiIwMzMxMC1pY3NjYXBpLWswOSIsImF1dGhfdGltZSI6MCwic2Vzc2lvbl9zdGF0ZSI6ImI2MzRhZWZhLWEwOGYtNDA1Yi05OTJjLWQyMTEyOTc0NzE0NCIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJlbWFpbCBwcm9maWxlIn0.B_MSeFP1BrZ-sCKOBvwZzbd_3Tiq96n4OiDDAp20V98",
+      "token_type": "bearer",
+      "not-before-policy": 1654138451,
+      "session_state": "b634aefa-a08f-405b-992c-d21129747144",
+      "scope": "email profile"
+    },
+    "daily_quota": 154,
+    "used_today": 167,
+    "last_date": "2026-07-24",
+    "is_disabled": false,
+    "group": "PALUKOTA",
+    "cooldown_until": null,
+    "hits_429": 0
+  },
+  {
     "email": "hupinlisman@gmail.com",
     "password": "Pln12345",
     "token_data": {
@@ -899,27 +920,6 @@
     "last_date": "2026-07-24",
     "is_disabled": false,
     "group": "KOLONODALE",
-    "cooldown_until": null,
-    "hits_429": 0
-  },
-  {
-    "email": "christiantian61284@gmail.com",
-    "password": "PLNPalu2026",
-    "token_data": {
-      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiI0M2MxNDA3OC00YzIzLTQ1YzUtYjYzMi1lZTFlMzQxZmQyMTQiLCJleHAiOjE3ODcyMzIzMTAsIm5iZiI6MCwiaWF0IjoxNzg0NjQwMzEwLCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6ImQxMzBkNzg1LWI5ZTktNDFmYy05MGY3LTM2NzJlNTNhYjQ0MSIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiYjYzNGFlZmEtYTA4Zi00MDViLTk5MmMtZDIxMTI5NzQ3MTQ0IiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IktSSVNUSUFOIE5BVEFMSVVTIiwicHJlZmVycmVkX3VzZXJuYW1lIjoiY2hyaXN0aWFudGlhbjYxMjg0QGdtYWlsLmNvbSIsImdpdmVuX25hbWUiOiJLUklTVElBTiIsImZhbWlseV9uYW1lIjoiTkFUQUxJVVMiLCJlbWFpbCI6ImNocmlzdGlhbnRpYW42MTI4NEBnbWFpbC5jb20ifQ.pAnJ6PDh0Oh_FWVCPnp21jzYhYn91vT7KM1qgWgnM8YBKYqBWzDdsJuldpwkdODa92Nz-_NEHdukgEBAxw92c8uUP1BzaQDpAVONAtrD-VfCWOlSFjnBPnJQAvQ1nSxbhFviMIMrRq1QcCgjI7rRdU1RivI4W-JoN1xCpbohWCZonIrZ49grqK8QpnyTvMfX4yuiURZxSqmmC4fzSodzWQ3j2PQw0rmcu8aU6PQE-S33pAf3rz9yKPbwbQTc9CIySNkpFybt4_o5BNnGGvpS5E4Xk5LVNhQ6Q9DufDeW_CxvyXemMKGR8_OcmLkcKx_wEu8qvr0PuAFdgfOZawaXYA",
-      "expires_in": 2592000,
-      "refresh_expires_in": 172800,
-      "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3ZWI1OWI5Ni0yZDZjLTQ5ODctOGZhYi03ZmQwZDg5NWE5YzIifQ.eyJqdGkiOiI3MTk0NjhkNy0zNWM1LTRkNzAtYjk0Ny02ZTA4YmEwNmZlYmIiLCJleHAiOjE3ODQ4MTMxMTAsIm5iZiI6MCwiaWF0IjoxNzg0NjQwMzEwLCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiaHR0cHM6Ly9zc28uYnBzLmdvLmlkL2F1dGgvcmVhbG1zL2Vrc3Rlcm5hbCIsInN1YiI6ImQxMzBkNzg1LWI5ZTktNDFmYy05MGY3LTM2NzJlNTNhYjQ0MSIsInR5cCI6IlJlZnJlc2giLCJhenAiOiIwMzMxMC1pY3NjYXBpLWswOSIsImF1dGhfdGltZSI6MCwic2Vzc2lvbl9zdGF0ZSI6ImI2MzRhZWZhLWEwOGYtNDA1Yi05OTJjLWQyMTEyOTc0NzE0NCIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJlbWFpbCBwcm9maWxlIn0.B_MSeFP1BrZ-sCKOBvwZzbd_3Tiq96n4OiDDAp20V98",
-      "token_type": "bearer",
-      "not-before-policy": 1654138451,
-      "session_state": "b634aefa-a08f-405b-992c-d21129747144",
-      "scope": "email profile"
-    },
-    "daily_quota": 154,
-    "used_today": 167,
-    "last_date": "2026-07-24",
-    "is_disabled": false,
-    "group": "PALUKOTA",
     "cooldown_until": null,
     "hits_429": 0
   },
