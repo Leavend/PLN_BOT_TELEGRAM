@@ -131,12 +131,19 @@ def apply_region_config() -> str:
 
 def _mapbox_account(token: str) -> str:
     """Nama akun di dalam token Mapbox (buat log — jangan pernah cetak tokennya)."""
-    try:
-        p = token.split(".")[1]
-        p += "=" * (4 - len(p) % 4)
-        return json.loads(base64.urlsafe_b64decode(p.encode())).get("u", "?")
-    except Exception:
-        return "" if not token else "?"
+    accounts = []
+    for tok in (token or "").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            p = tok.split(".")[1]
+            p += "=" * (4 - len(p) % 4)
+            acct = json.loads(base64.urlsafe_b64decode(p.encode())).get("u", "?")
+            accounts.append(acct)
+        except Exception:
+            accounts.append("?")
+    return ", ".join(accounts) if accounts else ""
 
 
 def _resolve_all_pln_urls() -> list[str]:

@@ -542,8 +542,9 @@ def geocode_address_nominatim(alamat, kel, kec, kab, prov):
     import random
     
     # Try Mapbox Geocoding first if token is present
-    mapbox_token = os.getenv("MAPBOX_ACCESS_TOKEN")
-    if mapbox_token:
+    mapbox_raw = os.getenv("MAPBOX_ACCESS_TOKEN") or ""
+    mapbox_tokens = [t.strip() for t in mapbox_raw.split(",") if t.strip()]
+    if mapbox_tokens:
         import urllib.parse
         alamat_clean = expand_indonesian_address_abbreviations(alamat)
         if alamat_clean:
@@ -557,17 +558,20 @@ def geocode_address_nominatim(alamat, kel, kec, kab, prov):
             if prov:
                 q += f", {prov}"
             q += ", Indonesia"
-            try:
-                quoted_q = urllib.parse.quote(q)
-                url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{quoted_q}.json"
-                r = requests.get(url, params={"access_token": mapbox_token, "limit": 1, "country": "id"}, timeout=5)
-                res = r.json()
-                if res.get("features"):
-                    center = res["features"][0]["geometry"]["coordinates"]
-                    # Mapbox returns [longitude, latitude]
-                    return float(center[1]), float(center[0])
-            except Exception as e:
-                logger.error(f"Error in Mapbox geocoding: {e}")
+            quoted_q = urllib.parse.quote(q)
+            for mapbox_token in mapbox_tokens:
+                try:
+                    url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{quoted_q}.json"
+                    r = requests.get(url, params={"access_token": mapbox_token, "limit": 1, "country": "id"}, timeout=5)
+                    if r.status_code in (401, 402, 429):
+                        continue
+                    res = r.json()
+                    if res.get("features"):
+                        center = res["features"][0]["geometry"]["coordinates"]
+                        # Mapbox returns [longitude, latitude]
+                        return float(center[1]), float(center[0])
+                except Exception as e:
+                    logger.error(f"Error in Mapbox geocoding: {e}")
 
     queries = []
     alamat_clean = expand_indonesian_address_abbreviations(alamat)

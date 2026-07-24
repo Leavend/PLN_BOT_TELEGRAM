@@ -792,18 +792,25 @@ def geocode_address(alamat, kel="", kec="", kab="", prov=""):
     if not queries:
         return None, None
 
-    mapbox_token = os.getenv("MAPBOX_ACCESS_TOKEN")
-    if mapbox_token:
+    mapbox_raw = os.getenv("MAPBOX_ACCESS_TOKEN") or ""
+    mapbox_tokens = [t.strip() for t in mapbox_raw.split(",") if t.strip()]
+    for mapbox_token in mapbox_tokens:
+        token_valid = True
         for q in queries:
             try:
                 url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{urllib.parse.quote(q)}.json"
                 r = _req.get(url, params={"access_token": mapbox_token, "limit": 1, "country": "id"}, timeout=6)
+                if r.status_code in (401, 402, 429):
+                    token_valid = False
+                    break
                 feats = (r.json() or {}).get("features") or []
                 if feats:
                     c = feats[0]["geometry"]["coordinates"]
                     return float(c[1]), float(c[0])
             except Exception:
                 pass
+        if not token_valid:
+            continue
 
     for q in queries:
         try:
