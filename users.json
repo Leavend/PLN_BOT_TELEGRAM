@@ -1382,11 +1382,11 @@
     },
     "daily_quota": 400,
     "used_today": 429,
-    "last_date": "2026-07-24",
+    "last_date": "2026-07-25",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
     "cooldown_until": 1784813871.3003159,
-    "hits_429": 10
+    "hits_429": 11
   },
   {
     "email": "rinorosyadi15@gmail.com",
@@ -1394,7 +1394,7 @@
     "token_data": null,
     "daily_quota": 400,
     "used_today": 0,
-    "last_date": "2026-07-24",
+    "last_date": "2026-07-25",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
     "cooldown_until": null,
@@ -1414,12 +1414,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 404,
-    "last_date": "2026-07-24",
+    "used_today": 400,
+    "last_date": "2026-07-25",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
     "cooldown_until": 1784814319.272007,
-    "hits_429": 6
+    "hits_429": 29
   },
   {
     "email": "dyanfitryaaa@gmail.com",
@@ -1435,11 +1435,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 204,
-    "last_date": "2026-07-24",
+    "used_today": 400,
+    "last_date": "2026-07-25",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "hits_429": 7,
+    "hits_429": 10,
     "cooldown_until": 1784814343.1625412
   },
   {
@@ -1456,12 +1456,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 0,
-    "last_date": "2026-07-24",
+    "used_today": 400,
+    "last_date": "2026-07-25",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
     "cooldown_until": null,
-    "hits_429": 5
+    "hits_429": 17
   },
   {
     "email": "wahyuhidayanto51@gmail.com",
@@ -1477,8 +1477,8 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 0,
-    "last_date": "2026-07-24",
+    "used_today": 425,
+    "last_date": "2026-07-25",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
     "cooldown_until": null,
@@ -1498,8 +1498,8 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 0,
-    "last_date": "2026-07-24",
+    "used_today": 413,
+    "last_date": "2026-07-25",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
     "cooldown_until": 1784816452.093442,
@@ -1519,8 +1519,8 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 0,
-    "last_date": "2026-07-24",
+    "used_today": 414,
+    "last_date": "2026-07-25",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
     "cooldown_until": 1784817045.952972,
@@ -1540,8 +1540,8 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 0,
-    "last_date": "2026-07-24",
+    "used_today": 425,
+    "last_date": "2026-07-25",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
     "cooldown_until": 1784817459.977088,
