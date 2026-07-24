@@ -591,7 +591,7 @@ class ExcelQueueManager:
                         for target_i in target_indices:
                             st = str(getattr(row, "status", ""))
                             curr_st = str(self.df.at[target_i, "BOT_STATUS"]).upper()
-                            if curr_st not in ("SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL") or st in ("SUCCESS", "NON_RESIDENTIAL"):
+                            if curr_st not in ("SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL", "FAILED_PLN") or st in ("SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL", "FAILED_PLN"):
                                 self.df.at[target_i, "BOT_STATUS"] = st
                                 self.df.at[target_i, "BOT_RETRY"] = int(getattr(row, "retry_count", 0))
                                 self.df.at[target_i, "BOT_PETUGAS"] = str(getattr(row, "user_email", ""))
@@ -739,7 +739,7 @@ class ExcelQueueManager:
                 logger.info(f"📍 Menyetel baris awal eksekusi dari baris Excel #{start_row} (DF index {target_start_idx})")
 
             status_series = self.df["BOT_STATUS"].astype(str).str.upper()
-            terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL"]
+            terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL", "FAILED_PLN"]
             mask = ~status_series.isin(terminal_statuses)
             if target_start_idx > 0:
                 mask.iloc[:target_start_idx] = False
@@ -1055,7 +1055,7 @@ class AutonomousRunner:
         """Interactive startup prompt to let user select start row or IDPel."""
         df = self.excel_mgr.df
         total_rows = len(df)
-        terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL"]
+        terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL", "FAILED_PLN"]
         completed_cnt = sum(1 for status in df["BOT_STATUS"] if str(status).upper() in terminal_statuses)
         pending_cnt = total_rows - completed_cnt
 
