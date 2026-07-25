@@ -1267,15 +1267,20 @@ class AutonomousRunner:
 def scan_excel_files(target_dir: str = "Folder-Runner") -> List[str]:
     """Scan target directory (Folder-Runner) and fallback to '.' for valid Excel files (> 1KB)."""
     files = []
-    dirs_to_check = [target_dir, "."] if os.path.exists(target_dir) else ["."]
+    dirs_to_check = []
+    if os.path.exists("Folder-Runner-Cleansed"):
+        dirs_to_check.append("Folder-Runner-Cleansed")
+    if os.path.exists(target_dir):
+        dirs_to_check.append(target_dir)
+    dirs_to_check.append(".")
     seen = set()
     for d in dirs_to_check:
         try:
             for f in os.listdir(d):
                 if f.endswith((".xlsx", ".xls")) and not f.startswith("~$") and not f.startswith("batch_report_"):
                     filepath = os.path.join(d, f) if d != "." else f
-                    if filepath not in seen and os.path.exists(filepath) and os.path.getsize(filepath) > 1024:
-                        seen.add(filepath)
+                    if f not in seen and os.path.exists(filepath) and os.path.getsize(filepath) > 1024:
+                        seen.add(f)
                         files.append(filepath)
         except Exception:
             pass
