@@ -1651,7 +1651,10 @@
     "last_date": "2026-07-25",
     "group": "BUNGKU",
     "is_disabled": false,
-    "cooldown_until": 0
+    "cooldown_until": 0,
+    "nama": "Radat Masulili",
+    "nik": "7206051309030002",
+    "username": "radatmasulili"
   },
   {
     "email": "farhanhidayatinadjo@gmail.com",
@@ -1662,7 +1665,10 @@
     "last_date": "2026-07-25",
     "group": "BUNGKU",
     "is_disabled": false,
-    "cooldown_until": 0
+    "cooldown_until": 0,
+    "nama": "Farhan Hidayat Inadjo",
+    "nik": "7206051510030003",
+    "username": "farhanhidayatina"
   },
   {
     "email": "ahmadalex2807@gmail.com",
@@ -1682,7 +1688,10 @@
     "last_date": "2026-07-25",
     "group": "BUNGKU",
     "is_disabled": false,
-    "cooldown_until": 0
+    "cooldown_until": 0,
+    "nama": "Ahmad Maulana",
+    "nik": "7271032805070000",
+    "username": "ahmadalex2807_20260619094220"
   },
   {
     "email": "ml2250306@gmail.com",
@@ -1702,7 +1711,10 @@
     "last_date": "2026-07-25",
     "group": "BUNGKU",
     "is_disabled": false,
-    "cooldown_until": 0
+    "cooldown_until": 0,
+    "nama": "Moh. Satria Pakawaru",
+    "nik": "7271020502080000",
+    "username": "ml2250306_20260619102744"
   },
   {
     "email": "rahmaruning@gmail.com",
@@ -1722,6 +1734,9 @@
     "last_date": "2026-07-25",
     "group": "BUNGKU",
     "is_disabled": false,
-    "cooldown_until": 0
+    "cooldown_until": 0,
+    "nama": "Nur Rahma Pertiwi",
+    "nik": "7271025402030000",
+    "username": "rahmaruning_20260509140155"
   }
 ]
