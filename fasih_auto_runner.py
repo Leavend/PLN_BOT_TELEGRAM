@@ -1303,6 +1303,7 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
         "TANJUNG REDEB": "📁 ",
         "DONGGALA": "⛵ ",
         "BUNGKU": "🌴 ",
+        "PARIGI": "🌾 ",
         "SAMARINDA": "🌏 ",
         "BALIKPAPAN": "🌊 ",
         "BONTAG": "🏗️ ",
@@ -1325,6 +1326,9 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
         elif grp_name == "KOLONODALE":
             group_indices["KLD"] = indices
             group_indices["KOLODALE"] = indices
+        elif grp_name == "PARIGI":
+            group_indices["PRG"] = indices
+            group_indices["PARIGI"] = indices
 
 
         min_idx, max_idx = min(indices), max(indices)
