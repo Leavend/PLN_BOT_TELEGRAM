@@ -1315,6 +1315,8 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
         for idx, acc in items:
             if acc.get("is_disabled"):
                 status_str = "❌ Disabled"
+            elif acc.get("status") == "Pass Wrong" or acc.get("note") == "Pass Wrong" or (not acc.get("token_data") and not acc.get("is_disabled")):
+                status_str = "❌ Pass Wrong"
             elif acc.get("used_today", 0) >= acc.get("daily_quota", 400):
                 status_str = "❌ Limit"
             else:
@@ -1322,7 +1324,7 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
             email = acc.get("email") or "Unknown"
             used = acc.get("used_today", 0)
             quota = acc.get("daily_quota", 400)
-            print(f"  {idx:2d}. {email:<38} [{status_str}] (Terpakai: {used}/{quota})")
+            print(f"  {idx:2d}. {email:<38} [{status_str:<14}] (Terpakai: {used}/{quota})")
 
     return group_indices
 
