@@ -233,7 +233,7 @@ class AccountManager:
         account_end: Optional[int] = None,
         selected_emails: Optional[List[str]] = None
     ) -> Any:
-        """Find an active account within range or selected emails list with remaining quota."""
+        """Find an active account within range or selected emails list with remaining quota using Round-Robin load balancing."""
         with _quota_lock:
             today = datetime.date.today().isoformat()
             if selected_emails:
@@ -245,9 +245,11 @@ class AccountManager:
                 subset = self.accounts[start_idx:end_idx]
 
             now = time.time()
-            all_quota_full = True
             if not subset:
                 return None
+
+            valid_accs = []
+            has_in_cooldown = False
 
             for acc in subset:
                 if acc.get("last_date") != today:
@@ -272,17 +274,19 @@ class AccountManager:
                         continue  # Skip accounts without valid login token
 
                     if acc.get("cooldown_until") and now < acc["cooldown_until"]:
-                        all_quota_full = False
+                        has_in_cooldown = True
                         continue  # Temporarily in 429 cooldown
 
-                    all_quota_full = False
-                    return acc
+                    valid_accs.append(acc)
 
+            if valid_accs:
+                idx = getattr(self, "_rr_index", 0) % len(valid_accs)
+                self._rr_index = idx + 1
+                return valid_accs[idx]
 
-
-            if all_quota_full:
-                return None  # All selected accounts really reached daily quota
-            return "IN_COOLDOWN"  # Accounts are still valid, but temporarily cooling down from 429
+            if has_in_cooldown:
+                return "IN_COOLDOWN"  # Accounts are still valid, but temporarily cooling down from 429
+            return None  # All selected accounts really reached daily quota
 
 
     def increment_usage(self, email: str):
