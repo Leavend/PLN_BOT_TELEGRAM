@@ -98,7 +98,7 @@ TOKEN_FILE = os.path.join(REPO_ROOT, "fasih_token.json")
 
 # --- PLN API Client ---
 
-def fetch_region_config() -> str:
+def apply_region_config() -> str:
     """Ambil token Mapbox dari PLN_API_URL server wilayah (bila ada).
 
     Supaya HP yang berpindah wilayah (mis. `fasih-region samarinda`) otomatis
@@ -132,6 +132,9 @@ def fetch_region_config() -> str:
     if last:
         logger.warning(f"Config wilayah tak terambil ({last}) — pakai .env lokal")
     return _mapbox_account(os.getenv("MAPBOX_ACCESS_TOKEN", ""))
+
+
+fetch_region_config = apply_region_config
 
 
 def _mapbox_account(token: str) -> str:
