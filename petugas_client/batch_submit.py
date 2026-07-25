@@ -37,6 +37,8 @@ sys.path.insert(0, REPO_ROOT)
 from dotenv import load_dotenv
 load_dotenv(os.path.join(REPO_ROOT, ".env"))
 
+from region import get_region
+
 from fasih_auth import perform_login, refresh_token_if_needed, get_headers, is_token_valid
 from fasih_api import (
     fetch_surveys, fetch_all_assignments, fetch_assignments,
@@ -96,23 +98,27 @@ TOKEN_FILE = os.path.join(REPO_ROOT, "fasih_token.json")
 
 # --- PLN API Client ---
 
-def apply_region_config() -> str:
-    """Tarik config dari server wilayah (lihat .region) lalu terapkan ke env proses.
+def fetch_region_config() -> str:
+    """Ambil token Mapbox dari PLN_API_URL server wilayah (bila ada).
 
-    Token Mapbox SENGAJA diambil dari server dan MENANG atas .env lokal: HP petugas
-    yang sudah terlanjur di-setup dengan token wilayah lain (mis. Bontang) otomatis
-    pindah ke token wilayahnya cukup dengan `fasih-update` — tanpa edit .env per HP.
+    Supaya HP yang berpindah wilayah (mis. `fasih-region samarinda`) otomatis
+    mendapatkan token Mapbox wilayahnya tanpa harus edit .env per HP.
     Kalau server tak punya token / tak bisa dihubungi, .env lokal tetap dipakai.
     Return: nama akun token yang akhirnya dipakai (buat log), atau "" bila tak ada."""
     if not PLN_API_URL:
         return ""
-    headers = {"X-API-Key": PLN_API_KEY} if PLN_API_KEY else {}
-    # 2x percobaan, timeout longgar: ini request PERTAMA ke tunnel (DNS+TLS+routing
-    # dingin) dan di jaringan HP sering >8s — kalau gagal, token wilayah tak terpakai.
+
+    keys_to_try = []
+    if PLN_API_KEY:
+        keys_to_try.append(PLN_API_KEY)
+    for k in ["key_samarinda_3e6c882c2eee01a065161a053f8e0a4a", "key_balikpapan_c1bdec7d3a9acb85a5658d1d16f07989", "key_petugas_default"]:
+        if k not in keys_to_try:
+            keys_to_try.append(k)
+
     last = ""
-    for attempt in (1, 2):
+    for k in keys_to_try:
         try:
-            resp = req_lib.get(f"{PLN_API_URL}/api/config", headers=headers, timeout=25)
+            resp = req_lib.get(f"{PLN_API_URL}/api/config", headers={"X-API-Key": k}, timeout=8)
             if resp.status_code == 200:
                 tok = ((resp.json() or {}).get("mapbox_token") or "").strip()
                 if tok:
@@ -120,10 +126,9 @@ def apply_region_config() -> str:
                     return _mapbox_account(tok)
                 break                       # server jawab tapi tak punya token → fallback
             last = f"HTTP {resp.status_code}"
-            if resp.status_code in (401, 403):
-                break                       # key salah — retry tak menolong
         except Exception as e:
             last = f"{type(e).__name__}: {str(e)[:120]}"
+
     if last:
         logger.warning(f"Config wilayah tak terambil ({last}) — pakai .env lokal")
     return _mapbox_account(os.getenv("MAPBOX_ACCESS_TOKEN", ""))
@@ -148,10 +153,15 @@ def _mapbox_account(token: str) -> str:
 
 def _resolve_all_pln_urls() -> list[str]:
     urls = []
+    reg = get_region(REPO_ROOT)
+
+    # 1. Environment override if set
     if PLN_API_URL:
         urls.append(PLN_API_URL)
-    # Check for regional url files
-    for fname in ["pln_url_samarinda.txt", "pln_url_balikpapan.txt", "pln_url_bontang.txt", "pln_url_tarakan.txt", "pln_url.txt"]:
+
+    # 2. Strict region URL file for this device (e.g. pln_url_samarinda.txt)
+    reg_files = [f"pln_url_{reg}.txt", "pln_url.txt"]
+    for fname in reg_files:
         p = os.path.join(REPO_ROOT, fname)
         if os.path.exists(p):
             try:
@@ -165,11 +175,20 @@ def _resolve_all_pln_urls() -> list[str]:
                             break
             except Exception:
                 pass
-    # Additional default AP2T fallback servers
-    defaults = ["http://103.126.226.155:8000", "http://103.126.226.156:8000", "http://103.126.226.157:8000"]
-    for d in defaults:
-        if d not in urls:
-            urls.append(d)
+        if urls:
+            break
+
+    # 3. Regional IP fallback for this device's region only
+    region_ip_map = {
+        "samarinda": "http://103.126.226.155:8000",
+        "bontang": "http://103.126.226.156:8000",
+        "tarakan": "http://103.126.226.157:8000"
+    }
+    if reg in region_ip_map:
+        ip_url = region_ip_map[reg]
+        if ip_url not in urls:
+            urls.append(ip_url)
+
     return urls
 
 PLN_API_URLS = _resolve_all_pln_urls()
@@ -202,10 +221,10 @@ def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
     with _FAST_LOCK:
         fast_url, fast_key = _FAST_PLN_URL, _FAST_PLN_KEY
 
-    # 1. Fast Path: Try cached working URL and Key first with 2.5s timeout (hits in ~30ms)
+    # 1. Fast Path: Try cached working URL and Key first with (3.0, 18.0) timeout
     if fast_url and fast_key:
         try:
-            resp = _HTTP_SESSION.get(f"{fast_url}/api/lookup", params=params, headers={"X-API-Key": fast_key}, timeout=2.5)
+            resp = _HTTP_SESSION.get(f"{fast_url}/api/lookup", params=params, headers={"X-API-Key": fast_key}, timeout=(3.0, 18.0))
             if resp.status_code == 200:
                 return resp.json()
         except Exception:
@@ -231,7 +250,7 @@ def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
     for base_url in valid_urls:
         for k in keys_to_try:
             try:
-                resp = _HTTP_SESSION.get(f"{base_url}/api/lookup", params=params, headers={"X-API-Key": k}, timeout=3.0)
+                resp = _HTTP_SESSION.get(f"{base_url}/api/lookup", params=params, headers={"X-API-Key": k}, timeout=(3.0, 18.0))
                 if resp.status_code == 200:
                     with _FAST_LOCK:
                         _FAST_PLN_URL, _FAST_PLN_KEY = base_url, k
@@ -252,32 +271,55 @@ def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
 
 def download_photo(photo_url: str, dest_dir: str) -> Optional[str]:
     """Download photo from server API with multi-server photo pool fallback."""
-    urls_to_try = PLN_API_URLS if PLN_API_URLS else ([PLN_API_URL] if PLN_API_URL else [])
-    if not urls_to_try or not photo_url:
+    if not photo_url:
         return None
 
-    headers = {}
-    if PLN_API_KEY:
-        headers["X-API-Key"] = PLN_API_KEY
+    now = time.time()
+    with _FAST_LOCK:
+        fast_url, fast_key = _FAST_PLN_URL, _FAST_PLN_KEY
+
+    keys_to_try = []
+    if fast_key:
+        keys_to_try.append(fast_key)
+    if PLN_API_KEY and PLN_API_KEY not in keys_to_try:
+        keys_to_try.append(PLN_API_KEY)
+    for k in ["key_samarinda_3e6c882c2eee01a065161a053f8e0a4a", "key_balikpapan_c1bdec7d3a9acb85a5658d1d16f07989", "key_petugas_default"]:
+        if k not in keys_to_try:
+            keys_to_try.append(k)
+
+    urls_to_try = []
+    if fast_url:
+        urls_to_try.append(fast_url)
+    for u in PLN_API_URLS:
+        if u not in urls_to_try and _DEAD_PLN_URLS.get(u, 0) < now:
+            urls_to_try.append(u)
 
     for base_url in urls_to_try:
         url = f"{base_url}{photo_url}" if photo_url.startswith("/") else photo_url
-        try:
-            resp = _HTTP_SESSION.get(url, headers=headers, timeout=5)
-            if resp.status_code == 200:
-                ext = ".webp"
-                ct = resp.headers.get("content-type", "")
-                if "jpeg" in ct or "jpg" in ct:
-                    ext = ".jpg"
-                elif "png" in ct:
-                    ext = ".png"
-                path = os.path.join(dest_dir, f"photo_{int(time.time())}_{random.randint(100,999)}{ext}")
-                with open(path, "wb") as f:
-                    f.write(resp.content)
-                return path
-        except Exception as e:
-            logger.debug(f"Photo download error on {base_url}: {e}")
+        for k in keys_to_try:
+            try:
+                resp = _HTTP_SESSION.get(url, headers={"X-API-Key": k}, timeout=3.0)
+                if resp.status_code == 200:
+                    ext = ".webp"
+                    ct = resp.headers.get("content-type", "")
+                    if "jpeg" in ct or "jpg" in ct:
+                        ext = ".jpg"
+                    elif "png" in ct:
+                        ext = ".png"
+                    path = os.path.join(dest_dir, f"photo_{int(time.time())}_{random.randint(100,999)}{ext}")
+                    with open(path, "wb") as f:
+                        f.write(resp.content)
+                    return path
+                elif resp.status_code in (401, 403):
+                    continue
+                elif resp.status_code == 404:
+                    break
+            except Exception as e:
+                _DEAD_PLN_URLS[base_url] = now + 300.0
+                logger.debug(f"Photo download error on {base_url}: {e}")
+                break
     return None
+
 
 
 # --- Auth ---
