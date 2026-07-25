@@ -159,35 +159,58 @@ def _resolve_all_pln_urls() -> list[str]:
     if PLN_API_URL:
         urls.append(PLN_API_URL)
 
-    # 2. Strict region URL file for this device (e.g. pln_url_samarinda.txt)
-    reg_files = [f"pln_url_{reg}.txt", "pln_url.txt"]
-    for fname in reg_files:
-        p = os.path.join(REPO_ROOT, fname)
-        if os.path.exists(p):
-            try:
-                with open(p) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#"):
-                            u = line.rstrip("/")
-                            if u and u not in urls:
-                                urls.append(u)
-                            break
-            except Exception:
-                pass
-        if urls:
-            break
+    # 2. Check if running under Auto-Runner / Central Master mode (multi-region enabled)
+    is_multi_region = os.getenv("FASIH_MULTI_REGION", "").lower() in ("1", "true", "yes")
 
-    # 3. Regional IP fallback for this device's region only
-    region_ip_map = {
-        "samarinda": "http://103.126.226.155:8000",
-        "bontang": "http://103.126.226.156:8000",
-        "tarakan": "http://103.126.226.157:8000"
-    }
-    if reg in region_ip_map:
-        ip_url = region_ip_map[reg]
-        if ip_url not in urls:
-            urls.append(ip_url)
+    if is_multi_region:
+        # Auto-Runner Mode: Load ALL regional URL files & ALL fallback IPs across regions
+        for fname in ["pln_url_samarinda.txt", "pln_url_balikpapan.txt", "pln_url_bontang.txt", "pln_url_tarakan.txt", "pln_url.txt"]:
+            p = os.path.join(REPO_ROOT, fname)
+            if os.path.exists(p):
+                try:
+                    with open(p) as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#"):
+                                u = line.rstrip("/")
+                                if u and u not in urls:
+                                    urls.append(u)
+                                break
+                except Exception:
+                    pass
+        defaults = ["http://103.126.226.155:8000", "http://103.126.226.156:8000", "http://103.126.226.157:8000"]
+        for d in defaults:
+            if d not in urls:
+                urls.append(d)
+    else:
+        # HP Petugas Mode: Strictly resolve ONLY the device's configured region
+        reg_files = [f"pln_url_{reg}.txt", "pln_url.txt"]
+        for fname in reg_files:
+            p = os.path.join(REPO_ROOT, fname)
+            if os.path.exists(p):
+                try:
+                    with open(p) as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#"):
+                                u = line.rstrip("/")
+                                if u and u not in urls:
+                                    urls.append(u)
+                                break
+                except Exception:
+                    pass
+            if urls:
+                break
+
+        region_ip_map = {
+            "samarinda": "http://103.126.226.155:8000",
+            "bontang": "http://103.126.226.156:8000",
+            "tarakan": "http://103.126.226.157:8000"
+        }
+        if reg in region_ip_map:
+            ip_url = region_ip_map[reg]
+            if ip_url not in urls:
+                urls.append(ip_url)
 
     return urls
 

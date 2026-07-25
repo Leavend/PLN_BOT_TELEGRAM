@@ -33,6 +33,7 @@ except ImportError:
 
 # Ensure parent directory is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+os.environ["FASIH_MULTI_REGION"] = "1"  # Enable multi-server pool for central auto-runner
 
 
 from fasih_auth import get_headers, perform_login
