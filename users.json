@@ -1756,7 +1756,9 @@
       "session_state": "9a301b71-eafc-4200-9529-1eee4b011127",
       "scope": "email profile"
     },
-    "status": "Active"
+    "status": "Active",
+    "hits_429": 0,
+    "cooldown_until": 0
   },
   {
     "email": "fadlicool731@gmail.com",
@@ -1775,7 +1777,9 @@
       "session_state": "8bf984bc-1952-46d6-a147-86606fb1f6ce",
       "scope": "email profile"
     },
-    "status": "Active"
+    "status": "Active",
+    "hits_429": 0,
+    "cooldown_until": 0
   },
   {
     "email": "fajaracopatawari@gmail.com",
@@ -1794,7 +1798,9 @@
       "session_state": "bab24a16-f5cd-4b38-a448-cfdf07397673",
       "scope": "email profile"
     },
-    "status": "Active"
+    "status": "Active",
+    "cooldown_until": 0,
+    "hits_429": 0
   },
   {
     "email": "andirustam514@gmail.com",
@@ -1813,7 +1819,9 @@
       "session_state": "c24520a1-d40d-4273-a5cf-0db8aab9f21b",
       "scope": "email profile"
     },
-    "status": "Active"
+    "status": "Active",
+    "hits_429": 0,
+    "cooldown_until": 0
   },
   {
     "email": "dalilalong05@gmail.com",
@@ -1832,6 +1840,8 @@
       "session_state": "1c1fffcd-0058-4f0a-aabc-57e06762ae48",
       "scope": "email profile"
     },
-    "status": "Active"
+    "status": "Active",
+    "cooldown_until": 0,
+    "hits_429": 0
   }
 ]
