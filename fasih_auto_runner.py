@@ -233,7 +233,7 @@ class AccountManager:
         account_end: Optional[int] = None,
         selected_emails: Optional[List[str]] = None
     ) -> Any:
-        """Find an active account within range or selected emails list with remaining quota using Round-Robin load balancing."""
+        """Find an active account within range or selected emails list with remaining quota (Strict Sequential Mode)."""
         with _quota_lock:
             today = datetime.date.today().isoformat()
             if selected_emails:
@@ -248,7 +248,6 @@ class AccountManager:
             if not subset:
                 return None
 
-            valid_accs = []
             has_in_cooldown = False
 
             for acc in subset:
@@ -277,12 +276,7 @@ class AccountManager:
                         has_in_cooldown = True
                         continue  # Temporarily in 429 cooldown
 
-                    valid_accs.append(acc)
-
-            if valid_accs:
-                idx = getattr(self, "_rr_index", 0) % len(valid_accs)
-                self._rr_index = idx + 1
-                return valid_accs[idx]
+                    return acc
 
             if has_in_cooldown:
                 return "IN_COOLDOWN"  # Accounts are still valid, but temporarily cooling down from 429
