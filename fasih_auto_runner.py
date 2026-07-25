@@ -298,11 +298,29 @@ class AccountManager:
                 self.save_accounts()
 
 
-    def sync_usage_from_excel(self, df: pd.DataFrame):
-        """Automatically synchronize used_today counts for all accounts based on Excel Master data for today."""
+    def sync_usage_from_excel(self, df: Optional[pd.DataFrame] = None):
+        """Automatically synchronize used_today counts for all accounts based on all checkpoint logs and Excel Master data for today."""
         with _quota_lock:
             today = datetime.date.today().isoformat()
             counts = {}
+
+            # 1. Scan all checkpoint files in Folder-Runner for today's actual success counts across all master files
+            dir_name = "Folder-Runner"
+            if os.path.exists(dir_name):
+                try:
+                    for cp in glob.glob(os.path.join(dir_name, "*.checkpoint.csv")):
+                        try:
+                            ckpt_df = pd.read_csv(cp)
+                            if not ckpt_df.empty and "catatan" in ckpt_df.columns and "user_email" in ckpt_df.columns and "timestamp" in ckpt_df.columns:
+                                s_mask = (ckpt_df["catatan"] == "Sukses: Data berhasil dikirimkan ke BPS!") & ckpt_df["timestamp"].fillna("").astype(str).str.startswith(today)
+                                for email, cnt in ckpt_df[s_mask]["user_email"].str.strip().str.lower().value_counts().items():
+                                    counts[email] = counts.get(email, 0) + cnt
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            # 2. Also incorporate current loaded in-memory df
             if df is not None and "BOT_STATUS" in df.columns and "BOT_PETUGAS" in df.columns:
                 success_mask = df["BOT_STATUS"].astype(str).str.upper() == "SUCCESS"
                 if "BOT_CATATAN" in df.columns:
@@ -315,18 +333,19 @@ class AccountManager:
                         ts_series = sub_df["BOT_TIMESTAMP"].fillna("").astype(str)
                         date_mask = ts_series.str.startswith(today) | (ts_series == "")
                         petugas_series = petugas_series[date_mask]
-                    counts = petugas_series[petugas_series != ""].value_counts().to_dict()
+                    for email, cnt in petugas_series[petugas_series != ""].value_counts().items():
+                        counts[email] = max(counts.get(email, 0), cnt)
 
             synced_any = False
             for acc in self.accounts:
                 email = str(acc.get("email", "")).strip().lower()
+                actual = counts.get(email, 0)
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
-                    acc["used_today"] = counts.get(email, 0)
+                    acc["used_today"] = actual
                     synced_any = True
                 else:
-                    actual = counts.get(email, 0)
-                    if actual > acc.get("used_today", 0):
+                    if actual != acc.get("used_today", 0):
                         acc["used_today"] = actual
                         synced_any = True
 
