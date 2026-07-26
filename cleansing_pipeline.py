@@ -164,12 +164,17 @@ def process_cleansing_file(file_path: str):
     logger.info(f"  - Waktu Eksekusi          : {elapsed:.1f} detik")
 
 if __name__ == "__main__":
-    target_files = [
-        "Folder-Runner/PASCA&PRABAYAR PARIGI.xls",
-        "Folder-Runner/DIL DONGGALA SEPTEMBER 2025.xlsx",
-        "Folder-Runner/Bungku DIL no filter.xlsx"
-    ]
+    if len(sys.argv) > 1:
+        target_files = sys.argv[1:]
+    else:
+        target_files = [
+            "Folder-Runner/PASCA&PRABAYAR PARIGI.xls",
+            "Folder-Runner/DIL DONGGALA SEPTEMBER 2025.xlsx",
+            "Folder-Runner/Bungku DIL no filter.xlsx"
+        ]
     for tf in target_files:
-        full_p = os.path.join(REPO_ROOT, tf)
+        full_p = os.path.join(REPO_ROOT, tf) if not os.path.isabs(tf) else tf
         if os.path.exists(full_p):
             process_cleansing_file(full_p)
+        else:
+            logger.error(f"❌ File not found: {tf}")
