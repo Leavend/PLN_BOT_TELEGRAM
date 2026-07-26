@@ -220,6 +220,67 @@ def _resolve_all_pln_urls() -> list[str]:
 PLN_API_URLS = _resolve_all_pln_urls()
 
 
+_checker_lock = threading.Lock()
+
+def get_checker_headers(repo_root: str) -> Optional[dict]:
+    """Mengambil header otentikasi dari pool akun checker (users_checker.json) untuk hit check-idpln.
+    Meminimalkan penggunaan kuota akun submit utama agar tidak terbuang sia-sia."""
+    p = os.path.join(repo_root, "users_checker.json")
+    if not os.path.exists(p):
+        return None
+
+    with _checker_lock:
+        try:
+            with open(p) as f:
+                checkers = json.load(f)
+        except Exception:
+            return None
+
+        if not checkers:
+            return None
+
+        import time
+        import base64
+        now = int(time.time())
+
+        # 1. Cari akun checker dengan token valid yang belum expired
+        for acc in checkers:
+            if acc.get("is_disabled"):
+                continue
+            td = acc.get("token_data")
+            if td and "access_token" in td:
+                try:
+                    payload_b64 = td["access_token"].split(".")[1]
+                    payload_b64 += "=" * (4 - len(payload_b64) % 4)
+                    jwt_payload = json.loads(base64.b64decode(payload_b64))
+                    if jwt_payload.get("exp", 0) > now + 60:
+                        return get_headers(td)
+                except Exception:
+                    pass
+
+        # 2. Jika semua expired, lakukan login ulang pada salah satu akun checker
+        for acc in checkers:
+            if acc.get("is_disabled"):
+                continue
+            email = acc.get("email")
+            pwd = acc.get("password")
+            if email and pwd:
+                try:
+                    td = perform_login(email, pwd, exit_on_failure=False)
+                    if td and "access_token" in td:
+                        acc["token_data"] = td
+                        try:
+                            with open(p, "w") as f:
+                                json.dump(checkers, f, indent=2)
+                        except Exception:
+                            pass
+                        return get_headers(td)
+                except Exception:
+                    pass
+
+        return None
+
+
 # High-performance HTTP Session with connection pooling across workers
 _HTTP_SESSION = requests.Session()
 adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=1)
@@ -247,10 +308,10 @@ def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
     with _FAST_LOCK:
         fast_url, fast_key = _FAST_PLN_URL, _FAST_PLN_KEY
 
-    # 1. Fast Path: Try cached working URL and Key first with (3.0, 18.0) timeout
+    # 1. Fast Path: Try cached working URL and Key first with (2.0, 8.0) timeout
     if fast_url and fast_key:
         try:
-            resp = _HTTP_SESSION.get(f"{fast_url}/api/lookup", params=params, headers={"X-API-Key": fast_key}, timeout=(3.0, 18.0))
+            resp = _HTTP_SESSION.get(f"{fast_url}/api/lookup", params=params, headers={"X-API-Key": fast_key}, timeout=(2.0, 8.0))
             if resp.status_code == 200:
                 return resp.json()
         except Exception:
@@ -276,7 +337,7 @@ def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
     for base_url in valid_urls:
         for k in keys_to_try:
             try:
-                resp = _HTTP_SESSION.get(f"{base_url}/api/lookup", params=params, headers={"X-API-Key": k}, timeout=(3.0, 18.0))
+                resp = _HTTP_SESSION.get(f"{base_url}/api/lookup", params=params, headers={"X-API-Key": k}, timeout=(2.0, 8.0))
                 if resp.status_code == 200:
                     with _FAST_LOCK:
                         _FAST_PLN_URL, _FAST_PLN_KEY = base_url, k
@@ -758,9 +819,31 @@ def submit_single(
         if target and not resubmit_all and not resubmit_open and not resubmit_reopen:
             skip_cek_idpln = True
 
+        # NEW OPTIMIZATION: If we already know the item is submitted/done locally, skip check-idpln to save BPS quota
+        if local_submitted and not resubmit_all:
+            skip_cek_idpln = True
+
+        # Solusi 3 (Local Prelist Sync Status Inference)
+        d_idpln = None
+        if target and not skip_cek_idpln:
+            status_alias = (target.get("assignmentStatusAlias") or "").strip().upper()
+            is_submitted = status_alias not in ("", "OPEN", "PERNAH DIBUKA", "REJECT", "REJECTED")
+            d_idpln = {
+                "exists": True,
+                "fasih_exists": is_submitted,
+                "nama": target.get("nama") or target.get("data2") or "",
+                "nomor_meter": target.get("nomor_meter") or target.get("data1") or "",
+                "prelist_source": "local_sync"
+            }
+            skip_cek_idpln = True  # Bypass calling live BPS check-idpln API!
+
         import uuid
         aid = target.get("id") if target else str(uuid.uuid4())
-        d_idpln = _cek(check_idpln, headers, aid, idpel_val) if (idpel_val and not skip_cek_idpln) else None
+        
+        if d_idpln is None and idpel_val and not skip_cek_idpln:
+            chk_headers = get_checker_headers(REPO_ROOT) or headers
+            d_idpln = _cek(check_idpln, chk_headers, aid, idpel_val)
+
         if d_idpln and d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
             return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
 
@@ -850,7 +933,8 @@ def submit_single(
         # just resolved via PLN (nometer input) and not already checked or skipped.
         if d_idpln is None and idpel_val and not skip_cek_idpln:
             try:
-                d_idpln = _cek(check_idpln, headers, aid, idpel_val, skip_cek_idpln=skip_cek_idpln)
+                chk_headers = get_checker_headers(REPO_ROOT) or headers
+                d_idpln = _cek(check_idpln, chk_headers, aid, idpel_val, skip_cek_idpln=skip_cek_idpln)
             except Exception as e:
                 err_msg = str(e)
                 if any(k in err_msg.lower() for k in ("429", "rate_limit_exceeded", "terlampaui")):
