@@ -119,9 +119,15 @@ def resolve_r204_from_keperluan(keperluan: str) -> str:
 class AccountManager:
     """Manages BPS SSO accounts, tokens, and daily quotas (300 IDPel/day limit)."""
 
-    def __init__(self, users_file: str = "users.json"):
+    def __init__(self, users_file: str = "users.json", per_account_concurrency: int = 8):
         self.users_file = users_file
         self.accounts: List[Dict[str, Any]] = []
+        # per_account_concurrency: max concurrent workers allowed per single BPS account.
+        # BPS server handles up to ~8 simultaneous requests per token without triggering 429.
+        self.per_account_concurrency = per_account_concurrency
+        # Dict[email_lower -> BoundedSemaphore] — lazily created per account
+        self._account_semaphores: Dict[str, threading.BoundedSemaphore] = {}
+        self._sem_lock = threading.Lock()
         self._load_accounts()
 
     def _load_accounts(self):
@@ -227,13 +233,35 @@ class AccountManager:
                     logger.warning(f"⏳ Akun {email} dimasukkan ke cooldown sementara {seconds}s (Rate Limit BPS 429).")
                     break
 
+    def _get_semaphore(self, email: str) -> threading.BoundedSemaphore:
+        """Get or create a per-account BoundedSemaphore (thread-safe, lazy init)."""
+        key = email.lower()
+        with self._sem_lock:
+            if key not in self._account_semaphores:
+                self._account_semaphores[key] = threading.BoundedSemaphore(self.per_account_concurrency)
+            return self._account_semaphores[key]
+
+    def release_account_slot(self, email: str):
+        """Release one concurrency slot for the given account after a worker finishes."""
+        sem = self._get_semaphore(email)
+        try:
+            sem.release()
+        except ValueError:
+            pass  # Already at max — safe to ignore
+
     def get_available_account(
         self,
         account_start: int = 1,
         account_end: Optional[int] = None,
         selected_emails: Optional[List[str]] = None
     ) -> Any:
-        """Find an active account within range or selected emails list with remaining quota (Strict Sequential Mode)."""
+        """Find an active account within range or selected emails list with remaining quota (Sequential Mode).
+        Returns a dict (account) on success, 'IN_COOLDOWN' if throttled, or None if all exhausted.
+        Also acquires one concurrency slot via per-account BoundedSemaphore (non-blocking with fallback).
+        """
+        target_acc = None
+        target_sem = None
+
         with _quota_lock:
             today = datetime.date.today().isoformat()
             if selected_emails:
@@ -276,24 +304,98 @@ class AccountManager:
                         has_in_cooldown = True
                         continue  # Temporarily in 429 cooldown
 
+                    # Acquire one concurrency slot (non-blocking: skip account if all slots occupied by other workers)
+                    sem = self._get_semaphore(acc["email"])
+                    acquired = sem.acquire(blocking=False)
+                    if not acquired:
+                        # This account is at max concurrency — treat as "busy", try next
+                        # But if this is the only eligible account (no next), allow blocking
+                        has_in_cooldown = True
+                        continue
+
                     return acc
 
+            # If all sequential accounts are busy (at max concurrency), fall back to blocking
+            # on the first non-exhausted account to avoid dead-locking the pool
             if has_in_cooldown:
-                return "IN_COOLDOWN"  # Accounts are still valid, but temporarily cooling down from 429
-            return None  # All selected accounts really reached daily quota
+                for acc in subset:
+                    if acc.get("is_disabled"):
+                        continue
+                    used = acc.get("used_today", 0)
+                    quota = acc.get("daily_quota", 400)
+                    if used < quota and acc.get("token_data"):
+                        cd = acc.get("cooldown_until")
+                        if cd and time.time() < cd:
+                            return "IN_COOLDOWN"
+                        target_acc = acc
+                        target_sem = self._get_semaphore(acc["email"])
+                        break
+                if not target_acc:
+                    return "IN_COOLDOWN"
+            else:
+                return None  # All selected accounts really reached daily quota
+
+        # OUTSIDE _quota_lock block: Acquire the semaphore blocking-ly to prevent holding the global lock
+        if target_sem and target_acc:
+            target_sem.acquire(blocking=True)
+            
+            # Re-verify under lock that the account remains valid and not exhausted
+            with _quota_lock:
+                today = datetime.date.today().isoformat()
+                if target_acc.get("last_date") != today:
+                    target_acc["last_date"] = today
+                    target_acc["used_today"] = 0
+                used = target_acc.get("used_today", 0)
+                quota = target_acc.get("daily_quota", 400)
+                
+                # Check if it was disabled, exhausted, or put on cooldown during the blocking wait
+                if (not target_acc.get("is_disabled") and 
+                    used < quota and 
+                    target_acc.get("token_data") and 
+                    (not target_acc.get("cooldown_until") or time.time() >= target_acc["cooldown_until"])):
+                    return target_acc
+
+            # Release slot if account is no longer eligible and retry
+            target_sem.release()
+            return self.get_available_account(account_start, account_end, selected_emails)
+
+        return None
 
 
-    def increment_usage(self, email: str):
+    def increment_usage(self, email: str, pre_warm_callback=None):
         """Increment daily usage for account after successful submit (non-blocking in-memory update)."""
+        trigger_prewarm = False
+        prewarm_target = None
         with _quota_lock:
-            for acc in self.accounts:
+            for i, acc in enumerate(self.accounts):
                 if acc.get("email") == email:
-                    acc["used_today"] = acc.get("used_today", 0) + 1
+                    used = acc.get("used_today", 0) + 1
+                    acc["used_today"] = used
+                    quota = acc.get("daily_quota", 400)
+                    # When this account reaches 85% quota, trigger background pre-warm for next account
+                    if pre_warm_callback and used >= int(quota * 0.85) and not getattr(self, "_prewarm_triggered_" + email.replace("@", "_"), False):
+                        setattr(self, "_prewarm_triggered_" + email.replace("@", "_"), True)
+                        # Find next eligible account to pre-warm
+                        for j in range(i + 1, len(self.accounts)):
+                            next_acc = self.accounts[j]
+                            today = datetime.date.today().isoformat()
+                            n_used = next_acc.get("used_today", 0) if next_acc.get("last_date") == today else 0
+                            n_quota = next_acc.get("daily_quota", 400)
+                            if not next_acc.get("is_disabled") and n_used < n_quota and next_acc.get("token_data"):
+                                prewarm_target = (next_acc["email"], next_acc.get("token_data"))
+                                trigger_prewarm = True
+                                break
                     break
             now = time.time()
             if (now - getattr(self, "_last_account_save", 0)) > 15.0:
                 self._last_account_save = now
                 self.save_accounts()
+        # Trigger pre-warm outside lock
+        if trigger_prewarm and prewarm_target and pre_warm_callback:
+            try:
+                pre_warm_callback(*prewarm_target)
+            except Exception:
+                pass
 
 
     def sync_usage_from_excel(self, df: Optional[pd.DataFrame] = None):
@@ -815,7 +917,7 @@ class ExcelQueueManager:
 
 
 class AutonomousRunner:
-    """Main orchestrator running 20 parallel workers."""
+    """Main orchestrator running parallel workers with per-account concurrency control."""
 
     def __init__(
         self,
@@ -828,7 +930,9 @@ class AutonomousRunner:
         selected_emails: Optional[List[str]] = None
     ):
         self.excel_mgr = ExcelQueueManager(excel_path)
-        self.account_mgr = AccountManager(users_file)
+        # per_account_concurrency: allow up to 8 workers to share the same BPS account simultaneously.
+        # This is the key performance fix — previously all 30 workers were throttled to 1 at a time.
+        self.account_mgr = AccountManager(users_file, per_account_concurrency=8)
         self.account_mgr.sync_usage_from_excel(self.excel_mgr.df)
         self.max_workers = max_workers
         self.mode_args = mode_args or {}
@@ -839,13 +943,46 @@ class AutonomousRunner:
         # Cache of initialized survey caches per user email
         self.user_caches: Dict[str, dict] = {}
         self._cache_lock = threading.Lock()
+        # Per-email init lock to prevent duplicate concurrent initializations for same email
+        self._email_init_locks: Dict[str, threading.Lock] = {}
+        self._email_init_locks_lock = threading.Lock()
         self.stop_event = threading.Event()
         self.processed_indices = set()
         self._processed_lock = threading.Lock()
 
+    def _get_email_init_lock(self, email: str) -> threading.Lock:
+        """Get or create a per-email initialization lock to prevent concurrent cache init for the same account."""
+        with self._email_init_locks_lock:
+            if email not in self._email_init_locks:
+                self._email_init_locks[email] = threading.Lock()
+            return self._email_init_locks[email]
+
+    def _prewarm_account(self, email: str, token_data: dict):
+        """Background pre-warm: fetch and cache survey data for next account before it's needed.
+        Eliminates the ~5-10 second cache init delay at account transition time."""
+        if email in self.user_caches:
+            return  # Already cached
+        def _do_prewarm():
+            try:
+                logger.info(f"🔥 [Pre-warm] Memulai inisialisasi cache background untuk akun berikutnya: {email}")
+                self._get_user_caches(token_data, email)
+                logger.info(f"✅ [Pre-warm] Cache akun {email} siap — transisi akun akan berlangsung instan!")
+            except Exception as e:
+                logger.debug(f"Pre-warm {email} gagal (aman diabaikan): {e}")
+        t = threading.Thread(target=_do_prewarm, daemon=True, name=f"prewarm-{email[:15]}")
+        t.start()
+
     def _get_user_caches(self, token_data: dict, email: str) -> dict:
-        """Load or build survey caches for a specific BPS user account."""
-        with self._cache_lock:
+        """Load or build survey caches for a specific BPS user account.
+        Uses per-email lock to prevent duplicate concurrent initializations for the same account."""
+        # Fast path: already in cache (no lock needed for read)
+        if email in self.user_caches:
+            return self.user_caches[email]
+
+        # Slow path: acquire per-email init lock to prevent 30 workers all initializing simultaneously
+        email_lock = self._get_email_init_lock(email)
+        with email_lock:
+            # Double-check after acquiring lock
             if email in self.user_caches:
                 return self.user_caches[email]
 
@@ -882,7 +1019,8 @@ class AutonomousRunner:
                                 idmap[v_idpel] = a
                         s_data["assignment_by_idpel"] = idmap
 
-            self.user_caches[email] = sc
+            with self._cache_lock:
+                self.user_caches[email] = sc
             return sc
 
 
@@ -937,137 +1075,143 @@ class AutonomousRunner:
             return
 
         email = acc["email"]
-        token_data = acc.get("token_data")
-        if not token_data:
-            logger.warning(f"Account {email} has no token_data — skipping")
-            return
+        try:
+            token_data = acc.get("token_data")
+            if not token_data:
+                logger.warning(f"Account {email} has no token_data — skipping")
+                return
 
-        # Prepare survey caches
-        sc = self._get_user_caches(token_data, email)
+            # Prepare survey caches (fast path: already cached; slow path: per-email lock prevents thundering herd)
+            sc = self._get_user_caches(token_data, email)
 
-        # Coordinate hierarchy: Excel Lat/Lon (Priority 1)
-        override_lat, override_lon = None, None
-        if item.get("lat") and item.get("lon"):
-            try:
-                lat_f, lon_f = float(item["lat"]), float(item["lon"])
-                if lat_f != 0.0 and lon_f != 0.0:
-                    override_lat, override_lon = lat_f, lon_f
-            except (ValueError, TypeError):
-                pass
+            # Coordinate hierarchy: Excel Lat/Lon (Priority 1)
+            override_lat, override_lon = None, None
+            if item.get("lat") and item.get("lon"):
+                try:
+                    lat_f, lon_f = float(item["lat"]), float(item["lon"])
+                    if lat_f != 0.0 and lon_f != 0.0:
+                        override_lat, override_lon = lat_f, lon_f
+                except (ValueError, TypeError):
+                    pass
 
-        # BLOK III 204 hierarchy: Excel KET_KEPERLUAN (Priority 1)
-        direct_args = {}
-        if item.get("keperluan"):
-            direct_args["keperluan"] = item["keperluan"]
+            # BLOK III 204 hierarchy: Excel KET_KEPERLUAN (Priority 1)
+            direct_args = {}
+            if item.get("keperluan"):
+                direct_args["keperluan"] = item["keperluan"]
 
-        # Execute submission
-        resubmit_reject = self.mode_args.get("resubmit_reject", False)
-        resubmit_open = self.mode_args.get("resubmit_open", False)
-        resubmit_reopen = self.mode_args.get("resubmit_reopen", False)
-        dry_run = self.mode_args.get("dry_run", False)
+            # Execute submission — always release semaphore slot when done (try/finally)
+            resubmit_reject = self.mode_args.get("resubmit_reject", False)
+            resubmit_open = self.mode_args.get("resubmit_open", False)
+            resubmit_reopen = self.mode_args.get("resubmit_reopen", False)
+            dry_run = self.mode_args.get("dry_run", False)
 
-        max_pln_attempts = 3
-        for attempt in range(1, max_pln_attempts + 1):
-            if attempt > 1:
-                logger.info(f"🔄 [Worker] Re-attempting {idpel} via {email} (Attempt {attempt}/{max_pln_attempts})...")
-            else:
-                logger.info(f"🚀 [Worker] Processing {idpel} via {email} (Attempt 1/{max_pln_attempts})...")
-
-            ok, msg = submit_single(
-                token_data=token_data,
-                val=idpel,
-                survey_caches=sc,
-                dry_run=dry_run,
-                resubmit_reject=resubmit_reject,
-                resubmit_open=resubmit_open,
-                resubmit_reopen=resubmit_reopen,
-                skip_cek_idpln=self.mode_args.get("skip_cek_idpln", False)
-            )
-
-            with self._processed_lock:
-                self.processed_indices.add(idx)
-                self.completed_cnt = getattr(self, "completed_cnt", 0) + 1
-                now = time.time()
-                if not hasattr(self, "_completed_timestamps"):
-                    self._completed_timestamps = collections.deque(maxlen=100)
-                self._completed_timestamps.append(now)
-
-                cnt = self.completed_cnt
-                tot = getattr(self, "total_pending_cnt", 1)
-                st = getattr(self, "start_time", now)
-                if (now - getattr(self, "_last_progress_log", 0) >= 3.5) or cnt == tot:
-                    self._last_progress_log = now
-                    # Calculate active sliding window speed (over last 100 items or since active run start)
-                    if len(self._completed_timestamps) > 1:
-                        win_elapsed = max(0.1, now - self._completed_timestamps[0])
-                        win_items = len(self._completed_timestamps) - 1
-                        speed = win_items / win_elapsed
-                    else:
-                        elapsed = max(0.1, now - st)
-                        speed = cnt / elapsed
-
-                    remaining = max(0, tot - cnt)
-                    eta_sec = int(remaining / speed) if speed > 0 else 0
-                    m, s = divmod(eta_sec, 60)
-                    h, m = divmod(m, 60)
-                    eta_str = f"{h}j {m}m {s}d" if h > 0 else (f"{m}m {s}d" if m > 0 else f"{s}d")
-                    pct = (cnt / tot * 100) if tot > 0 else 100.0
-                    logger.info(f"⚡ [PROGRESS] {cnt}/{tot} ({pct:.1f}%) | Kecepatan: {speed:.1f} data/s | ETA Sisa Waktu: {eta_str}")
-
-
-            if ok:
-
-                logger.info(f"✅ {idpel} SUCCESS via {email}: {msg}")
-                self.excel_mgr.update_row(idx, "SUCCESS", retry_count + attempt - 1, email, msg)
-                self.account_mgr.increment_usage(email)
-                break
-            else:
-                msg_lower = msg.lower()
-                # Check if Non-Rumah Tangga tarif (S1T, B-1, I-1, etc.)
-                is_non_residential = "non-rumah tangga" in msg_lower or "hanya tarif tipe r" in msg_lower
-                # Check if BPS account limit / quota reached (429 / limit / quota error)
-                is_rate_limited = any(t in msg_lower for t in ["429", "quota", "limit", "too many requests"])
-                # Check if account has no assignment / sample in this region
-                is_no_assignment = any(t in msg_lower for t in ["belum memiliki sampel", "tidak memiliki assignment", "web monitoring bps"])
-                # Check if error is 'Region PLN tak lengkap (kd_kel kosong)' -> DO NOT RETRY
-                is_region_incomplete = any(err in msg_lower for err in ["region pln tak lengkap", "kd_kel kosong"])
-                # Check if error is 'Data PLN tidak ditemukan / server PLN tak terjangkau' -> RETRY UP TO 3X
-                is_pln_not_found = not is_region_incomplete and any(err in msg_lower for err in ["pln tidak ditemukan", "terjangkau", "tidak terjangkau", "timeout", "500", "502", "504", "connection"])
-
-                if is_non_residential:
-                    logger.warning(f"🚫 {idpel} Tarif Non-Rumah Tangga via {email}: {msg}")
-                    self.excel_mgr.update_row(idx, "NON_RESIDENTIAL", retry_count, email, msg)
-                    break
-                elif is_rate_limited:
-                    logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit. Dimasukkan ke cooldown 60s...")
-                    self.account_mgr.mark_quota_exhausted(email)
-                    self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Cooldown 429 BPS: {msg}")
-                    time.sleep(2.0)
-                    break
-                elif is_no_assignment:
-                    logger.error(f"⛔ Akun {email} tidak memiliki tugas/sampel BPS di wilayah ini! Otomatis beralih ke akun berikutnya...")
-                    self.account_mgr.mark_quota_exhausted(email)
-                    self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Beralih Akun ({email} tidak ada tugas di wilayah ini)")
-                    break
-                elif is_region_incomplete:
-                    # ABAIKAN RETRY: Langsung FAILED_PLN & move ke task berikutnya
-                    logger.error(f"❌ {idpel} FAILED_PLN via {email}: {msg} (Dilewati tanpa retry — kd_kel kosong)")
-                    self.excel_mgr.update_row(idx, "FAILED_PLN", retry_count, email, msg)
-                    break
-                elif is_pln_not_found:
-                    if attempt < max_pln_attempts:
-                        logger.warning(f"⚠️ {idpel} Gangguan Sementara PLN (Coba {attempt}/{max_pln_attempts}): {msg} — mencoba ulang dalam 1 detik...")
-                        time.sleep(1.0)
-                        continue
-                    else:
-                        logger.error(f"❌ {idpel} FAILED_PLN via {email}: {msg} (Gagal setelah {max_pln_attempts}x percobaan — dilewati)")
-                        self.excel_mgr.update_row(idx, "FAILED_PLN", retry_count + attempt - 1, email, f"Gagal {max_pln_attempts}x retry: {msg}")
-                        break
+            max_pln_attempts = 3
+            for attempt in range(1, max_pln_attempts + 1):
+                if attempt > 1:
+                    logger.info(f"🔄 [Worker] Re-attempting {idpel} via {email} (Attempt {attempt}/{max_pln_attempts})...")
                 else:
-                    status_code = "FAILED_PLN" if "PLN" in msg else "FAILED"
-                    logger.error(f"❌ {idpel} {status_code} via {email}: {msg}")
-                    self.excel_mgr.update_row(idx, status_code, retry_count, email, msg)
+                    logger.info(f"🚀 [Worker] Processing {idpel} via {email} (Attempt 1/{max_pln_attempts})...")
+
+                ok, msg = submit_single(
+                    token_data=token_data,
+                    val=idpel,
+                    survey_caches=sc,
+                    dry_run=dry_run,
+                    resubmit_reject=resubmit_reject,
+                    resubmit_open=resubmit_open,
+                    resubmit_reopen=resubmit_reopen,
+                    skip_cek_idpln=self.mode_args.get("skip_cek_idpln", False),
+                    override_lat=override_lat,
+                    override_lon=override_lon,
+                    override_keperluan=direct_args.get("keperluan")
+                )
+
+                with self._processed_lock:
+                    self.processed_indices.add(idx)
+                    self.completed_cnt = getattr(self, "completed_cnt", 0) + 1
+                    now = time.time()
+                    if not hasattr(self, "_completed_timestamps"):
+                        self._completed_timestamps = collections.deque(maxlen=100)
+                    self._completed_timestamps.append(now)
+
+                    cnt = self.completed_cnt
+                    tot = getattr(self, "total_pending_cnt", 1)
+                    st = getattr(self, "start_time", now)
+                    if (now - getattr(self, "_last_progress_log", 0) >= 3.5) or cnt == tot:
+                        self._last_progress_log = now
+                        # Calculate active sliding window speed (over last 100 items or since active run start)
+                        if len(self._completed_timestamps) > 1:
+                            win_elapsed = max(0.1, now - self._completed_timestamps[0])
+                            win_items = len(self._completed_timestamps) - 1
+                            speed = win_items / win_elapsed
+                        else:
+                            elapsed = max(0.1, now - st)
+                            speed = cnt / elapsed
+
+                        remaining = max(0, tot - cnt)
+                        eta_sec = int(remaining / speed) if speed > 0 else 0
+                        m, s = divmod(eta_sec, 60)
+                        h, m = divmod(m, 60)
+                        eta_str = f"{h}j {m}m {s}d" if h > 0 else (f"{m}m {s}d" if m > 0 else f"{s}d")
+                        pct = (cnt / tot * 100) if tot > 0 else 100.0
+                        logger.info(f"⚡ [PROGRESS] {cnt}/{tot} ({pct:.1f}%) | Kecepatan: {speed:.1f} data/s | ETA Sisa Waktu: {eta_str}")
+
+                if ok:
+                    logger.info(f"✅ {idpel} SUCCESS via {email}: {msg}")
+                    self.excel_mgr.update_row(idx, "SUCCESS", retry_count + attempt - 1, email, msg)
+                    self.account_mgr.increment_usage(email, pre_warm_callback=self._prewarm_account)
                     break
+                else:
+                    msg_lower = msg.lower()
+                    # Check if Non-Rumah Tangga tarif (S1T, B-1, I-1, etc.)
+                    is_non_residential = "non-rumah tangga" in msg_lower or "hanya tarif tipe r" in msg_lower
+                    # Check if BPS account limit / quota reached (429 / limit / quota error)
+                    is_rate_limited = any(t in msg_lower for t in ["429", "quota", "limit", "too many requests"])
+                    # Check if account has no assignment / sample in this region
+                    is_no_assignment = any(t in msg_lower for t in ["belum memiliki sampel", "tidak memiliki assignment", "web monitoring bps"])
+                    # Check if error is 'Region PLN tak lengkap (kd_kel kosong)' -> DO NOT RETRY
+                    is_region_incomplete = any(err in msg_lower for err in ["region pln tak lengkap", "kd_kel kosong"])
+                    # Check if error is 'Data PLN tidak ditemukan / server PLN tak terjangkau' -> RETRY UP TO 3X
+                    is_pln_not_found = not is_region_incomplete and any(err in msg_lower for err in ["pln tidak ditemukan", "terjangkau", "tidak terjangkau", "timeout", "500", "502", "504", "connection"])
+
+                    if is_non_residential:
+                        logger.warning(f"🚫 {idpel} Tarif Non-Rumah Tangga via {email}: {msg}")
+                        self.excel_mgr.update_row(idx, "NON_RESIDENTIAL", retry_count, email, msg)
+                        break
+                    elif is_rate_limited:
+                        logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit. Dimasukkan ke cooldown 60s...")
+                        self.account_mgr.mark_quota_exhausted(email)
+                        self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Cooldown 429 BPS: {msg}")
+                        time.sleep(2.0)
+                        break
+                    elif is_no_assignment:
+                        logger.error(f"⛔ Akun {email} tidak memiliki tugas/sampel BPS di wilayah ini! Otomatis beralih ke akun berikutnya...")
+                        self.account_mgr.mark_quota_exhausted(email)
+                        self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Beralih Akun ({email} tidak ada tugas di wilayah ini)")
+                        break
+                    elif is_region_incomplete:
+                        # ABAIKAN RETRY: Langsung FAILED_PLN & move ke task berikutnya
+                        logger.error(f"❌ {idpel} FAILED_PLN via {email}: {msg} (Dilewati tanpa retry — kd_kel kosong)")
+                        self.excel_mgr.update_row(idx, "FAILED_PLN", retry_count, email, msg)
+                        break
+                    elif is_pln_not_found:
+                        if attempt < max_pln_attempts:
+                            logger.warning(f"⚠️ {idpel} Gangguan Sementara PLN (Coba {attempt}/{max_pln_attempts}): {msg} — mencoba ulang dalam 1 detik...")
+                            time.sleep(1.0)
+                            continue
+                        else:
+                            logger.error(f"❌ {idpel} FAILED_PLN via {email}: {msg} (Gagal setelah {max_pln_attempts}x percobaan — dilewati)")
+                            self.excel_mgr.update_row(idx, "FAILED_PLN", retry_count + attempt - 1, email, f"Gagal {max_pln_attempts}x retry: {msg}")
+                            break
+                    else:
+                        status_code = "FAILED_PLN" if "PLN" in msg else "FAILED"
+                        logger.error(f"❌ {idpel} {status_code} via {email}: {msg}")
+                        self.excel_mgr.update_row(idx, status_code, retry_count, email, msg)
+                        break
+        finally:
+            # CRITICAL: Always release the per-account semaphore slot, no matter what.
+            # Without this, slots leak and the pool throttles to 0 workers.
+            self.account_mgr.release_account_slot(email)
 
     def prompt_interactive_start(self) -> Tuple[Optional[int], Optional[str]]:
         """Interactive startup prompt to let user select start row or IDPel."""

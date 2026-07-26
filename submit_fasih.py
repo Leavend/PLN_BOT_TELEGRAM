@@ -965,6 +965,84 @@ def get_user_name_from_headers(headers: dict) -> str:
         pass
     return "Nadif Firjatullah"
 
+def generate_random_device_info() -> dict:
+    import random as _rnd
+    
+    # List of realistic Android devices popular in Indonesia
+    devices = [
+        ("Xiaomi", "Xiaomi", "M2103K19PG", "13 - 33", "TP1A.220624.014"),  # POCO M3 Pro 5G
+        ("POCO", "Xiaomi", "2201116PG", "13 - 33", "TKQ1.221114.001"),    # POCO M4 Pro
+        ("Samsung", "samsung", "SM-A536B", "14 - 34", "UP1A.231005.007"),  # Galaxy A53 5G
+        ("Samsung", "samsung", "SM-G991B", "13 - 33", "TP1A.220624.014"),  # Galaxy S21 5G
+        ("Oppo", "OPPO", "CPH2201", "12 - 31", "SP1A.210812.016"),         # Oppo Reno5 5G
+        ("Oppo", "OPPO", "CPH2529", "13 - 33", "TP1A.220624.014"),         # Oppo A78
+        ("Vivo", "vivo", "V2105", "13 - 33", "TP1A.220624.014"),            # Vivo Y53s
+        ("Vivo", "vivo", "V2204", "14 - 34", "UKQ1.230917.001"),            # Vivo Y36
+        ("Realme", "realme", "RMX3363", "13 - 33", "TP1A.220624.014"),      # Realme GT Master Edition
+        ("Realme", "realme", "RMX3771", "14 - 34", "UKQ1.230917.001"),      # Realme 11 Pro 5G
+        ("Infinix", "Infinix", "X6711", "13 - 33", "TP1A.220624.014"),      # Infinix Note 30 Pro
+        ("Infinix", "Infinix", "X6831", "13 - 33", "TP1A.220624.014")       # Infinix Hot 30
+    ]
+    
+    brand, manufacture, model, android_version, build_id = _rnd.choice(devices)
+    
+    # Realistic RAM sizes (MB)
+    ram_options = [
+        (4096, 1500, 2596),
+        (6144, 2200, 3944),
+        (8192, 3500, 4692),
+        (12288, 5500, 6788)
+    ]
+    total_ram, avail_ram, used_ram = _rnd.choice(ram_options)
+    avail_ram += _rnd.randint(-150, 150)
+    used_ram = total_ram - avail_ram
+    
+    # Realistic Storage sizes (MB)
+    storage_options = [
+        (65536, 12000, 53536),
+        (131072, 45000, 86072),
+        (262144, 110000, 152144)
+    ]
+    total_storage, avail_storage, used_storage = _rnd.choice(storage_options)
+    avail_storage += _rnd.randint(-2000, 2000)
+    used_storage = total_storage - avail_storage
+    
+    providers = ["TELKOMSEL", "Indosat Ooredoo", "XL Axiata", "Tri", "Smartfren"]
+    provider = _rnd.choice(providers)
+    
+    return {
+        "deviceInfo": {
+            "androidVersion": android_version,
+            "brand": brand,
+            "host": "",
+            "id": build_id,
+            "isEmulator": False,
+            "isRootDevice": False,
+            "manufacture": manufacture,
+            "model": model,
+            "serial": "unknown",
+            "type": "user",
+            "user": "builder",
+            "version": 0,
+            "versionRelease": "2.16.5 - 134"
+        },
+        "memoryInfo": {
+            "memoryAvail": str(avail_ram),
+            "memoryTotal": str(total_ram),
+            "memoryUsage": str(used_ram)
+        },
+        "storageInfo": {
+            "storageAvail": str(avail_storage),
+            "storageTotal": str(total_storage),
+            "storageUsage": str(used_storage)
+        },
+        "signalInfo": {
+            "detailSignalStrength": "",
+            "provider": provider,
+            "type": "1"
+        }
+    }
+
 def build_paradata(lat, lon, user_id: str, user_name: str, duration_s: int = None) -> str:
     """Build a realistic paradata action-log like the FASIH app sends. The app's
     submit carries this (interview OPEN/CLOSE/SUBMIT with GPS/battery + device
@@ -993,17 +1071,15 @@ def build_paradata(lat, lon, user_id: str, user_name: str, duration_s: int = Non
         }
     open_ts = now_ms - dur * 1000
     acts = [_entry("OPEN", open_ts), _entry("CLOSE", now_ms - 15000), _entry("SUBMIT", now_ms)]
+    
+    dev_info = generate_random_device_info()
     return json.dumps({
         "actionLogEntities": acts, "data": "",
-        "deviceInfo": {"androidVersion": "13 - 33", "brand": "POCO",
-                       "host": "", "id": "TP1A.220624.014", "isEmulator": False,
-                       "isRootDevice": False, "manufacture": "Xiaomi", "model": "M2103K19PG",
-                       "serial": "unknown", "type": "user", "user": "builder",
-                       "version": 0, "versionRelease": "2.16.5 - 134"},
+        "deviceInfo": dev_info["deviceInfo"],
         "encryptionType": 2, "formgear_version": "",
-        "memoryInfo": {"memoryAvail": "2084", "memoryTotal": "5616", "memoryUsage": "3531"},
-        "signalInfo": {"detailSignalStrength": "", "provider": "", "type": "1"},
-        "storageInfo": {"storageAvail": "89428", "storageTotal": "116230", "storageUsage": "26802"},
+        "memoryInfo": dev_info["memoryInfo"],
+        "signalInfo": dev_info["signalInfo"],
+        "storageInfo": dev_info["storageInfo"],
         "totalDuration": dur,
     }, ensure_ascii=False)
 
@@ -1059,20 +1135,14 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     except:
         created_dt = now
     
-    # Determine the current date in WITA (UTC+8) for the interview times
-    from datetime import timezone
-    try:
-        now_utc = datetime.now(timezone.utc)
-        wita_now = now_utc + timedelta(hours=8)
-        wita_date = wita_now.date()
-    except Exception:
-        # Fallback to local system time date
-        wita_date = datetime.now().date()
+    # Determine the current date using local OS timezone
+    local_now = datetime.now()
+    local_date = local_now.date()
         
     hour_start = _rnd.randint(7, 16)
     minute_start = _rnd.randint(0, 59)
     second_start = _rnd.randint(0, 59)
-    interview_start = datetime(wita_date.year, wita_date.month, wita_date.day,
+    interview_start = datetime(local_date.year, local_date.month, local_date.day,
                                hour_start, minute_start, second_start)
     duration_secs = _rnd.randint(120, 360)
     interview_end = interview_start + timedelta(seconds=duration_secs)
@@ -1223,7 +1293,7 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     # Select the schema key list
     if is_pasca:
         keys_list = [
-            "flagpre", "mulai", "r101a", "r101b", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
+            "flagpre", "mulai", "r101a", "result_idpln", "hasilCheckIdPel2", "hasilCheckIdPel", "r101b", "hasilCheckNoMeter2", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
             "r104", "r105", "r106", "unitupi", "unitap", "unitup", "kode_rbm", "kddk", "r201", "r202",
             "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "r203", "r204", "no_kk",
             "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
@@ -1231,7 +1301,7 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         ]
     else:
         keys_list = [
-            "flagpre", "mulai", "r101a", "r101b", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
+            "flagpre", "mulai", "r101a", "result_idpln", "hasilCheckIdPel2", "hasilCheckIdPel", "r101b", "hasilCheckNoMeter2", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
             "r104", "r105", "r106", "unitupi", "unitap", "unitup", "r201", "r202",
             "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "r203", "r204", "no_kk",
             "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
@@ -1243,7 +1313,11 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         "flagpre": flagpre_val,
         "mulai": start_time,
         "r101a": flat_answers.get("r101a") or "",
+        "result_idpln": json.dumps(pln_data, ensure_ascii=False),
+        "hasilCheckIdPel2": "2",
+        "hasilCheckIdPel": hasil_check_html,
         "r101b": flat_answers.get("r101b") or "",
+        "hasilCheckNoMeter2": None,
         "r102a": flat_answers.get("r102a") or "",
         "r102b": flat_answers.get("r102b") or "",
         "r102c": flat_answers.get("r102c") or "",

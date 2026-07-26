@@ -210,6 +210,33 @@ def test_reopen_target_routes_submit_not_edit():
     assert _is_edit(reopen_target) is False
 
 
+def test_wrap_answers_includes_check_idpln_fields():
+    from submit_fasih import wrap_answers
+    target = {
+        "id": "123",
+        "createdAt": "2026-05-12T07:39:09.458Z",
+        "templateVersion": "0.6.7",
+        "region": {}
+    }
+    flat_answers = {
+        "r101a": "231410012388",
+        "r102e": "Alamat Test",
+        "r103": "Nama Test"
+    }
+    result = wrap_answers(flat_answers, target, "test_user")
+    keys = {a["dataKey"] for a in result["answers"]}
+    assert "result_idpln" in keys
+    assert "hasilCheckIdPel2" in keys
+    assert "hasilCheckIdPel" in keys
+    assert "hasilCheckNoMeter2" in keys
+    
+    # Check that hasilCheckNoMeter2 answer is None
+    answers_map = {a["dataKey"]: a["answer"] for a in result["answers"]}
+    assert answers_map["hasilCheckNoMeter2"] is None
+    assert answers_map["hasilCheckIdPel2"] == "2"
+    assert "Alamat Test" in answers_map["result_idpln"]
+
+
 if __name__ == "__main__":
     import sys
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

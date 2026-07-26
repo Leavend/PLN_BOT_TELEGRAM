@@ -424,61 +424,21 @@ _token_lock = threading.Lock()
 def _cek(fn, *args, skip_cek_idpln: bool = False) -> dict:
     if skip_cek_idpln:
         return {}
-
-    fn_name = getattr(fn, "__name__", "")
-    if fn_name in ("check_idpln", "check_nikpln") and len(args) > 0:
-        orig_headers = args[0]
-        query_key = args[2] if len(args) > 2 else ""
-        from petugas_client.checker_pool import get_checker_headers, mark_checker_429
-
-        for attempt in range(5):
-            checker_headers = get_checker_headers(orig_headers, query_key)
-            new_args = (checker_headers,) + args[1:]
-            try:
-                res = fn(*new_args)
-                return (res or {}).get("data") or {}
-            except Exception as e:
-                msg = str(e)
-                if any(t in msg.lower() for t in ("429", "rate_limit_exceeded", "terlampaui", "too many requests")):
-                    mark_checker_429(query_key)
-                    continue
-                # If 403 Forbidden (region locked for checker), fallback to original officer headers
-                if "403" in msg or "forbidden" in msg.lower():
-                    try:
-                        return fn(*args).get("data") or {}
-                    except Exception:
-                        pass
-                msg_lower = msg.lower()
-                if any(t in msg_lower for t in ("timed out", "timeout", "max retries", "connection")):
-                    logger.warning(f"CEK BPS timeout/koneksi via checker: {e}")
-                else:
-                    logger.warning(f"CEK gagal via checker: {e}")
-                return {}
-
-        # Fallback to original headers if all checkers failed with 429
-        try:
-            return fn(*args).get("data") or {}
-        except Exception as e:
-            msg = str(e)
-            if any(t in msg.lower() for t in ("429", "rate_limit_exceeded", "terlampaui", "too many requests")):
-                raise Exception(f"429 Rate Limit BPS (CEK IDPel limit terlampaui): {msg}")
-            return {}
-    else:
-        try:
-            return fn(*args).get("data") or {}
-        except Exception as e:
-            msg = str(e)
-            if any(t in msg.lower() for t in ("429", "rate_limit_exceeded", "terlampaui", "too many requests")):
-                raise Exception(f"429 Rate Limit BPS (CEK IDPel limit terlampaui): {msg}")
-            msg_lower = msg.lower()
-            if "403" in msg_lower or "forbidden" in msg_lower:
-                idpel_str = args[2] if len(args) > 2 else ""
-                logger.warning(f"⚠️ CEK IDPel {idpel_str} dilarang (403 Forbidden — beda wilayah/tidak ditugaskan ke akun ini)")
-            elif any(t in msg_lower for t in ("timed out", "timeout", "max retries", "connection")):
-                logger.warning(f"CEK BPS timeout/koneksi: {e}")
-            else:
-                logger.warning(f"CEK gagal: {e}")
-            return {}
+    try:
+        return fn(*args).get("data") or {}
+    except Exception as e:
+        msg = str(e)
+        if any(t in msg.lower() for t in ("429", "rate_limit_exceeded", "terlampaui", "too many requests")):
+            raise Exception(f"429 Rate Limit BPS (CEK IDPel limit terlampaui): {msg}")
+        msg_lower = msg.lower()
+        if "403" in msg_lower or "forbidden" in msg_lower:
+            idpel_str = args[2] if len(args) > 2 else ""
+            logger.warning(f"⚠️ CEK IDPel {idpel_str} dilarang (403 Forbidden — beda wilayah/tidak ditugaskan ke akun ini)")
+        elif any(t in msg_lower for t in ("timed out", "timeout", "max retries", "connection")):
+            logger.warning(f"CEK BPS timeout/koneksi: {e}")
+        else:
+            logger.warning(f"CEK gagal: {e}")
+        return {}
 
 
 # --fast survey cache: the survey/periode/template/region setup is stable within
@@ -676,6 +636,9 @@ def submit_single(
     resubmit_open: bool = False,
     resubmit_reopen: bool = False,
     skip_cek_idpln: bool = False,
+    override_lat: Optional[float] = None,
+    override_lon: Optional[float] = None,
+    override_keperluan: Optional[str] = None,
 ) -> tuple[bool, str]:
     """Submit single item — picks correct survey (Prabayar/Pascabayar) automatically."""
     email_val = (token_data or {}).get("email") or (token_data or {}).get("preferred_username") or ""
@@ -813,7 +776,7 @@ def submit_single(
         # instead of sequentially to cut per-item latency by ~60%
         # ═══════════════════════════════════════════════════════════════════
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
-        lat, lon = None, None
+        lat, lon = override_lat, override_lon
         pln_data = None
         photo_path = None
 
@@ -876,12 +839,15 @@ def submit_single(
                        "nama_prov", "nama_kab", "nama_kec", "nama_kel", "keperluan"):
                 if pln_data.get(k):
                     direct_args[f"pln_{k}"] = pln_data[k]
+            if override_keperluan:
+                direct_args["keperluan"] = override_keperluan
+                direct_args["pln_keperluan"] = override_keperluan
             try:
                 pln_lat = pln_data.get("latitude")
                 pln_lon = pln_data.get("longitude")
-                if pln_lat and float(pln_lat) != 0.0:
+                if lat is None and pln_lat and float(pln_lat) != 0.0:
                     lat = float(pln_lat)
-                if pln_lon and float(pln_lon) != 0.0:
+                if lon is None and pln_lon and float(pln_lon) != 0.0:
                     lon = float(pln_lon)
             except (ValueError, TypeError):
                 pass
@@ -1095,6 +1061,27 @@ def submit_single(
         if orig_data and isinstance(orig_data.get("answers"), list):
             # merge updated fields into orig_data["answers"]
             ans_map = {a.get("dataKey"): a for a in orig_data["answers"] if isinstance(a, dict) and "dataKey" in a}
+            
+            # Generate new interview times for today using local OS timezone
+            import random as _rnd
+            from datetime import datetime, timedelta
+            local_now = datetime.now()
+            local_date = local_now.date()
+            hour_start = _rnd.randint(7, 16)
+            minute_start = _rnd.randint(0, 59)
+            second_start = _rnd.randint(0, 59)
+            interview_start = datetime(local_date.year, local_date.month, local_date.day,
+                                       hour_start, minute_start, second_start)
+            duration_secs = _rnd.randint(120, 360)
+            interview_end = interview_start + timedelta(seconds=duration_secs)
+            if interview_end.hour >= 18:
+                interview_end = interview_end.replace(hour=17, minute=_rnd.randint(45, 59))
+            
+            new_times = {
+                "mulai": interview_start.strftime("%Y-%m-%dT%H:%M:%S"),
+                "selesai": interview_end.strftime("%Y-%m-%dT%H:%M:%S")
+            }
+            
             for k, v in answers.items():
                 if k.startswith("_"):
                     continue
@@ -1102,6 +1089,18 @@ def submit_single(
                     ans_map[k]["answer"] = v
                 else:
                     orig_data["answers"].append({"dataKey": k, "answer": v})
+            
+            # Overwrite mulai and selesai in orig_data
+            for tk, tv in new_times.items():
+                if tk in ans_map:
+                    ans_map[tk]["answer"] = tv
+                else:
+                    orig_data["answers"].append({"dataKey": tk, "answer": tv})
+                    
+            orig_data["updatedAt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            orig_data["updatedBy"] = user_name
+            if target.get("templateVersion"):
+                orig_data["templateVersion"] = target["templateVersion"]
             payload_to_encrypt = orig_data
             principal_data = orig_data
         else:
