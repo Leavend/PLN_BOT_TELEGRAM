@@ -428,10 +428,11 @@ def _cek(fn, *args, skip_cek_idpln: bool = False) -> dict:
     fn_name = getattr(fn, "__name__", "")
     if fn_name in ("check_idpln", "check_nikpln") and len(args) > 0:
         orig_headers = args[0]
+        query_key = args[2] if len(args) > 2 else ""
         from petugas_client.checker_pool import get_checker_headers, mark_checker_429
 
         for attempt in range(5):
-            checker_headers = get_checker_headers(orig_headers)
+            checker_headers = get_checker_headers(orig_headers, query_key)
             new_args = (checker_headers,) + args[1:]
             try:
                 res = fn(*new_args)
@@ -439,7 +440,7 @@ def _cek(fn, *args, skip_cek_idpln: bool = False) -> dict:
             except Exception as e:
                 msg = str(e)
                 if any(t in msg.lower() for t in ("429", "rate_limit_exceeded", "terlampaui", "too many requests")):
-                    mark_checker_429(checker_headers)
+                    mark_checker_429(query_key)
                     continue
                 # If 403 Forbidden (region locked for checker), fallback to original officer headers
                 if "403" in msg or "forbidden" in msg.lower():
