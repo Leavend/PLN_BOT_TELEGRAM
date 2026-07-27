@@ -270,14 +270,42 @@ else
 fi
 EOF
 
-# fasih-update: pull latest code and re-install shortcut commands automatically
-cat > "$BIN/fasih-update" << EOF
+# fasih-update: pull latest code, purge local house photos, and re-install shortcut commands
+cat > "$BIN/fasih-update.tmp" << 'OUTER'
 #!/bin/bash
-cd "$REPO"
+cd "REPO_PLACEHOLDER"
+
+echo "🧹 Membersihkan foto rumah & file temporary lokal HP Petugas..."
+rm -rf house_photos Samarinda_Photos Bontang_Photos Balikpapan_Photos *_Photos fasih_downloaded extract_* extracted_* Logs-Runner Folder-Runner 2>/dev/null
+rm -f photo_*.webp *.7z temp.zip *.har 2>/dev/null
+
+if [ -d ".git" ]; then
+    git config core.sparseCheckout true 2>/dev/null
+    mkdir -p .git/info
+    cat > .git/info/sparse-checkout << 'SPARSE_EOF'
+/*
+!house_photos/
+!Samarinda_Photos/
+!Bontang_Photos/
+!Balikpapan_Photos/
+!*_Photos/
+!*.webp
+!*.7z
+SPARSE_EOF
+    git read-tree -mu HEAD 2>/dev/null || true
+fi
+
+echo "📥 Updating repo..."
 git pull
 bash petugas_client/install_commands.sh
 echo "✅ Script & Shortcut Commands Berhasil Di-update!"
-EOF
+echo "🔒 Foto rumah lokal berhasil dibersihkan & di-isolasi ke Server PLN."
+OUTER
+python3 -c "import sys; p=sys.argv[1]; r=sys.argv[2]; txt=open(p).read().replace('REPO_PLACEHOLDER', r); open(p,'w').write(txt)" "$BIN/fasih-update.tmp" "$REPO"
+mv "$BIN/fasih-update.tmp" "$BIN/fasih-update"
+chmod +x "$BIN/fasih-update"
+
+
 
 # fasih-status: check config
 cat > "$BIN/fasih-status" << EOF
@@ -391,6 +419,7 @@ chmod +x "$BIN"/fasih-*
 
 # Add to PATH if not already
 if ! echo "$PATH" | grep -q "$BIN"; then
+    touch "$HOME/.bashrc"
     echo "export PATH=\"$BIN:\$PATH\"" >> "$HOME/.bashrc"
     echo "export PATH=\"$BIN:\$PATH\"" >> "$HOME/.zshrc" 2>/dev/null
     export PATH="$BIN:$PATH"

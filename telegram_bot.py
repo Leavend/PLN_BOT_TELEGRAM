@@ -592,26 +592,54 @@ def geocode_address_nominatim(alamat, kel, kec, kab, prov):
     if kab and prov:
         queries.append(f"{kab}, {prov}, Indonesia")
         
+    # Google Maps — higher accuracy. Comma-separated keys rotate on quota/denied.
+    gmaps_keys = [k.strip() for k in (os.getenv("GOOGLE_MAPS_KEY") or "").split(",") if k.strip()]
+    for gmaps_key in gmaps_keys:
+        key_dead = False
+        for q in queries:
+            try:
+                r = requests.get(
+                    "https://maps.googleapis.com/maps/api/geocode/json",
+                    params={"address": q, "key": gmaps_key, "region": "id"},
+                    timeout=5
+                )
+                data = r.json()
+                status = data.get("status")
+                if status in ("OVER_QUERY_LIMIT", "REQUEST_DENIED"):
+                    key_dead = True
+                    break
+                if status == "OK" and data.get("results"):
+                    loc = data["results"][0]["geometry"]["location"]
+                    lat = float(loc["lat"])
+                    lon = float(loc["lng"])
+                    if q != queries[0] if queries else False:
+                        lat += random.uniform(-0.0008, 0.0008)
+                        lon += random.uniform(-0.0008, 0.0008)
+                    return lat, lon
+            except Exception:
+                pass
+        if key_dead:
+            continue
+
     for q in queries:
         try:
             r = requests.get(
-                "https://nominatim.openstreetmap.org/search", 
-                params={"q": q, "format": "json", "limit": 1}, 
-                headers={"User-Agent": "FasihBPSBot/1.0"}, 
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": q, "format": "json", "limit": 1},
+                headers={"User-Agent": "FasihBPSBot/1.0"},
                 timeout=5
             )
             res = r.json()
             if res:
                 lat = float(res[0]["lat"])
                 lon = float(res[0]["lon"])
-                
-                # Fuzz general results to simulate household spread
-                if q != queries[0] if len(queries) > 0 else False:
+                if q != queries[0] if queries else False:
                     lat += random.uniform(-0.0008, 0.0008)
                     lon += random.uniform(-0.0008, 0.0008)
                 return lat, lon
         except Exception:
             pass
+
     return None, None
 
 # Decorator to restrict access to allowed users

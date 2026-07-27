@@ -157,6 +157,7 @@ def get_headers(token_data: dict) -> dict:
     return {
         "Authorization": f"Bearer {token_data['access_token']}",
         "User-Agent": USER_AGENT,
+        "X-Device-Id": "67db2585-7744-4bba-986b-c503d08583a8",
         "Content-Type": "application/json; charset=UTF-8",
         "Accept": "application/json",
         "Accept-Encoding": "gzip",

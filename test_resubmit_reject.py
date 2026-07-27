@@ -134,22 +134,25 @@ def test_wrap_answers_interview_times():
     selesai = answers_dict["selesai"]
     
     # Parse them
-    dt_mulai = datetime.strptime(mulai, "%Y-%m-%dT%H:%M:%S")
-    dt_selesai = datetime.strptime(selesai, "%Y-%m-%dT%H:%M:%S")
+    dt_mulai = datetime.strptime(mulai, "%Y-%m-%dT%H:%M:%S.%fZ")
+    dt_selesai = datetime.strptime(selesai, "%Y-%m-%dT%H:%M:%S.%fZ")
     
     # Determine local/WITA today's date
     now_utc = datetime.now(timezone.utc)
     wita_now = now_utc + timedelta(hours=8)
     today_wita = wita_now.date()
     today_local = datetime.now().date()
-    
+    local_tz = datetime.now().astimezone().tzinfo
+    dt_mulai_local = dt_mulai.replace(tzinfo=timezone.utc).astimezone(local_tz)
+    dt_selesai_local = dt_selesai.replace(tzinfo=timezone.utc).astimezone(local_tz)
+
     # Verify the date is today (either WITA today or local system today)
-    assert dt_mulai.date() in (today_wita, today_local)
-    assert dt_selesai.date() in (today_wita, today_local)
+    assert dt_mulai_local.date() in (today_wita, today_local)
+    assert dt_selesai_local.date() in (today_wita, today_local)
     
     # Verify the hour is within 07.00 - 18.00 working hours
-    assert 7 <= dt_mulai.hour < 18
-    assert 7 <= dt_selesai.hour < 18
+    assert 7 <= dt_mulai_local.hour < 18
+    assert 7 <= dt_selesai_local.hour < 18
     
     # Verify selesai is chronologically after mulai
     assert dt_selesai > dt_mulai
@@ -210,32 +213,6 @@ def test_reopen_target_routes_submit_not_edit():
     assert _is_edit(reopen_target) is False
 
 
-def test_wrap_answers_includes_check_idpln_fields():
-    from submit_fasih import wrap_answers
-    target = {
-        "id": "123",
-        "createdAt": "2026-05-12T07:39:09.458Z",
-        "templateVersion": "0.6.7",
-        "region": {}
-    }
-    flat_answers = {
-        "r101a": "231410012388",
-        "r102e": "Alamat Test",
-        "r103": "Nama Test"
-    }
-    result = wrap_answers(flat_answers, target, "test_user")
-    keys = {a["dataKey"] for a in result["answers"]}
-    assert "result_idpln" in keys
-    assert "hasilCheckIdPel2" in keys
-    assert "hasilCheckIdPel" in keys
-    assert "hasilCheckNoMeter2" in keys
-    
-    # Check that hasilCheckNoMeter2 answer is None
-    answers_map = {a["dataKey"]: a["answer"] for a in result["answers"]}
-    assert answers_map["hasilCheckNoMeter2"] is None
-    assert answers_map["hasilCheckIdPel2"] == "2"
-    assert "Alamat Test" in answers_map["result_idpln"]
-
 
 def test_match_selection_prioritizes_mode_target():
     caches = {
@@ -267,6 +244,56 @@ def test_match_selection_prioritizes_mode_target():
             
     assert target is not None
     assert target["id"] == "rejected-id"
+
+
+def test_wrap_answers_pasca_067_keys_order():
+    from submit_fasih import wrap_answers
+    target = {
+        "id": "123",
+        "templateVersion": "0.6.7",
+        "region": {
+            "level1": {"code": "23"},
+            "level2": {"code": "23BPN"},
+            "level3": {"code": "23220"},
+            "level4": {"code": "BDCMAHB"}
+        }
+    }
+    flat_answers = {
+        "r101a": "232240000816",
+        "_is_pasca": True
+    }
+    result = wrap_answers(flat_answers, target, "test_user")
+    keys = [a["dataKey"] for a in result["answers"]]
+    
+    # Check that it contains new 0.6.7 Pascabayar fields in the correct order
+    assert "flagpre" not in keys
+    assert "result_idpln" in keys
+    assert "hasilCheckIdPel2" in keys
+    assert "hasilCheckIdPel" in keys
+    assert "nama_ktp" in keys
+    assert "hasilPemadananNIK" in keys
+    assert "hasilPemadananNIK2" in keys
+    assert "result_callnik" in keys
+    assert "no_kk" in keys
+    assert "catatan" in keys
+    assert "selesai" in keys
+    
+    # Ensure legacy UPI/UP3/etc fields are NOT present in 0.6.7
+    assert "UPI" not in keys
+    assert "UP3" not in keys
+    
+    # Ensure correct relative order in block II: r201 -> r202 -> nama_ktp -> hasilPemadananNIK -> hasilPemadananNIK2 -> result_callnik -> r203 -> r204 -> no_kk
+    idx_r201 = keys.index("r201")
+    idx_r202 = keys.index("r202")
+    idx_nama_ktp = keys.index("nama_ktp")
+    idx_hasilPemadananNIK = keys.index("hasilPemadananNIK")
+    idx_hasilPemadananNIK2 = keys.index("hasilPemadananNIK2")
+    idx_result_callnik = keys.index("result_callnik")
+    idx_r203 = keys.index("r203")
+    idx_r204 = keys.index("r204")
+    idx_no_kk = keys.index("no_kk")
+    
+    assert idx_r201 < idx_r202 < idx_nama_ktp < idx_hasilPemadananNIK < idx_hasilPemadananNIK2 < idx_result_callnik < idx_r203 < idx_r204 < idx_no_kk
 
 
 if __name__ == "__main__":

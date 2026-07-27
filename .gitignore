@@ -65,7 +65,12 @@ activation_links.txt
 .fasih_fleet_key
 .fasih_fleet_key*
 *.fleetkey
+# Photos & Media directories (HANYA untuk Server PLN, TIDAK di-download HP Petugas)
+house_photos/
 Samarinda_Photos/
+Bontang_Photos/
+Balikpapan_Photos/
+*_Photos/
 
 # runtime submit reports (berisi PII pelanggan) — jangan commit ke repo publik
 batch_report_*.csv

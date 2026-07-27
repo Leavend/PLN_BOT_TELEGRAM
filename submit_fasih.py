@@ -180,10 +180,19 @@ def parse_predefined(target: dict) -> dict:
     if pre_defined_str:
         try:
             predata = json.loads(pre_defined_str).get("predata", [])
+            pd_idpel = None
             for item in predata:
                 key = item.get("dataKey")
+                if key == "r101a":
+                    pd_idpel = item.get("answer")
                 if key:
                     answers[key] = item.get("answer") or ""
+            
+            # Check IDPel mismatch
+            idpel = target.get("data1")
+            if pd_idpel and idpel and str(pd_idpel).strip() != str(idpel).strip():
+                # Stale/mismatched preDefinedData! Ignore it.
+                return {}
         except Exception as e:
             print(f"      ⚠️  Error parsing preDefinedData: {e}")
     return answers
@@ -373,6 +382,81 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
     l4_name = l4.get("name") or "BERBAS PANTAI"
     l4_fullcode = l4.get("fullCode") or "6474020003"
 
+    # Parse preDefinedData region overrides if present
+    pd_resolved = False
+    pd_str = target.get("preDefinedData")
+    if pd_str:
+        try:
+            import json
+            pd_data = json.loads(pd_str) if isinstance(pd_str, str) else pd_str
+            pd_map = {item["dataKey"]: item.get("answer") for item in pd_data.get("predata", []) if "dataKey" in item}
+            
+            # Check IDPel mismatch
+            idpel = direct_args.get("idpel") or target.get("data1")
+            pd_idpel = pd_map.get("r101a")
+            if pd_idpel and idpel and str(pd_idpel).strip() != str(idpel).strip():
+                raise ValueError("Mismatched preDefinedData")
+            
+            def parse_bracket_pd(val):
+                if not val:
+                    return "", ""
+                import re
+                m = re.match(r'^\[(.*?)\]\s*(.*)$', val)
+                if m:
+                    return m.group(1), m.group(2)
+                return "", str(val)
+
+            # Get names and codes from preDefinedData bracket strings
+            pd_prov_code, pd_prov_name = "", ""
+            pd_kab_code, pd_kab_name = "", ""
+            pd_kec_code, pd_kec_name = "", ""
+            pd_kel_code, pd_kel_name = "", ""
+            if pd_map.get("r102a"):
+                pd_prov_code, pd_prov_name = parse_bracket_pd(str(pd_map.get("r102a")))
+            if pd_map.get("r102b"):
+                pd_kab_code, pd_kab_name = parse_bracket_pd(str(pd_map.get("r102b")))
+            if pd_map.get("r102c"):
+                pd_kec_code, pd_kec_name = parse_bracket_pd(str(pd_map.get("r102c")))
+            if pd_map.get("r102d"):
+                pd_kel_code, pd_kel_name = parse_bracket_pd(str(pd_map.get("r102d")))
+
+            kec_cache, desa_cache = load_regional_lookups()
+            target_kec = _norm_region(pd_kec_name)
+            target_kel = _norm_region(pd_kel_name)
+            
+            kec_info = kec_cache.get(target_kec)
+            if kec_info:
+                l1_code = kec_info["l1_code"]
+                l1_name = pd_prov_name or "KALIMANTAN TIMUR"
+                l2_code = kec_info["l2_code"][-2:]
+                l2_name = pd_kab_name or "KAB. PENAJAM PASER UTARA"
+                l2_fullcode = kec_info["l2_code"]
+                l3_code = kec_info["code"][-3:]
+                l3_name = pd_kec_name or "SEPAKU"
+                l3_fullcode = kec_info["code"]
+                
+                desa_info = desa_cache.get((kec_info["code"], target_kel))
+                if not desa_info:
+                    desa_info = desa_cache.get(target_kel)
+                if desa_info:
+                    l4_code = desa_info["full_code"][-3:]
+                    l4_name = pd_kel_name or "TELEMOW"
+                    l4_fullcode = desa_info["full_code"]
+                    pd_resolved = True
+        except Exception:
+            pass
+
+    if pd_resolved:
+        return {
+            "l1_code": l1_code, "l1_name": l1_name,
+            "l2_code": l2_code, "l2_name": l2_name, "l2_fullcode": l2_fullcode,
+            "l3_code": l3_code, "l3_name": l3_name, "l3_fullcode": l3_fullcode,
+            "l4_code": l4_code, "l4_name": l4_name, "l4_fullcode": l4_fullcode,
+            "l2_fullcode_pln": pd_kab_code,
+            "l3_fullcode_pln": pd_kec_code,
+            "l4_fullcode_pln": pd_kel_code
+        }
+
     # HIGHEST PRIORITY: use the exact PLN/AP2T region codes — they equal the BPS
     # codes returned by check-idpln (kd_prov=64, kd_kab=6408, kd_kec=640808,
     # kd_kel=6408082007). The r301/r102 cascade in the app only fills its
@@ -404,11 +488,9 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
         l4_code, l4_fullcode = bps_kel[6:10], bps_kel
         l4_name = str(direct_args.get("pln_nama_kel") or l4_name).strip().upper()
 
-    # PRIMARY: name-based lookup against the BPS MFD (== the app's r301 cascade master).
-    # Overrides the PLN fallback codes above with the exact codes the app expects.
     pln_nama_kec = str(direct_args.get("pln_nama_kec") or "").strip().upper()
     pln_nama_kel = str(direct_args.get("pln_nama_kel") or "").strip().upper()
-    
+
     lookup_success = False
     if pln_nama_kec and pln_nama_kel:
         try:
@@ -477,29 +559,43 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
             if direct_args.get("pln_nama_kel"):
                 l4_name = str(direct_args.get("pln_nama_kel")).strip().upper()
 
+    pln_kd_kel = str(direct_args.get("pln_kd_kel") or "").strip()
+    pln_kd_kec = str(direct_args.get("pln_kd_kec") or "").strip()
+    pln_kd_kab = str(direct_args.get("pln_kd_kab") or "").strip()
+    pln_kel_val = pln_kd_kel
+    pln_kec_val = pln_kd_kec or (pln_kd_kel[:6] if len(pln_kd_kel) >= 6 else "")
+    pln_kab_val = pln_kd_kab or (pln_kd_kel[:4] if len(pln_kd_kel) >= 4 else "")
+
     return {
         "l1_code": l1_code, "l1_name": l1_name,
         "l2_code": l2_code, "l2_name": l2_name, "l2_fullcode": l2_fullcode,
         "l3_code": l3_code, "l3_name": l3_name, "l3_fullcode": l3_fullcode,
-        "l4_code": l4_code, "l4_name": l4_name, "l4_fullcode": l4_fullcode
+        "l4_code": l4_code, "l4_name": l4_name, "l4_fullcode": l4_fullcode,
+        "l2_fullcode_pln": pln_kab_val or l2_fullcode,
+        "l3_fullcode_pln": pln_kec_val or l3_fullcode,
+        "l4_fullcode_pln": pln_kel_val or l4_fullcode
     }
 
 def get_region_fields(target: dict, direct_args: dict) -> dict:
-    res = resolve_region_codes_and_names(target, direct_args)
-    l1_code, l1_name = res["l1_code"], res["l1_name"]
-    l2_code, l2_name = res["l2_code"], res["l2_name"]
-    l3_code, l3_name = res["l3_code"], res["l3_name"]
-    l4_code, l4_name = res["l4_code"], res["l4_name"]
+    res_reg = resolve_region_codes_and_names(target, direct_args)
+    r102a_code = res_reg["l1_code"]
+    r102a_name = res_reg["l1_name"]
+    r102b_code = res_reg.get("l2_fullcode_pln") or res_reg["l2_fullcode"]
+    r102b_name = res_reg["l2_name"]
+    r102c_code = res_reg.get("l3_fullcode_pln") or res_reg["l3_fullcode"]
+    r102c_name = res_reg["l3_name"]
+    r102d_code = res_reg.get("l4_fullcode_pln") or res_reg["l4_fullcode"]
+    r102d_name = res_reg["l4_name"]
     
     r103_name = target.get("data2") or direct_args.get("nama") or ""
     if r103_name:
         r103_name = clean_pln_name(str(r103_name))
         
     return {
-        "r102a": f"[{l1_code}] {l1_name}",
-        "r102b": f"[{l2_code}] {l2_name}",
-        "r102c": f"[{l3_code}] {l3_name}",
-        "r102d": f"[{l4_code}] {l4_name}",
+        "r102a": f"[{r102a_code}] {r102a_name}",
+        "r102b": f"[{r102b_code}] {r102b_name}",
+        "r102c": f"[{r102c_code}] {r102c_name}",
+        "r102d": f"[{r102d_code}] {r102d_name}",
         "r102e": target.get("data4") or direct_args.get("alamat") or "",
         "r103": r103_name
     }
@@ -508,16 +604,33 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
     answers = parse_predefined(target)
     for slot, field_key in template_mapping.items():
         val = target.get(slot)
-        if val:
+        if val and field_key not in answers:
             answers[field_key] = val
+
+    # Unconditionally align form fields with active slots to maintain internal consistency
+    idpel = direct_args.get("idpel") or target.get("data1")
+    if idpel:
+        answers["r101a"] = idpel
+    nometer = direct_args.get("nometer") or target.get("data3")
+    if nometer:
+        answers["r101b"] = nometer
+    nama = direct_args.get("nama") or target.get("data2")
+    if nama:
+        answers["r103"] = clean_pln_name(nama)
+    alamat = direct_args.get("alamat") or target.get("data4")
+    if alamat:
+        answers["r102e"] = alamat.strip()
     
-    # Update region-based fields only if not already populated
+    # Update region-based fields unconditionally
     reg_fields = get_region_fields(target, direct_args)
     for k, v in reg_fields.items():
-        if not answers.get(k):
-            answers[k] = v
+        answers[k] = v
     
-    is_pasca = "kddk" in template_mapping.values()
+    is_pasca = (
+        (target and target.get("prelist_source") == "pascabayar") or
+        "layanan" in template_mapping.values() or
+        "kddk" in template_mapping.values()
+    )
     
     # Baseline/PLN-specific metadata fields
     answers.update({
@@ -616,6 +729,8 @@ def build_dynamic_answers(target: dict, direct_args: dict, template_mapping: dic
     answers.update({
         "catatan": generate_random_comment()
     })
+    if "idpln_response" in direct_args:
+        answers["_idpln_response"] = direct_args["idpln_response"]
     
     return answers
 
@@ -783,8 +898,7 @@ def _geo_ladder(alamat, kel, kec, kab, prov):
 
 
 def geocode_address(alamat, kel="", kec="", kab="", prov=""):
-    """Geocode via admin hierarchy (Mapbox primary → Nominatim). Always lands in the
-    correct wilayah; the PLN street is only the most-specific rung, never the sole query.
+    """Geocode via admin hierarchy (Mapbox → Nominatim → Google Maps fallback).
     No jitter here — determinism is handled by the per-idpel cache in resolve_coordinate()."""
     import requests as _req
     import urllib.parse
@@ -812,6 +926,31 @@ def geocode_address(alamat, kel="", kec="", kab="", prov=""):
         if not token_valid:
             continue
 
+    # Google Maps Geocoding API — higher accuracy than Nominatim. Comma-separated
+    # keys rotate on quota/denied (OVER_QUERY_LIMIT / REQUEST_DENIED), like Mapbox.
+    gmaps_keys = [k.strip() for k in (os.getenv("GOOGLE_MAPS_KEY") or "").split(",") if k.strip()]
+    for gmaps_key in gmaps_keys:
+        key_dead = False
+        for q in queries:
+            try:
+                r = _req.get(
+                    "https://maps.googleapis.com/maps/api/geocode/json",
+                    params={"address": q, "key": gmaps_key, "region": "id"},
+                    timeout=6
+                )
+                data = r.json()
+                status = data.get("status")
+                if status in ("OVER_QUERY_LIMIT", "REQUEST_DENIED"):
+                    key_dead = True
+                    break
+                if status == "OK" and data.get("results"):
+                    loc = data["results"][0]["geometry"]["location"]
+                    return float(loc["lat"]), float(loc["lng"])
+            except Exception:
+                pass
+        if key_dead:
+            continue
+
     for q in queries:
         try:
             r = _req.get(
@@ -824,6 +963,7 @@ def geocode_address(alamat, kel="", kec="", kab="", prov=""):
                 return float(res[0]["lat"]), float(res[0]["lon"])
         except Exception:
             pass
+
     return None, None
 
 
@@ -965,8 +1105,9 @@ def get_user_name_from_headers(headers: dict) -> str:
         pass
     return "Nadif Firjatullah"
 
-def generate_random_device_info() -> dict:
+def generate_random_device_info(target: dict = None, user_name: str = None) -> dict:
     import random as _rnd
+    import time
     
     # List of realistic Android devices popular in Indonesia
     devices = [
@@ -1010,11 +1151,39 @@ def generate_random_device_info() -> dict:
     providers = ["TELKOMSEL", "Indosat Ooredoo", "XL Axiata", "Tri", "Smartfren"]
     provider = _rnd.choice(providers)
     
+    user_id = ""
+    uname = ""
+    if isinstance(target, dict):
+        user_id = target.get("currentUserId") or ""
+        uname = target.get("currentUserFullname") or target.get("currentUserUsername") or ""
+    if user_name and not uname:
+        uname = user_name
+        
+    now_ms = int(time.time() * 1000)
+    open_ts = str(now_ms - 300000)
+    save_ts = str(now_ms - 5000)
+    
     return {
+        "actionLogEntities": [
+            {
+                "action": "OPEN",
+                "batteryInfo": {"batteryLevel": _rnd.randint(30, 95), "batteryTemperature": _rnd.randint(28, 42)},
+                "timestamp": open_ts,
+                "userId": user_id,
+                "userName": uname
+            },
+            {
+                "action": "SAVE",
+                "batteryInfo": {"batteryLevel": _rnd.randint(30, 95), "batteryTemperature": _rnd.randint(28, 42)},
+                "timestamp": save_ts,
+                "userId": user_id,
+                "userName": uname
+            }
+        ],
         "deviceInfo": {
             "androidVersion": android_version,
             "brand": brand,
-            "host": "",
+            "host": "pangu-build-component-system-321494-v5rcz-320dz-rrnhj",
             "id": build_id,
             "isEmulator": False,
             "isRootDevice": False,
@@ -1024,7 +1193,7 @@ def generate_random_device_info() -> dict:
             "type": "user",
             "user": "builder",
             "version": 0,
-            "versionRelease": "2.16.5 - 134"
+            "versionRelease": "2.16.7 - 140"
         },
         "memoryInfo": {
             "memoryAvail": str(avail_ram),
@@ -1040,10 +1209,14 @@ def generate_random_device_info() -> dict:
             "detailSignalStrength": "",
             "provider": provider,
             "type": "1"
-        }
+        },
+        "encryptionType": 2,
+        "formgear_version": "",
+        "data": "",
+        "totalDuration": 0
     }
 
-def build_paradata(lat, lon, user_id: str, user_name: str, duration_s: int = None) -> str:
+def build_paradata(lat, lon, user_id: str, user_name: str, duration_s: int = None, start_time_str: str = None, end_time_str: str = None) -> str:
     """Build a realistic paradata action-log like the FASIH app sends. The app's
     submit carries this (interview OPEN/CLOSE/SUBMIT with GPS/battery + device
     telemetry); records submitted with an EMPTY paradata are stored but do not
@@ -1051,6 +1224,7 @@ def build_paradata(lat, lon, user_id: str, user_name: str, duration_s: int = Non
     the HAR structure with plausible values."""
     import random as _rnd
     import time
+    from datetime import datetime
     now_ms = int(time.time() * 1000)
     dur = duration_s or _rnd.randint(120, 360)
     try:
@@ -1058,19 +1232,33 @@ def build_paradata(lat, lon, user_id: str, user_name: str, duration_s: int = Non
     except (TypeError, ValueError):
         latf, lonf = 0.0, 0.0
 
-    def _jit(v):
-        return v + _rnd.uniform(-0.0002, 0.0002)
-
     def _entry(action, ts):
         return {
             "action": action,
             "batteryInfo": {"batteryLevel": _rnd.randint(45, 95),
                             "batteryTemperature": round(_rnd.uniform(30.0, 41.5), 1)},
-            "isMock": False, "latitude": _jit(latf), "longitude": _jit(lonf),
             "timestamp": str(ts), "userId": user_id or "", "userName": user_name or "Petugas",
         }
-    open_ts = now_ms - dur * 1000
-    acts = [_entry("OPEN", open_ts), _entry("CLOSE", now_ms - 15000), _entry("SUBMIT", now_ms)]
+
+    use_mapped = False
+    if start_time_str and end_time_str:
+        try:
+            def parse_iso(ts_str):
+                cleaned = ts_str.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(cleaned)
+                return int(dt.timestamp() * 1000)
+            open_ts = parse_iso(start_time_str)
+            submit_ts = parse_iso(end_time_str)
+            dur = max(1, int((submit_ts - open_ts) / 1000))
+            close_ts = max(open_ts, submit_ts - 15000)
+            acts = [_entry("OPEN", open_ts), _entry("CLOSE", close_ts), _entry("SUBMIT", submit_ts)]
+            use_mapped = True
+        except Exception:
+            pass
+
+    if not use_mapped:
+        open_ts = now_ms - dur * 1000
+        acts = [_entry("OPEN", open_ts), _entry("CLOSE", now_ms - 15000), _entry("SUBMIT", now_ms)]
     
     dev_info = generate_random_device_info()
     return json.dumps({
@@ -1107,9 +1295,11 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     l4_fullcode = flat_answers.get("_l4_fullcode") or l4.get("fullCode") or "6474020003"
     
     now_ms = int(time.time() * 1000)
-    now = datetime.now()
+    now = datetime.utcnow()
     
-    if isinstance(target, dict) and target.get("createdAt"):
+    if flat_answers.get("createdAt"):
+        created_at = flat_answers["createdAt"]
+    elif isinstance(target, dict) and target.get("createdAt"):
         created_at = target["createdAt"]
     else:
         created_at = now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -1135,22 +1325,36 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     except:
         created_dt = now
     
-    # Determine the current date using local OS timezone
-    local_now = datetime.now()
-    local_date = local_now.date()
-        
+    # Determine the current date using local OS timezone and convert to UTC
+    from datetime import timezone
+    local_tz = datetime.now().astimezone().tzinfo
+    local_now = datetime.now(local_tz)
+    
     hour_start = _rnd.randint(7, 16)
     minute_start = _rnd.randint(0, 59)
     second_start = _rnd.randint(0, 59)
-    interview_start = datetime(local_date.year, local_date.month, local_date.day,
-                               hour_start, minute_start, second_start)
+    ms_start = _rnd.randint(100, 999)
+    
+    local_start = local_now.replace(hour=hour_start, minute=minute_start, second=second_start, microsecond=ms_start*1000)
     duration_secs = _rnd.randint(120, 360)
-    interview_end = interview_start + timedelta(seconds=duration_secs)
-    if interview_end.hour >= 18:
-        interview_end = interview_end.replace(hour=17, minute=_rnd.randint(45, 59))
+    local_end = local_start + timedelta(seconds=duration_secs)
+    if local_end.hour >= 18:
+        local_end = local_end.replace(hour=17, minute=_rnd.randint(45, 59))
         
-    start_time = interview_start.strftime("%Y-%m-%dT%H:%M:%S")
-    end_time = interview_end.strftime("%Y-%m-%dT%H:%M:%S")
+    utc_start = local_start.astimezone(timezone.utc)
+    utc_end = local_end.astimezone(timezone.utc)
+    
+    is_pasca = flat_answers.get("_is_pasca", False)
+    tv = target.get("templateVersion") or "0.5.9" if target else "0.5.9"
+    is_tambahan_real = str(flat_answers.get("is_assignment_tambahan") or target.get("is_assignment_tambahan") or "0").strip() == "1"
+
+    use_legacy_format = (tv == "0.5.9")
+    if use_legacy_format:
+        start_time = local_start.strftime("%Y-%m-%dT%H:%M:%S")
+        end_time = local_end.strftime("%Y-%m-%dT%H:%M:%S")
+    else:
+        start_time = utc_start.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        end_time = utc_end.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     
     # IDPel HTML Check status
     idpel = flat_answers.get("r101a") or ""
@@ -1195,42 +1399,59 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
             </div>"""
             
     # PLN lookup data
-    pln_data = {
-        "data": {
-            "alamat": flat_answers.get("r102e") or "",
-            "exists": True,
-            "fasih_exists": False,
-            "fasih_is_prelist": None,
-            "fasih_source": None,
-            "kode_desa": l4_fullcode,
-            "kode_kab": l2_fullcode,
-            "kode_kec": l3_fullcode,
-            "kode_prov": l1_code,
-            "nama": flat_answers.get("r103") or "",
-            "nama_desa": l4_name,
-            "nama_kab": l2_name,
-            "nama_kec": l3_name,
-            "nama_prov": l1_name,
-            "nomor_meter": flat_answers.get("r101b") or "",
-            "prelist_source": "prabayar",
+    idpln_resp = flat_answers.get("_idpln_response") or flat_answers.get("idpln_response")
+    if idpln_resp and isinstance(idpln_resp, dict) and "exists" in idpln_resp:
+        pln_data = {
+            "data": idpln_resp,
             "success": True,
-            "unitap": flat_answers.get("unitap") or "23BTG"
-        },
-        "success": True,
-        "message": "Successfully hit an API.",
-        "httpStatus": "OK"
-    }
+            "message": "Successfully hit an API.",
+            "httpStatus": "OK"
+        }
+        result_idpln_val = json.dumps(json.dumps(pln_data, ensure_ascii=False, separators=(',', ':')), ensure_ascii=False, separators=(',', ':'))
+    elif flat_answers.get("result_idpln"):
+        result_idpln_val = flat_answers.get("result_idpln")
+    else:
+        pln_data = {
+            "data": {
+                "alamat": flat_answers.get("r102e") or "",
+                "exists": True,
+                "fasih_exists": False,
+                "fasih_is_prelist": None,
+                "fasih_source": None,
+                "kode_desa": l4_fullcode,
+                "kode_kab": l2_fullcode,
+                "kode_kec": l3_fullcode,
+                "kode_prov": l1_code,
+                "nama": flat_answers.get("r103") or "",
+                "nama_desa": l4_name,
+                "nama_kab": l2_name,
+                "nama_kec": l3_name,
+                "nama_prov": l1_name,
+                "nomor_meter": flat_answers.get("r101b") or "",
+                "prelist_source": "pascabayar" if flat_answers.get("_is_pasca", False) else "prabayar",
+                "success": True,
+                "unitap": flat_answers.get("unitap") or "23BTG"
+            },
+            "success": True,
+            "message": "Successfully hit an API.",
+            "httpStatus": "OK"
+        }
+        result_idpln_val = json.dumps(json.dumps(pln_data, ensure_ascii=False, separators=(',', ':')), ensure_ascii=False, separators=(',', ':'))
     
     if nik_exists:
-        result_callnik_str = json.dumps({
+        result_callnik_str = json.dumps(json.dumps({
             "data": {"alamat": nikpln.get("alamat"), "exists": True,
                      "nama": nikpln.get("nama"), "nomor_kartu_keluarga": no_kk_val,
                      "success": True},
             "success": True, "message": "Successfully hit an API.", "httpStatus": "OK"
-        }, ensure_ascii=False)
+        }, ensure_ascii=False, separators=(',', ':')), ensure_ascii=False, separators=(',', ':'))
     else:
-        result_callnik_str = '{"data":{"alamat":null,"exists":false,"nama":null,"nomor_kartu_keluarga":null,"success":true},"success":true,"message":"Successfully hit an API.","httpStatus":"OK"}'
+        result_callnik_str = json.dumps('{"data":{"alamat":null,"exists":false,"nama":null,"nomor_kartu_keluarga":null,"success":true},"success":true,"message":"Successfully hit an API.","httpStatus":"OK"}', ensure_ascii=False, separators=(',', ':'))
     
+    is_pasca = flat_answers.get("_is_pasca", False)
+    is_tambahan = use_legacy_format
+
+
     # Parse r105 (coords)
     r105_val = flat_answers.get("r105")
     lat, lon = 0.0, 0.0
@@ -1238,10 +1459,16 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         coord = r105_val.get("coordinat") or {}
         lat = coord.get("latitude") or 0.0
         lon = coord.get("longitude") or 0.0
-    elif isinstance(r105_val, list):
-        r105_answer_list = r105_val
+    elif isinstance(r105_val, list) and r105_val:
+        for item in r105_val:
+            if isinstance(item, dict) and "value" in item and isinstance(item["value"], dict):
+                lat = item["value"].get("latitude") or 0.0
+                lon = item["value"].get("longitude") or 0.0
+                break
         
-    if not isinstance(r105_val, list):
+    if is_tambahan:
+        r105_answer_list = {"coordinat": {"latitude": lat, "longitude": lon}, "remark": "", "accuracy": 10.0}
+    else:
         r105_answer_list = [
             {"label": f"https://maps.google.com/maps?q={lat},{lon}", "value": {"latitude": lat, "accuracy": 3.7, "longitude": lon}},
             {"label": "map", "value": f"https://maps.google.com/maps?q={lat},{lon}"},
@@ -1267,43 +1494,97 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         except Exception:
             pass
             
+    if is_tambahan:
+        if r106_answer_list:
+            r106_answer_list = json.dumps(r106_answer_list[0])
+        else:
+            r106_answer_list = "{}"
+            
     # Map raw value of r104
     r104_val = flat_answers.get("r104") or "1. Berhasil didata"
     r104_code = "1"
     if r104_val and "." in r104_val:
         r104_code = r104_val.split(".")[0].strip()
-    r104_answer = [{"description": "", "label": r104_val, "value": r104_code, "open": False}]
+        
+    if is_tambahan:
+        r104_answer = r104_val
+    else:
+        r104_answer = [{"description": "", "label": r104_val, "value": r104_code, "open": False}]
     
     # Map raw value of r204
     r204_val = flat_answers.get("r204") or "1. Milik sendiri"
     r204_code = "1"
     if r204_val and "." in r204_val:
         r204_code = r204_val.split(".")[0].strip()
-    r204_answer = [{"description": "", "label": r204_val, "value": r204_code, "open": False}]
+        
+    if is_tambahan:
+        r204_answer = r204_val
+    else:
+        r204_answer = [{"description": "", "label": r204_val, "value": r204_code, "open": False}]
     
-    is_pasca = flat_answers.get("_is_pasca", False)
-    
-    # Cast flagpre to int if possible
-    flagpre_val = flat_answers.get("flagpre") or 1
-    try:
-        flagpre_val = int(flagpre_val)
-    except:
-        pass
+    # Cast flagpre to appropriate type
+    flagpre_val = flat_answers.get("flagpre")
+    if flagpre_val is None:
+        flagpre_val = target.get("data5") if target else ""
+    if flagpre_val is None:
+        flagpre_val = ""
+    flagpre_val = str(flagpre_val).strip()
+    if flagpre_val:
+        tv = target.get("templateVersion") or "0.5.9"
+        if tv == "0.5.9":
+            try:
+                flagpre_val = str(int(float(flagpre_val)))
+            except:
+                flagpre_val = "1"
+        else:
+            try:
+                flagpre_val = float(flagpre_val) if is_pasca else int(flagpre_val)
+            except:
+                pass
 
-    # Select the schema key list
+    # Select the schema key list dynamically based on templateVersion and type
     if is_pasca:
+        if tv == "0.6.7":
+            # 0.6.7 Pascabayar schema (includes verification fields, different order)
+            keys_list = [
+                "mulai", "r101a", "result_idpln", "hasilCheckIdPel2", "hasilCheckIdPel",
+                "r101b", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
+                "r104", "r105", "r106",
+                "r201", "r202", "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik",
+                "r203", "r204", "no_kk",
+                "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
+                "catatan", "selesai"
+            ]
+        else:
+            # 0.5.9 Pascabayar schema (legacy)
+            keys_list = [
+                "flagpre", "mulai", "r101a", "r101b",
+                "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
+                "r104", "r105", "r106", "unitupi", "unitap", "unitup",
+                "kode_rbm", "kddk", "selesai",
+                "UPI", "UP3", "ULP", "RBM", "daya", "tarif", "kdpm", "layanan", "status_dil",
+                "r201", "r202", "r203", "r204",
+                "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
+                "catatan"
+            ]
+    elif tv == "0.5.9":
+        # 0.5.9 Prabayar schema: NO verification fields included!
         keys_list = [
-            "flagpre", "mulai", "r101a", "result_idpln", "hasilCheckIdPel2", "hasilCheckIdPel", "r101b", "hasilCheckNoMeter2", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
-            "r104", "r105", "r106", "unitupi", "unitap", "unitup", "kode_rbm", "kddk", "r201", "r202",
-            "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "r203", "r204", "no_kk",
+            "mulai", "r101a", "result_idpln", "hasilCheckIdPel2", "hasilCheckIdPel",
+            "r101b", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
+            "r104", "r105", "r106", "unitupi", "unitap", "unitup",
+            "r201", "r202", "r203", "r204",
             "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
             "catatan", "selesai"
         ]
     else:
+        # 0.6.7 Prabayar schema (includes verification fields)
         keys_list = [
-            "flagpre", "mulai", "r101a", "result_idpln", "hasilCheckIdPel2", "hasilCheckIdPel", "r101b", "hasilCheckNoMeter2", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
-            "r104", "r105", "r106", "unitupi", "unitap", "unitup", "r201", "r202",
-            "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "r203", "r204", "no_kk",
+            "mulai", "r101a", "result_idpln", "hasilCheckIdPel2", "hasilCheckIdPel",
+            "r101b", "hasilCheckNoMeter2", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
+            "r104", "r105", "r106", "unitupi", "unitap", "unitup",
+            "r201", "r202", "hasilPemadananNIK", "hasilPemadananNIK2", "no_kk", "result_callnik",
+            "r203", "r204", "nama_ktp",
             "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
             "catatan", "selesai"
         ]
@@ -1313,7 +1594,7 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         "flagpre": flagpre_val,
         "mulai": start_time,
         "r101a": flat_answers.get("r101a") or "",
-        "result_idpln": json.dumps(pln_data, ensure_ascii=False),
+        "result_idpln": result_idpln_val,
         "hasilCheckIdPel2": "2",
         "hasilCheckIdPel": hasil_check_html,
         "r101b": flat_answers.get("r101b") or "",
@@ -1327,11 +1608,24 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         "r104": r104_answer,
         "r105": r105_answer_list,
         "r106": r106_answer_list,
-        "unitupi": flat_answers.get("unitupi") or "",
-        "unitap": flat_answers.get("unitap") or "23BTG",
-        "unitup": flat_answers.get("unitup") or "",
-        "kode_rbm": flat_answers.get("kode_rbm") or "",
-        "kddk": flat_answers.get("kddk") or "",
+        "unitupi": flat_answers.get("unitupi") or l1.get("code") or "",
+        "unitap": flat_answers.get("unitap") or l2.get("code") or "23BTG",
+        "unitup": flat_answers.get("unitup") or l3.get("code") or "",
+        "kode_rbm": flat_answers.get("kode_rbm") or l4.get("code") or "",
+        "kddk": flat_answers.get("kddk") or (target.get("data6") if target else "") or "",
+        "is_assignment_tambahan": "1" if is_tambahan_real else "0",
+        
+        # 0.5.9 legacy fields
+        "UPI": str(flat_answers.get("UPI") or flat_answers.get("unitupi") or "").strip(),
+        "UP3": str(flat_answers.get("UP3") or flat_answers.get("unitap") or "").strip(),
+        "ULP": str(flat_answers.get("ULP") or flat_answers.get("unitup") or "").strip(),
+        "RBM": str(flat_answers.get("RBM") or flat_answers.get("kode_rbm") or "").strip(),
+        "daya": str(int(float(flat_answers.get("daya")))) if flat_answers.get("daya") is not None and str(flat_answers.get("daya")).strip() != "" else "",
+        "tarif": str(flat_answers.get("tarif") or "").strip(),
+        "kdpm": "01" if not str(flat_answers.get("kdpm") or "").strip() or str(flat_answers.get("kdpm")).strip() == "M" else str(flat_answers.get("kdpm")).strip(),
+        "layanan": str(flat_answers.get("layanan") or "").strip(),
+        "status_dil": "1" if str(flat_answers.get("status_dil") or "").strip().upper() in ("AKTIF", "1") else "2",
+        
         "r201": flat_answers.get("r201") or "",
         "r202": flat_answers.get("r202") or "",
         "nama_ktp": flat_answers.get("nama_ktp") or "",
@@ -1341,10 +1635,10 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         "r203": flat_answers.get("r203") or "",
         "r204": r204_answer,
         "no_kk": no_kk_val,
-        "r301a": [{"label": flat_answers.get("r301a") or f"[{l1_code}] {l1_name}", "value": l1_code}],
-        "r301b": [{"label": flat_answers.get("r301b") or f"[{l2_code}] {l2_name}", "value": l2_fullcode}],
-        "r301c": [{"label": flat_answers.get("r301c") or f"[{l3_code}] {l3_name}", "value": l3_fullcode}],
-        "r301d": [{"label": flat_answers.get("r301d") or f"[{l4_code}] {l4_name}", "value": l4_fullcode}],
+        "r301a": (flat_answers.get("r301a") or f"[{l1_code}] {l1_name}") if is_tambahan else [{"label": flat_answers.get("r301a") or f"[{l1_code}] {l1_name}", "value": l1_code}],
+        "r301b": (flat_answers.get("r301b") or f"[{l2_code}] {l2_name}") if is_tambahan else [{"label": flat_answers.get("r301b") or f"[{l2_code}] {l2_name}", "value": l2_fullcode}],
+        "r301c": (flat_answers.get("r301c") or f"[{l3_code}] {l3_name}") if is_tambahan else [{"label": flat_answers.get("r301c") or f"[{l3_code}] {l3_name}", "value": l3_fullcode}],
+        "r301d": (flat_answers.get("r301d") or f"[{l4_code}] {l4_name}") if is_tambahan else [{"label": flat_answers.get("r301d") or f"[{l4_code}] {l4_name}", "value": l4_fullcode}],
         "r301e": flat_answers.get("r301e") or "",
         "r302a": 1,
         "r302a_var": "1",
@@ -1373,13 +1667,13 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     return {
         "dataKey": "",
         "createdAt": created_at,
-        "createdBy": user_name,
+        "createdBy": flat_answers.get("createdBy") or user_name,
         "updatedBy": user_name,
         "answers": answers_list,
         "description": "",
         "isForceSubmit": False,
         "templateVersion": target.get("templateVersion") or "0.5.9",
-        "validationVersion": "0.0.2",
+        "validationVersion": target.get("validationVersion") or "0.0.2",
         "updatedAt": now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     }
 
@@ -1415,14 +1709,16 @@ def build_principal_json(answers: dict, target: dict, user_name: str) -> dict:
     alamat = find_ans("r102e")
     if alamat:
         principals.append({"dataKey": "r102e", "answer": str(alamat), "principal": 4, "columnName": "Alamat"})
-    # 5. IsPrelist
-    flagpre = find_ans("flagpre")
-    if flagpre is not None and flagpre != "":
-        principals.append({"dataKey": "flagpre", "answer": flagpre, "principal": 5, "columnName": "IsPrelist"})
-    # 6. Kddk
-    kddk = find_ans("kddk")
-    if kddk:
-        principals.append({"dataKey": "kddk", "answer": str(kddk), "principal": 6, "columnName": "Kddk"})
+    use_legacy_format = (target.get("templateVersion") or "0.5.9" if target else "0.5.9") == "0.5.9"
+    if use_legacy_format:
+        # 5. IsPrelist
+        flagpre = find_ans("flagpre")
+        if flagpre is not None and flagpre != "":
+            principals.append({"dataKey": "flagpre", "answer": flagpre, "principal": 5, "columnName": "IsPrelist"})
+        # 6. Kddk
+        kddk = find_ans("kddk")
+        if kddk:
+            principals.append({"dataKey": "kddk", "answer": str(kddk), "principal": 6, "columnName": "Kddk"})
     # 7. Hasil pendataan
     r104 = find_ans("r104")
     if r104:
@@ -1432,10 +1728,10 @@ def build_principal_json(answers: dict, target: dict, user_name: str) -> dict:
     return {
         "principals": principals,
         "templateVersion": target.get("templateVersion") or "0.5.9",
-        "validationVersion": "0.0.2",
-        "updatedAt": wrapped.get("updatedAt") or datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        "validationVersion": target.get("validationVersion") or "0.0.2",
+        "updatedAt": wrapped.get("updatedAt") or datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
         "updatedBy": user_name,
-        "createdAt": wrapped.get("createdAt") or target.get("createdAt") or datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        "createdAt": wrapped.get("createdAt") or target.get("createdAt") or datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
         "createdBy": wrapped.get("createdBy") or user_name
     }
 

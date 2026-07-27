@@ -69,6 +69,57 @@ logging.basicConfig(
 )
 logger = logging.getLogger("petugas")
 
+def extract_regions_from_orig(orig_data: dict) -> dict:
+    if not orig_data or "answers" not in orig_data:
+        return {}
+    
+    import re
+    answers_map = {}
+    for a in orig_data["answers"]:
+        if isinstance(a, dict) and "dataKey" in a:
+            answers_map[a["dataKey"]] = a.get("answer")
+            
+    res = {}
+    
+    def parse_bracket(val):
+        if not val:
+            return "", ""
+        if isinstance(val, list) and val:
+            item = val[0]
+            label = item.get("label") or ""
+            val_code = item.get("value") or ""
+            if label:
+                m = re.match(r'^\[(.*?)\]\s*(.*)$', label)
+                if m:
+                    return val_code or m.group(1), m.group(2)
+            return val_code, label
+        elif isinstance(val, str):
+            m = re.match(r'^\[(.*?)\]\s*(.*)$', val)
+            if m:
+                return m.group(1), m.group(2)
+        return "", str(val)
+
+    prov_code, prov_name = parse_bracket(answers_map.get("r102a"))
+    kab_code, kab_name = parse_bracket(answers_map.get("r102b"))
+    kec_code, kec_name = parse_bracket(answers_map.get("r102c"))
+    kel_code, kel_name = parse_bracket(answers_map.get("r102d"))
+    
+    if prov_code: res["pln_kd_prov"] = prov_code
+    if prov_name: res["pln_nama_prov"] = prov_name
+    if kab_code: res["pln_kd_kab"] = kab_code
+    if kab_name: res["pln_nama_kab"] = kab_name
+    if kec_code: res["pln_kd_kec"] = kec_code
+    if kec_name: res["pln_nama_kec"] = kec_name
+    if kel_code: res["pln_kd_kel"] = kel_code
+    if kel_name: res["pln_nama_kel"] = kel_name
+    
+    if answers_map.get("r102e"):
+        res["pln_alamat"] = answers_map.get("r102e")
+    if answers_map.get("r103"):
+        res["pln_nama"] = answers_map.get("r103")
+        
+    return res
+
 # --- Config ---
 
 def _resolve_pln_url(repo_root=REPO_ROOT, region=None) -> str:
@@ -479,11 +530,17 @@ def _save_survey_cache(email: str, survey_caches: dict):
         cfile = _survey_cache_file_for(email) if email else _SURVEY_CACHE_FILE
         trimmed = {}
         for k, sc in survey_caches.items():
+            tv = sc.get("template_version")
+            if not tv:
+                survey_obj = sc.get("survey") or {}
+                lookup = survey_obj.get("templateLookup") or []
+                tv = lookup[0].get("templateVersion") if lookup else None
             trimmed[k] = {
                 "periode": sc["periode"],
                 "template_mapping": sc["template_mapping"],
                 "assignments": sc["assignments"],  # Keep all assignments so no target items are lost
                 "regions": sc["regions"],
+                "template_version": tv,
             }
         with open(cfile, "w") as f:
             json.dump({"email": email, "ts": time.time(), "survey_caches": trimmed}, f)
@@ -760,10 +817,13 @@ def submit_single(
         local_submitted = False
         if target:
             sc = survey_caches[matched_key]
-            survey_obj = sc.get("survey") or {}
-            lookup = survey_obj.get("templateLookup") or []
-            if lookup:
-                target["templateVersion"] = lookup[0].get("templateVersion")
+            tv = sc.get("template_version")
+            if not tv:
+                survey_obj = sc.get("survey") or {}
+                lookup = survey_obj.get("templateLookup") or []
+                tv = lookup[0].get("templateVersion") if lookup else None
+            if tv:
+                target["templateVersion"] = tv
             tm = sc["template_mapping"]
             i_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
             n_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
@@ -806,11 +866,15 @@ def submit_single(
 
         # For --resubmit-reject, assignment ID is already known and REJECTED on BPS so check-idpln is automatically skipped to save BPS daily quota.
         # --resubmit-open / --resubmit-reopen STILL perform check-idpln to check BPS status (unless user explicitly passed --no-cek).
+
+
+
+
         if resubmit_reject:
             skip_cek_idpln = True
 
         # FAST-PATH: If target assignment is already loaded in local survey assignments, skip redundant check-idpln HTTP GET call
-        if target and not resubmit_all and not resubmit_open and not resubmit_reopen:
+        if target and not resubmit_all and not resubmit_open and not resubmit_reopen and not resubmit_reject:
             skip_cek_idpln = True
 
         # NEW OPTIMIZATION: If we already know the item is submitted/done locally, skip check-idpln to save BPS quota
@@ -922,6 +986,7 @@ def submit_single(
         if d_idpln is None:
             d_idpln = {}
         prelist = (d_idpln.get("prelist_source") or "").strip().upper()
+        direct_args["idpln_response"] = d_idpln
 
         if d_idpln and not d_idpln.get("exists"):
             logger.warning(f"CEK IDPel {idpel_val}{email_tag}: exists=false di BPS")
@@ -1011,25 +1076,46 @@ def submit_single(
         # RESUBMIT-REJECT / RESUBMIT-OPEN: download & decrypt original archive using region key
         orig_data = None
         if resubmit_reject or resubmit_open or resubmit_reopen:
-            tv = ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
-            if tv:
-                target["templateVersion"] = tv
-
             bp = target.get("basePath")
             if bp:
                 logger.info(f"Mengunduh arsip original dari S3 untuk verifikasi data...")
                 try:
                     orig_data = fetch_and_decrypt_original(headers, target["id"], pid, bp, key_bytes)
                     logger.info("Berhasil memverifikasi arsip original S3. Menggunakan stempel waktu jam kerja aktif hari ini.")
+                    # Inject original region overrides to maintain consistency
+                    orig_overrides = extract_regions_from_orig(orig_data)
+                    for k, v in orig_overrides.items():
+                        direct_args[k] = v
                 except Exception as ex:
                     logger.warning(f"Gagal memuat arsip original dari S3: {ex}. Lanjut resubmit.")
+            
+            tv = None
+            if sc:
+                tv = sc.get("template_version")
+            if not tv and sc:
+                tv = ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
+            if not tv and orig_data:
+                tv = orig_data.get("templateVersion")
+            if tv:
+                target["templateVersion"] = tv
+            status_alias = target.get("assignmentStatusAlias") or ""
+            pd_str = target.get("preDefinedData")
+            if pd_str and "REJECT" in status_alias:
+                target["isForceSubmit"] = False
+
+            direct_args["idpel"] = idpel_val
+            direct_args["nometer"] = nometer_val
+
+
+
+
 
 
         # CEK NIK (pemadanan) — companion verification, best-effort
         # Skip when target exists (fast path) — check_nikpln is not required for submission
         nik_val = direct_args.get("nik") or ""
         nikpln_data = {}
-        if nik_val and not skip_cek_idpln and not create_new:
+        if nik_val and not skip_cek_idpln:
             nikpln_data = _cek(check_nikpln, headers, aid, nik_val, skip_cek_idpln=skip_cek_idpln)
             if nikpln_data and not nikpln_data.get("exists"):
                 logger.warning(f"CEK NIK {nik_val} (IDPel: {idpel_val}{email_tag}): exists=false (tidak padan) di BPS")
@@ -1117,21 +1203,61 @@ def submit_single(
                 if isinstance(a, dict) and "dataKey" in a:
                     k = a["dataKey"]
                     v = a.get("answer")
-                    if isinstance(v, list) and v and isinstance(v[0], dict) and "label" in v[0]:
+                    if k != "r105" and isinstance(v, list) and v and isinstance(v[0], dict) and "label" in v[0]:
                         flat_orig[k] = v[0]["label"]
                     else:
                         flat_orig[k] = v
+            if "createdAt" in orig_data:
+                flat_orig["createdAt"] = orig_data["createdAt"]
+            if "createdBy" in orig_data:
+                flat_orig["createdBy"] = orig_data["createdBy"]
+            # 1.5. Refresh photo URL if present to avoid expired signatures
+            r106_val = flat_orig.get("r106")
+            if r106_val:
+                try:
+                    if isinstance(r106_val, str):
+                        r106_data = json.loads(r106_val)
+                    else:
+                        r106_data = r106_val
+                    if isinstance(r106_data, list) and r106_data:
+                        photo_obj = r106_data[0]
+                    elif isinstance(r106_data, dict):
+                        photo_obj = r106_data
+                    else:
+                        photo_obj = None
+                    
+                    if photo_obj and photo_obj.get("filename"):
+                        filename = photo_obj["filename"]
+                        tid = target.get("id")
+                        resp_get = request_photo_presign_get(
+                            headers, tid, target.get("copyFromId") or "",
+                            target.get("surveyPeriodId"), filename
+                        )
+                        get_data = resp_get.get("data", [])
+                        get_url = get_data[0].get("presignedUrls", [])[0].get("presignedUrl") if get_data else ""
+                        if get_url:
+                            photo_obj["url"] = get_url
+                            flat_orig["r106"] = [photo_obj]
+                except Exception as e:
+                    logger.debug(f"Failed to refresh photo presigned GET URL: {e}")
 
             # 2. Merge new answers
+            flat_orig["idpln_response"] = d_idpln
+            print("DEBUG MERGE: answers r101a =", answers.get("r101a"), ", flat_orig r101a before =", flat_orig.get("r101a"))
+            preserved_keys = {
+                "r101a", "r101b", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
+                "result_idpln", "hasilCheckIdPel", "hasilCheckIdPel2"
+            }
             for k, v in answers.items():
-                if k.startswith("_"):
+                if k in preserved_keys and flat_orig.get(k):
                     continue
                 flat_orig[k] = v
+            print("DEBUG MERGE: flat_orig r101a after =", flat_orig.get("r101a"))
 
             # 3. Wrap using wrap_answers to get perfectly structured BPS payload
             wrapped = wrap_answers(flat_orig, target, user_name)
             payload_to_encrypt = wrapped
-            principal_data = wrapped
+            principal_data = build_principal_json(flat_orig, target, user_name)
         else:
             payload_to_encrypt = answers
             principal_data = build_principal_json(answers, target, user_name)
@@ -1141,11 +1267,12 @@ def submit_single(
         # Step 9: Archive + upload
         archive_path = create_7z_archive(encrypted, target["id"], temp_dir, principal_data)
 
-        # HAR-proven routing: ONLY "SUBMITTED" status uses /edit path. REJECTED and
-        # OPEN both use the plain /submit path (presign-url + s3/submit).
         status_alias = target.get("assignmentStatusAlias") or ""
-        is_edit = "SUBMITTED" in status_alias
-        copy_from_id = target.get("copyFromId") if (is_edit or target.get("isNew")) else None
+
+        # If the assignment already has a submitted S3 archive (basePath is present),
+        # we must use /edit path to update it. Otherwise, use /submit.
+        is_edit = (bool(target.get("basePath")) or "SUBMITTED" in status_alias.upper()) and not resubmit_reject and "REJECT" not in status_alias.upper()
+        copy_from_id = (target.get("copyFromId") or target.get("id")) if (is_edit or target.get("isNew")) else None
         # Match the FASIH app exactly: archive filename carries a submit-time epoch
         # ms suffix ({id}_{epochms}.7z). BPS's registration pipeline keys off this
         # format; a plain {id}.7z lands as a record but never registers into the
@@ -1173,20 +1300,31 @@ def submit_single(
         archive_md5 = compute_md5(archive_path)
 
         # Step 10: Confirm submit
-        data_slots = map_answers_to_data_slots(answers, cached_template_mapping)
+        data_slots = {}
         for i in range(1, 11):
             key = f"data{i}"
-            if key not in data_slots:
-                data_slots[key] = ""
-            else:
-                data_slots[key] = str(data_slots[key]) if data_slots[key] is not None else ""
+            data_slots[key] = str(target.get(key) or "")
+        data_slots["data7"] = "1. Berhasil didata"
+
+
+
+
+
+        start_time_str = None
+        end_time_str = None
+        if isinstance(payload_to_encrypt, dict):
+            for a in payload_to_encrypt.get("answers") or []:
+                if a.get("dataKey") == "mulai":
+                    start_time_str = a.get("answer")
+                elif a.get("dataKey") == "selesai":
+                    end_time_str = a.get("answer")
 
         params = {
             "surveyPeriodeId": str(target.get("surveyPeriodId") or ""),
             "assignmentId": str(target.get("id") or ""),
             "filename": arc_filename,
             "md5": str(archive_md5),
-            "createStatus": "true" if target.get("isNew", False) else "false",
+            "createStatus": "true" if target.get("isNew") else "false",
             "draftStatus": "false",
             "regionId": str(region_id),
             **data_slots,
@@ -1197,11 +1335,12 @@ def submit_single(
             # Real paradata (interview action-log + device telemetry) like the app;
             # empty paradata => record stored but not registered into the FASIH frame
             # (check-idpln fasih_exists stays false).
-            "paradata": build_paradata(lat, lon, target.get("currentUserId") or "", user_name),
-            "comment": '{"dataKey":"","notes":[]}'
+            "paradata": build_paradata(lat, lon, target.get("currentUserId") or "", user_name, start_time_str=start_time_str, end_time_str=end_time_str),
+            "comment": '{"dataKey":"","notes":[]}',
+            "note": ""
         }
         if is_edit or target.get("isNew"):
-            params["copyFromId"] = str(target.get("copyFromId") or "")
+            params["copyFromId"] = str(target.get("copyFromId") or target.get("id") or "")
 
         if not dry_run:
             submit_resp = confirm_submit(headers, params, is_edit=is_edit)
@@ -1230,6 +1369,11 @@ def submit_single(
         if any(t in msg.lower() for t in ("timed out", "timeout", "max retries", "connection")):
             logger.error(f"Submit error for {val}: BPS lambat/timeout — {msg[:120]}")
             return False, "BPS lambat/timeout — coba lagi (cek fasih-status). Item dilewati."
+        if "no access for assignment" in msg.lower():
+            logger.warning(f"Resubmit {val}: Hak akses assignment reject ini sudah dicabut/reassigned di server BPS.")
+            return False, ("⚠️ Hak akses BPS dicabut — assignment reject ini sudah tidak aktif/reassigned "
+                           "ke surveyUser baru di server. Silakan abaikan/selesaikan manual bila perlu.")
+
         # KNOWN LIMITATION (reject resubmit): BPS validates the encrypted answer payload
         # of an UPDATE against the record's original FormGear structure (survey template
         # 0.6.7). This tool rebuilds a synthetic payload whose `answers` array differs, so
@@ -1453,12 +1597,15 @@ def main():
                 continue
             regions = fetch_regions(headers, pid)
 
+            lookup = survey.get("templateLookup") or []
+            tv = lookup[0].get("templateVersion") if lookup else None
             survey_caches[skey] = {
                 "survey": survey,
                 "periode": active_periode,
                 "template_mapping": template_mapping,
                 "assignments": assignments,
                 "regions": regions,
+                "template_version": tv,
             }
             print(f"   {skey}: {len(assignments)} tugas")
 

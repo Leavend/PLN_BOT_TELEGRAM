@@ -89,7 +89,7 @@ PYDIR=$(dirname "$(python -c 'import sys;print(sys.executable)')")
 cp "$PYDIR/python.exe" "$PYDIR/python3.exe"   # kalau "permission denied": python di Program Files → pakai Git Bash elevated
 python3 --version                              # WAJIB jalan sebelum lanjut
 bash petugas_client/install_commands.sh
-which fasih-login || source ~/.bashrc
+which fasih-login || (touch ~/.bashrc && source ~/.bashrc)
 fasih-login                                    # <- browser SSO BPS
 fasih-status                                   # harus: 🌏 Wilayah: bontang
 ```
