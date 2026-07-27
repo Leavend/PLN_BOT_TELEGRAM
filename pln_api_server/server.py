@@ -246,7 +246,8 @@ def lookup():
     """
     PLN AP2T lookup by IDPel or NoMeter.
     Query params: idpel=xxx OR nometer=xxx
-    Returns: cleaned profile data + random photo URL
+    Returns: cleaned profile data + random photo URL.
+    Fallback to Balikpapan server if local intranet (AP2T) is unreachable.
     """
     idpel = request.args.get("idpel", "").strip()
     nometer = request.args.get("nometer", "").strip()
@@ -254,48 +255,88 @@ def lookup():
     if not idpel and not nometer:
         return jsonify({"error": "Parameter idpel atau nometer wajib diisi"}), 400
 
+    profile = None
     tool = get_pln_tool()
-    try:
-        if idpel and len(idpel) == 12:
-            raw = tool.lookup_by_idpel(idpel)
-        elif nometer and len(nometer) == 11:
-            raw = tool.lookup_by_nometer(nometer)
-        elif idpel:
-            raw = tool.lookup_by_idpel(idpel)
-            if not raw:
-                raw = tool.lookup_by_nometer(idpel)
-        else:
-            raw = tool.lookup_by_nometer(nometer)
-            if not raw:
-                raw = tool.lookup_by_idpel(nometer)
-    except Exception as e:
-        logger.error(f"PLN lookup error: {e}", exc_info=True)
-        return jsonify({"error": f"Lookup gagal: {str(e)}"}), 500
+    
+    # 1. Try local tool lookup (cache first, then live AP2T)
+    raw = None
+    ap2t_offline = os.getenv("PLN_AP2T_OFFLINE", "").lower() in ("1", "true", "yes")
+    
+    if ap2t_offline:
+        # Bypass live GWT network requests to avoid connection timeout when not on PLN intranet
+        ttl_seconds = int(os.getenv("PLN_CACHE_TTL_DAYS", "30")) * 86400
+        if idpel:
+            raw = tool.cache.get("idpel", idpel, ttl_seconds)
+        if not raw and nometer:
+            raw = tool.cache.get("nometer", nometer, ttl_seconds)
+    else:
+        try:
+            if idpel and len(idpel) == 12:
+                raw = tool.lookup_by_idpel(idpel)
+            elif nometer and len(nometer) == 11:
+                raw = tool.lookup_by_nometer(nometer)
+            elif idpel:
+                raw = tool.lookup_by_idpel(idpel)
+                if not raw:
+                    raw = tool.lookup_by_nometer(idpel)
+            else:
+                raw = tool.lookup_by_nometer(nometer)
+                if not raw:
+                    raw = tool.lookup_by_idpel(nometer)
+        except Exception as e:
+            logger.warning(f"Local PLN lookup failed/timed out: {e}")
 
-    if not raw:
+    if raw:
+        profile = extract_profile_data(raw)
+        
+        # Enrich with second lookup if nama missing but idpel available
+        if profile and (not profile.get("nama") or profile["nama"] == "NoName") and profile.get("idpel"):
+            try:
+                second = tool.lookup_by_idpel(profile["idpel"])
+                if second:
+                    second_profile = extract_profile_data(second)
+                    for fk in ("nama", "nik", "alamat", "tarif", "daya", "nometer",
+                               "latitude", "longitude", "keperluan",
+                               "kd_prov", "kd_kab", "kd_kec", "kd_kel",
+                               "nama_prov", "nama_kab", "nama_kec", "nama_kel"):
+                        sv = second_profile.get(fk) or ""
+                        if sv and (sv != "NoName") and not profile.get(fk):
+                            profile[fk] = sv
+            except Exception:
+                pass
+
+    # 2. Fallback to Balikpapan server if local lookup returned no profile
+    if not profile:
+        import requests as req_lib
+        try:
+            bp_url = None
+            bp_path = os.path.join(REPO, "pln_url_balikpapan.txt")
+            if os.path.exists(bp_path):
+                with open(bp_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            bp_url = line.rstrip("/")
+                            break
+            if bp_url:
+                logger.info(f"Rerouting lookup for {idpel or nometer} to Balikpapan server: {bp_url}")
+                headers = {"X-API-Key": "key_balikpapan_c1bdec7d3a9acb85a5658d1d16f07989"}
+                params = {}
+                if idpel:
+                    params["idpel"] = idpel
+                if nometer:
+                    params["nometer"] = nometer
+                resp = req_lib.get(f"{bp_url}/api/lookup", params=params, headers=headers, timeout=6.0)
+                if resp.status_code == 200:
+                    profile = resp.json()
+                    logger.info("Successfully fetched profile from Balikpapan fallback")
+        except Exception as fallback_err:
+            logger.error(f"Balikpapan fallback error: {fallback_err}")
+
+    if not profile:
         return jsonify({"error": "Data tidak ditemukan", "query": idpel or nometer}), 404
 
-    profile = extract_profile_data(raw)
-    if not profile:
-        return jsonify({"error": "Profil kosong dari response PLN", "query": idpel or nometer}), 404
-
-    # Enrich with second lookup if nama missing but idpel available
-    if (not profile.get("nama") or profile["nama"] == "NoName") and profile.get("idpel"):
-        try:
-            second = tool.lookup_by_idpel(profile["idpel"])
-            if second:
-                second_profile = extract_profile_data(second)
-                for fk in ("nama", "nik", "alamat", "tarif", "daya", "nometer",
-                           "latitude", "longitude", "keperluan",
-                           "kd_prov", "kd_kab", "kd_kec", "kd_kel",
-                           "nama_prov", "nama_kab", "nama_kec", "nama_kel"):
-                    sv = second_profile.get(fk) or ""
-                    if sv and (sv != "NoName") and not profile.get(fk):
-                        profile[fk] = sv
-        except Exception:
-            pass
-
-    # Attach photo URL
+    # Attach photo URL (local photo resolved by photo_id on this server)
     photo_id = _pick_photo_id(profile.get("idpel", ""))
     if photo_id:
         profile["photo_url"] = f"/api/photo/{photo_id}"
