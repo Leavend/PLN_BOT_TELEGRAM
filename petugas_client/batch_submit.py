@@ -679,26 +679,40 @@ def submit_single(
         create_new = False
         template_assignment_id = None
 
+        # Collect all matches across all surveys
+        matches = []
         for skey, sc in survey_caches.items():
-            # Fast O(1) hash map lookup if available
-            idpel_map = sc.get("assignment_by_idpel")
-            if idpel_map and is_idpel and val_clean in idpel_map:
-                target = idpel_map[val_clean]
-                matched_key = skey
-                break
-
             tm = sc["template_mapping"]
             idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
             nometer_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
+
+            # Fast O(1) hash map lookup if available
+            idpel_map = sc.get("assignment_by_idpel")
+            if idpel_map and val_clean in idpel_map:
+                matches.append((skey, sc, idpel_map[val_clean]))
+
             for a in sc["assignments"]:
                 v_idpel = (a.get(idpel_slot) or "").strip()
                 v_nometer = (a.get(nometer_slot) or "").strip()
-                if (is_idpel and v_idpel == val_clean) or (not is_idpel and v_nometer == val_clean):
-                    target = a
-                    matched_key = skey
-                    break
-            if target:
-                break
+                if v_idpel == val_clean or v_nometer == val_clean:
+                    matches.append((skey, sc, a))
+
+        # Select the best target based on mode
+        target = None
+        matched_key = None
+        if matches:
+            if resubmit_reject:
+                reject_matches = [m for m in matches if "REJECT" in (m[2].get("assignmentStatusAlias") or "").upper()]
+                matched_key, sc, target = reject_matches[0] if reject_matches else matches[0]
+            elif resubmit_open:
+                open_matches = [m for m in matches if "OPEN" in (m[2].get("assignmentStatusAlias") or "").upper()]
+                matched_key, sc, target = open_matches[0] if open_matches else matches[0]
+            elif resubmit_reopen:
+                reopen_matches = [m for m in matches if "REOPEN" in (m[2].get("assignmentStatusAlias") or "").upper()]
+                matched_key, sc, target = reopen_matches[0] if reopen_matches else matches[0]
+            else:
+                active_matches = [m for m in matches if not any(x in (m[2].get("assignmentStatusAlias") or "").upper() for x in ["SUBMIT", "DONE", "APPROV"])]
+                matched_key, sc, target = active_matches[0] if active_matches else matches[0]
 
 
         direct_args = {

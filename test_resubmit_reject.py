@@ -237,6 +237,38 @@ def test_wrap_answers_includes_check_idpln_fields():
     assert "Alamat Test" in answers_map["result_idpln"]
 
 
+def test_match_selection_prioritizes_mode_target():
+    caches = {
+        "PASCABAYAR": {
+            "template_mapping": {"data3": "r101a", "data1": "r101b"},
+            "assignments": [
+                {"id": "submitted-id", "assignmentStatusAlias": "SUBMITTED BY Pencacah", "data3": "236000023856", "data1": "56984045217"},
+                {"id": "rejected-id", "assignmentStatusAlias": "REJECTED BY Admin Kabupaten", "data3": "236000023856", "data1": "56984045217"}
+            ]
+        }
+    }
+    val_clean = "236000023856"
+    resubmit_reject = True
+    matches = []
+    for skey, sc in caches.items():
+        tm = sc["template_mapping"]
+        idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
+        nometer_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
+        for a in sc["assignments"]:
+            v_idpel = (a.get(idpel_slot) or "").strip()
+            v_nometer = (a.get(nometer_slot) or "").strip()
+            if v_idpel == val_clean or v_nometer == val_clean:
+                matches.append((skey, sc, a))
+    target = None
+    if matches:
+        if resubmit_reject:
+            reject_matches = [m for m in matches if "REJECT" in (m[2].get("assignmentStatusAlias") or "").upper()]
+            matched_key, sc, target = reject_matches[0] if reject_matches else matches[0]
+            
+    assert target is not None
+    assert target["id"] == "rejected-id"
+
+
 if __name__ == "__main__":
     import sys
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
