@@ -1073,50 +1073,27 @@ def submit_single(
             pass
 
         if orig_data and isinstance(orig_data.get("answers"), list):
-            # merge updated fields into orig_data["answers"]
-            ans_map = {a.get("dataKey"): a for a in orig_data["answers"] if isinstance(a, dict) and "dataKey" in a}
-            
-            # Generate new interview times for today using local OS timezone
-            import random as _rnd
-            from datetime import datetime, timedelta
-            local_now = datetime.now()
-            local_date = local_now.date()
-            hour_start = _rnd.randint(7, 16)
-            minute_start = _rnd.randint(0, 59)
-            second_start = _rnd.randint(0, 59)
-            interview_start = datetime(local_date.year, local_date.month, local_date.day,
-                                       hour_start, minute_start, second_start)
-            duration_secs = _rnd.randint(120, 360)
-            interview_end = interview_start + timedelta(seconds=duration_secs)
-            if interview_end.hour >= 18:
-                interview_end = interview_end.replace(hour=17, minute=_rnd.randint(45, 59))
-            
-            new_times = {
-                "mulai": interview_start.strftime("%Y-%m-%dT%H:%M:%S"),
-                "selesai": interview_end.strftime("%Y-%m-%dT%H:%M:%S")
-            }
-            
+            # 1. Flatten the original answers
+            flat_orig = {}
+            for a in orig_data["answers"]:
+                if isinstance(a, dict) and "dataKey" in a:
+                    k = a["dataKey"]
+                    v = a.get("answer")
+                    if isinstance(v, list) and v and isinstance(v[0], dict) and "label" in v[0]:
+                        flat_orig[k] = v[0]["label"]
+                    else:
+                        flat_orig[k] = v
+
+            # 2. Merge new answers
             for k, v in answers.items():
                 if k.startswith("_"):
                     continue
-                if k in ans_map:
-                    ans_map[k]["answer"] = v
-                else:
-                    orig_data["answers"].append({"dataKey": k, "answer": v})
-            
-            # Overwrite mulai and selesai in orig_data
-            for tk, tv in new_times.items():
-                if tk in ans_map:
-                    ans_map[tk]["answer"] = tv
-                else:
-                    orig_data["answers"].append({"dataKey": tk, "answer": tv})
-                    
-            orig_data["updatedAt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-            orig_data["updatedBy"] = user_name
-            if target.get("templateVersion"):
-                orig_data["templateVersion"] = target["templateVersion"]
-            payload_to_encrypt = orig_data
-            principal_data = orig_data
+                flat_orig[k] = v
+
+            # 3. Wrap using wrap_answers to get perfectly structured BPS payload
+            wrapped = wrap_answers(flat_orig, target, user_name)
+            payload_to_encrypt = wrapped
+            principal_data = wrapped
         else:
             payload_to_encrypt = answers
             principal_data = build_principal_json(answers, target, user_name)

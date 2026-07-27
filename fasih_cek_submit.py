@@ -39,21 +39,31 @@ def _valid_code_sets():
 
 def _newest_records(h):
     """idpel -> (record, periodeId), record terbaru per idpel."""
-    from fasih_api import fetch_surveys, fetch_all_assignments
+    from fasih_api import fetch_surveys, fetch_all_assignments, fetch_template_mapping
     idx = {}
     def ts(rec):
         m = re.search(r"_(\d{13})\.7z", rec.get("basePath") or "")
         return int(m.group(1)) if m else 0
     for s in fetch_surveys(h):
+        template_lookup = s.get("templateLookup", [])
+        template_mapping = {}
+        if template_lookup:
+            tl = template_lookup[0]
+            try:
+                template_mapping = fetch_template_mapping(h, tl["templateId"], tl["templateVersion"])
+            except Exception:
+                pass
+        idpel_slot = next((k for k, v in template_mapping.items() if v == "r101a"), "data3")
+
         for p in s.get("listPeriode", []):
             if not p.get("isActive"):
                 continue
             for a in fetch_all_assignments(h, p["id"]):
-                d3 = a.get("data3")
-                if not d3:
+                idp = a.get(idpel_slot)
+                if not idp:
                     continue
-                if d3 not in idx or ts(a) > ts(idx[d3][0]):
-                    idx[d3] = (a, p["id"])
+                if idp not in idx or ts(a) > ts(idx[idp][0]):
+                    idx[idp] = (a, p["id"])
     return idx
 
 
