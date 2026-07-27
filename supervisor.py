@@ -147,13 +147,15 @@ def git_revisions(branch=BRANCH):
 
 def git_pull(branch=BRANCH):
     try:
-        r = subprocess.run(["git", "pull", "origin", branch], cwd=REPO_ROOT,
-                           capture_output=True, text=True, timeout=120)
+        subprocess.run(["git", "fetch", "origin", branch], cwd=REPO_ROOT, capture_output=True, text=True, timeout=60)
+        r = subprocess.run(["git", "reset", "--hard", f"origin/{branch}"], cwd=REPO_ROOT,
+                           capture_output=True, text=True, timeout=60)
         log((r.stdout or r.stderr).strip())
         return r.returncode == 0
     except Exception as e:
         log(f"git pull gagal: {e}")
         return False
+
 
 
 class Supervisor:
