@@ -760,6 +760,10 @@ def submit_single(
         local_submitted = False
         if target:
             sc = survey_caches[matched_key]
+            survey_obj = sc.get("survey") or {}
+            lookup = survey_obj.get("templateLookup") or []
+            if lookup:
+                target["templateVersion"] = lookup[0].get("templateVersion")
             tm = sc["template_mapping"]
             i_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
             n_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
