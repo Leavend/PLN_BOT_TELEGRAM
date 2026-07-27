@@ -53,7 +53,7 @@ from fasih_archive import create_7z_archive
 from submit_fasih import (
     build_dynamic_answers, stage_and_encrypt, clean_pln_name,
     build_new_assignment_target, resolve_coordinate, build_paradata,
-    STATIC_LEGACY_KEY, build_principal_json,
+    STATIC_LEGACY_KEY, build_principal_json, wrap_answers,
 )
 from region import get_region, DEFAULT_REGION
 
@@ -697,22 +697,56 @@ def submit_single(
                 if v_idpel == val_clean or v_nometer == val_clean:
                     matches.append((skey, sc, a))
 
-        # Select the best target based on mode
+        # Select the best target based on mode and responsibility status
         target = None
         matched_key = None
         if matches:
+            def get_resp_date(a):
+                resp_list = a.get("assignmentResponsibility") or []
+                if not resp_list:
+                    return 0
+                max_ts = 0
+                for r in resp_list:
+                    dt_str = r.get("dateCreated")
+                    if dt_str:
+                        try:
+                            dt_str_clean = " ".join(dt_str.split())
+                            dt = datetime.strptime(dt_str_clean, "%b %d, %Y, %I:%M:%S %p")
+                            max_ts = max(max_ts, dt.timestamp())
+                        except Exception:
+                            try:
+                                dt = datetime.strptime(dt_str_clean, "%B %d, %Y, %I:%M:%S %p")
+                                max_ts = max(max_ts, dt.timestamp())
+                            except Exception:
+                                pass
+                return max_ts
+
+            # Sort matches so the newest created responsibility is prioritized
+            matches.sort(key=lambda m: get_resp_date(m[2]), reverse=True)
+
+            def has_active_resp(a):
+                resp_list = a.get("assignmentResponsibility") or []
+                if not resp_list:
+                    return True
+                return any(r.get("isActive") and r.get("assignmentResponsibilityStatusId") != "DONE" for r in resp_list)
+
+            active_resp_matches = [m for m in matches if has_active_resp(m[2])]
+            working_matches = active_resp_matches if active_resp_matches else matches
+
             if resubmit_reject:
-                reject_matches = [m for m in matches if "REJECT" in (m[2].get("assignmentStatusAlias") or "").upper()]
-                matched_key, sc, target = reject_matches[0] if reject_matches else matches[0]
+                reject_matches = [m for m in working_matches if "REJECT" in (m[2].get("assignmentStatusAlias") or "").upper()]
+                if not reject_matches:
+                    reject_matches = [m for m in working_matches if "SUBMITTED" in (m[2].get("assignmentStatusAlias") or "").upper()]
+                matched_key, sc, target = reject_matches[0] if reject_matches else working_matches[0]
             elif resubmit_open:
-                open_matches = [m for m in matches if "OPEN" in (m[2].get("assignmentStatusAlias") or "").upper()]
-                matched_key, sc, target = open_matches[0] if open_matches else matches[0]
+                open_matches = [m for m in working_matches if "OPEN" in (m[2].get("assignmentStatusAlias") or "").upper()]
+                matched_key, sc, target = open_matches[0] if open_matches else working_matches[0]
             elif resubmit_reopen:
-                reopen_matches = [m for m in matches if "REOPEN" in (m[2].get("assignmentStatusAlias") or "").upper()]
-                matched_key, sc, target = reopen_matches[0] if reopen_matches else matches[0]
+                reopen_matches = [m for m in working_matches if "REOPEN" in (m[2].get("assignmentStatusAlias") or "").upper()]
+                matched_key, sc, target = reopen_matches[0] if reopen_matches else working_matches[0]
             else:
-                active_matches = [m for m in matches if not any(x in (m[2].get("assignmentStatusAlias") or "").upper() for x in ["SUBMIT", "DONE", "APPROV"])]
-                matched_key, sc, target = active_matches[0] if active_matches else matches[0]
+                active_matches = [m for m in working_matches if not any(x in (m[2].get("assignmentStatusAlias") or "").upper() for x in ["SUBMIT", "DONE", "APPROV"])]
+                matched_key, sc, target = active_matches[0] if active_matches else working_matches[0]
 
 
         direct_args = {
@@ -730,7 +764,7 @@ def submit_single(
             i_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
             n_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
             status_alias = target.get("assignmentStatusAlias") or ""
-            if "SUBMITTED" in status_alias or "DONE" in status_alias or "APPROVED" in status_alias:
+            if ("SUBMITTED" in status_alias or "DONE" in status_alias or "APPROVED" in status_alias) and not resubmit_reject:
                 # Already-submitted local record. Whether to skip (already tercatat)
                 # or re-register (belum) is decided by the ONE global fasih_exists
                 # guard below (single check-idpln) — drop the target so create_new runs.
@@ -754,8 +788,8 @@ def submit_single(
         # OPEN/SUBMITTED, or not found) is left alone — never create a new/duplicate row.
         if resubmit_reject:
             status_alias = (target or {}).get("assignmentStatusAlias") or ""
-            if not target or "REJECT" not in status_alias.upper():
-                return True, "Bukan data REJECT (status berubah / tak ketemu) — dilewati."
+            if not target or ("REJECT" not in status_alias.upper() and "SUBMITTED" not in status_alias.upper()):
+                return True, "Bukan data REJECT / SUBMITTED (status berubah / tak ketemu) — dilewati."
 
         # RESUBMIT-OPEN / RESUBMIT-REOPEN: touch OPEN or PERNAH DIBUKA records.
         if resubmit_open or resubmit_reopen:
@@ -1435,10 +1469,11 @@ def main():
     # actually reject (never accidentally resubmit a non-reject in this mode).
     if args.resubmit_reject:
         rejects = _reject_idpels(survey_caches)
-        items = [x for x in items if x in set(rejects)] if items else rejects
         if not items:
-            print("\n✅ Tidak ada data REJECT pada akun ini untuk diperbaiki. Selesai.")
-            sys.exit(0)
+            items = rejects
+            if not items:
+                print("\n✅ Tidak ada data REJECT pada akun ini untuk diperbaiki. Selesai.")
+                sys.exit(0)
 
         total_found = len(items)
         print(f"\n📋 Ditemukan {total_found} data REJECT pada akun BPS ini ({email}).")
