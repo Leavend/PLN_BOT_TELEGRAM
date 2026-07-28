@@ -442,12 +442,16 @@ class AccountManager:
             for acc in self.accounts:
                 email = str(acc.get("email", "")).strip().lower()
                 actual = counts.get(email, 0)
+                quota = acc.get("daily_quota", 400)
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
                     acc["used_today"] = actual
+                    acc["hits_429"] = 0
+                    acc.pop("cooldown_until", None)
                     synced_any = True
                 else:
-                    if actual != acc.get("used_today", 0):
+                    # Sync to actual log count if actual < quota (fixes false 400/400 caused by 429 bursts)
+                    if actual != acc.get("used_today", 0) and actual < quota:
                         acc["used_today"] = actual
                         synced_any = True
 
@@ -461,13 +465,21 @@ class AccountManager:
                 if (acc.get("email") or "").lower() == email.lower():
                     used = acc.get("used_today", 0)
                     quota = acc.get("daily_quota", 400)
-                    acc["hits_429"] = acc.get("hits_429", 0) + 1
-                    if used >= quota or acc["hits_429"] >= 5:
+                    now = time.time()
+                    
+                    # Deduplicate concurrent 429 hits occurring in the same burst (within 15s of previous cooldown)
+                    last_hit = acc.get("_last_429_hit_ts", 0)
+                    if now - last_hit > 15.0:
+                        acc["hits_429"] = acc.get("hits_429", 0) + 1
+                        acc["_last_429_hit_ts"] = now
+
+                    hits = acc.get("hits_429", 0)
+                    if used >= quota or hits >= 5:
                         acc["used_today"] = quota
-                        logger.warning(f"⛔ Akun {email} ditandai KUOTA HARIAN HABIS ({used}/{quota}) setelah {acc['hits_429']}x limit 429. Beralih ke akun berikutnya...")
+                        logger.warning(f"⛔ Akun {email} ditandai KUOTA HARIAN HABIS ({used}/{quota}) setelah {hits}x limit 429. Beralih ke akun berikutnya...")
                     else:
-                        acc["cooldown_until"] = time.time() + 60
-                        logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit (Hits: {acc['hits_429']}/5, Terpakai: {used}/{quota}). Cooldown 60s & beralih ke akun lain...")
+                        acc["cooldown_until"] = now + 60
+                        logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit (Hits: {hits}/5, Terpakai: {used}/{quota}). Cooldown 60s & beralih ke akun lain...")
                     break
             self.save_accounts()
 

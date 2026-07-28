@@ -19,6 +19,35 @@ logger = logging.getLogger("DataCleansing")
 OUTPUT_DIR = os.path.join(REPO_ROOT, "Folder-Runner-Cleansed")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+import json
+import threading
+
+CACHE_FILE = os.path.join(REPO_ROOT, "cleansing_lookup_cache.json")
+cache_lock = threading.Lock()
+lookup_cache = {}
+
+def load_lookup_cache():
+    global lookup_cache
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r") as f:
+                lookup_cache = json.load(f)
+            logger.info(f"Loaded {len(lookup_cache):,} cached lookup results from {CACHE_FILE}")
+        except Exception as e:
+            logger.warning(f"Failed to load lookup cache: {e}")
+
+def save_lookup_cache():
+    with cache_lock:
+        try:
+            # Write to a temp file first then rename to prevent corruption
+            tmp_file = CACHE_FILE + ".tmp"
+            with open(tmp_file, "w") as f:
+                json.dump(lookup_cache, f)
+            os.replace(tmp_file, CACHE_FILE)
+        except Exception as e:
+            logger.warning(f"Failed to save lookup cache: {e}")
+
+
 # 1. Load all completed IDPels from checkpoint files to avoid re-cleansing/re-submitting completed data
 completed_idpels = set()
 for cp in glob.glob("Folder-Runner/*.checkpoint.csv"):
@@ -78,7 +107,10 @@ def process_cleansing_file(file_path: str):
     tarif_col = next((c for c in df.columns if str(c).upper().strip() in ("TARIF", "TARIF_DAYA", "KDTARIF")), None)
     
     # Find Status Padan column
-    padan_col = next((c for c in df.columns if str(c).upper().strip() in ("STATUS_PADAN", "PADAN_STATUS", "STATUSPADAN")), None)
+    padan_col = next((c for c in df.columns if str(c).upper().strip() in ("STATUS_PADAN", "PADAN_DUKCAPIL", "PADAN_STATUS", "STATUSPADAN", "PADAN")), None)
+
+    # Find Prabayar column
+    prabayar_col = next((c for c in df.columns if str(c).upper().strip() in ("JENISLAYANAN", "PRODUK_PRABAYAR", "JENIS_MK", "JENIS LAYANAN", "PRODUK", "PRODUCT")), None)
 
     # Step 1: Pre-filter DataFrame vectorially
     df["IDPEL_CLEAN"] = df[idpel_col].astype(str).str.strip()
@@ -98,15 +130,23 @@ def process_cleansing_file(file_path: str):
         mask_pending = mask_pending & mask_r
         logger.info(f"  [Rule 2] Excluded {cnt_non_r:,} IDPel dengan Tarif Non-Rumah Tangga (bukan tipe R).")
 
-    # Rule 3: Filter STATUS_PADAN == 'BELUM PADAN' (Exclude 'SUDAH PADAN')
+    # Rule 3: Exclude 'SUDAH PADAN'
     cnt_already_padan = 0
     if padan_col:
         padan_series = df[padan_col].fillna("").astype(str).str.strip().str.upper()
-        # Exclude SUDAH PADAN or PADAN (keep BELUM PADAN or empty/blank)
         mask_not_padan = ~padan_series.str.contains("SUDAH|SUDAH PADAN|^PADAN$", regex=True)
         cnt_already_padan = mask_pending.sum() - (mask_pending & mask_not_padan).sum()
         mask_pending = mask_pending & mask_not_padan
         logger.info(f"  [Rule 3] Excluded {cnt_already_padan:,} IDPel yang STATUS_PADAN-nya 'SUDAH PADAN'.")
+
+    # Rule 4: Exclude Pascabayar (Keep ONLY Prabayar across ALL datasets)
+    cnt_pascabayar = 0
+    if prabayar_col:
+        prabayar_series = df[prabayar_col].fillna("").astype(str).str.strip().str.upper()
+        mask_prabayar = prabayar_series.str.contains("PRABAYAR|PREPAID", regex=True) | ~prabayar_series.str.contains("PASCA|PASKABAYAR|POSTPAID", regex=True)
+        cnt_pascabayar = mask_pending.sum() - (mask_pending & mask_prabayar).sum()
+        mask_pending = mask_pending & mask_prabayar
+        logger.info(f"  [Rule 4] Excluded {cnt_pascabayar:,} IDPel yang Pascabayar (bukan Prabayar).")
 
     # De-duplicate within the file itself
     df_filtered = df[mask_pending].drop_duplicates(subset=["IDPEL_CLEAN"]).copy()
@@ -117,30 +157,76 @@ def process_cleansing_file(file_path: str):
         logger.warning(f"⚠️ Tidak ada kandidat tersisa untuk {file_name}.")
         return
 
-    # Step 2: Parallel PLN Lookup Verification (40 workers)
-    logger.info(f"⚡ Verifikasi PLN AP2T (40 parallel workers)...")
+    load_lookup_cache()
+
+    # Step 2: PLN Lookup / Excel KdKel Verification
+    logger.info(f"⚡ Verifikasi PLN AP2T (Fast Excel KdKel check + 40 parallel workers with local caching)...")
     valid_idpels = set()
     invalid_pln_cnt = 0
     
-    with ThreadPoolExecutor(max_workers=40) as executor:
-        future_to_idpel = {executor.submit(check_idpel_pln, idp): idp for idp in candidate_idpels}
-        completed = 0
-        total = len(candidate_idpels)
-        
-        for future in as_completed(future_to_idpel):
-            idp = future_to_idpel[future]
-            completed += 1
-            try:
-                is_valid = future.result()
-                if is_valid:
-                    valid_idpels.add(idp)
-                else:
-                    invalid_pln_cnt += 1
-            except Exception:
+    # Check if raw Excel column already has valid 10-digit KD_KEL
+    kel_col = next((c for c in df.columns if str(c).upper().strip() in ("KD_KEL", "KDKEL", "KODE_KELURAHAN")), None)
+    raw_kdkel_map = {}
+    if kel_col:
+        for _, row in df_filtered.iterrows():
+            idp = str(row["IDPEL_CLEAN"]).strip()
+            val = row[kel_col]
+            if pd.notna(val):
+                try:
+                    s = str(int(float(val))).strip()
+                    if len(s) == 10 and s.isdigit():
+                        raw_kdkel_map[idp] = True
+                except Exception:
+                    pass
+
+    uncached_candidates = []
+    for idp in candidate_idpels:
+        if idp in raw_kdkel_map:
+            valid_idpels.add(idp)
+        elif idp in lookup_cache:
+            if lookup_cache[idp]:
+                valid_idpels.add(idp)
+            else:
                 invalid_pln_cnt += 1
+        else:
+            uncached_candidates.append(idp)
             
-            if completed % 1000 == 0 or completed == total:
-                logger.info(f"   [PLN VERIFY] Progress: {completed:,}/{total:,} ({completed/total*100:.1f}%) | Valid: {len(valid_idpels):,} | Invalid/KdKel Empty: {invalid_pln_cnt:,}")
+    logger.info(f"   [Validation check] Valid from Excel/Cache: {len(valid_idpels):,}. Uncached to verify via API: {len(uncached_candidates):,}")
+
+    def check_and_cache(idp):
+        is_valid = check_idpel_pln(idp)
+        with cache_lock:
+            lookup_cache[idp] = is_valid
+        return is_valid
+
+    if uncached_candidates:
+        with ThreadPoolExecutor(max_workers=40) as executor:
+            future_to_idpel = {executor.submit(check_and_cache, idp): idp for idp in uncached_candidates}
+            completed = 0
+            total = len(uncached_candidates)
+            
+            for future in as_completed(future_to_idpel):
+                idp = future_to_idpel[future]
+                completed += 1
+                try:
+                    is_valid = future.result()
+                    if is_valid:
+                        valid_idpels.add(idp)
+                    else:
+                        invalid_pln_cnt += 1
+                except Exception:
+                    invalid_pln_cnt += 1
+                
+                if completed % 100 == 0:
+                    save_lookup_cache()
+                
+                if completed % 1000 == 0 or completed == total:
+                    logger.info(f"   [PLN VERIFY] Progress: {completed:,}/{total:,} ({completed/total*100:.1f}%) | Valid: {len(valid_idpels):,} | Invalid/KdKel Empty: {invalid_pln_cnt:,}")
+            
+            save_lookup_cache()
+
+
+
 
     # Step 3: Final Filter & Save to Folder-Runner-Cleansed
     df_final = df_filtered[df_filtered["IDPEL_CLEAN"].isin(valid_idpels)].copy()
@@ -150,7 +236,11 @@ def process_cleansing_file(file_path: str):
     base_out_name = os.path.splitext(file_name)[0] + ".xlsx"
     out_path = os.path.join(OUTPUT_DIR, base_out_name)
     
-    df_final.to_excel(out_path, engine="openpyxl", index=False)
+    # Save atomically using temporary file to prevent corruption
+    tmp_out_path = out_path + ".tmp.xlsx"
+    df_final.to_excel(tmp_out_path, engine="openpyxl", index=False)
+    os.replace(tmp_out_path, out_path)
+    
     elapsed = time.time() - start_time
     
     logger.info(f"\n✅ CLEANSING SELESAI: {base_out_name}")
@@ -160,6 +250,8 @@ def process_cleansing_file(file_path: str):
     logger.info(f"  - Dibuang (Sudah Sukses)  : {cnt_already_completed:,}")
     logger.info(f"  - Dibuang (Non-R Tarif)   : {cnt_non_r:,}")
     logger.info(f"  - Dibuang (Sudah Padan)   : {cnt_already_padan:,}")
+    if cnt_pascabayar > 0:
+        logger.info(f"  - Dibuang (Pascabayar)    : {cnt_pascabayar:,}")
     logger.info(f"  - Dibuang (PLN Tak Lengkap): {invalid_pln_cnt:,}")
     logger.info(f"  - Waktu Eksekusi          : {elapsed:.1f} detik")
 
@@ -168,9 +260,13 @@ if __name__ == "__main__":
         target_files = sys.argv[1:]
     else:
         target_files = [
-            "Folder-Runner/PASCA&PRABAYAR PARIGI.xls",
-            "Folder-Runner/DIL DONGGALA SEPTEMBER 2025.xlsx",
-            "Folder-Runner/Bungku DIL no filter.xlsx"
+            "Folder-Runner-Cleansed/Bungku DIL no filter.xlsx",
+            "Folder-Runner-Cleansed/DIL 20 MARET 2025 ULP KODAL 44913 PLGN.xlsx",
+            "Folder-Runner-Cleansed/DIL DONGGALA SEPTEMBER 2025.xlsx",
+            "Folder-Runner-Cleansed/DIL_SALDO_MASK_202605_23350.xlsx",
+            "Folder-Runner-Cleansed/DTSEN SISA TJR 33.375 PELANGGAN.xlsx",
+            "Folder-Runner-Cleansed/PASCA&PRABAYAR PARIGI.xlsx",
+            "Folder-Runner-Cleansed/PELANGGAN PRABAYAR ULP PALUKOTA (1).xlsx"
         ]
     for tf in target_files:
         full_p = os.path.join(REPO_ROOT, tf) if not os.path.isabs(tf) else tf
@@ -178,3 +274,4 @@ if __name__ == "__main__":
             process_cleansing_file(full_p)
         else:
             logger.error(f"❌ File not found: {tf}")
+

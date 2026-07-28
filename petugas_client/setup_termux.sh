@@ -27,6 +27,24 @@ else
     cd PLN_BOT_TELEGRAM
 fi
 
+# Configure Git Sparse-Checkout to exclude heavy house photos on HP Petugas
+if [ -d ".git" ]; then
+    git config core.sparseCheckout true 2>/dev/null
+    mkdir -p .git/info
+    cat > .git/info/sparse-checkout << 'SPARSE_EOF'
+/*
+!house_photos/
+!Samarinda_Photos/
+!Bontang_Photos/
+!Balikpapan_Photos/
+!*_Photos/
+!*.webp
+!*.7z
+SPARSE_EOF
+    git read-tree -mu HEAD 2>/dev/null || true
+    rm -rf house_photos Samarinda_Photos Bontang_Photos Balikpapan_Photos *_Photos fasih_downloaded extract_* extracted_* photo_*.webp 2>/dev/null
+fi
+
 # Buat .env kalau belum ada
 if [ ! -f ".env" ]; then
     echo ""

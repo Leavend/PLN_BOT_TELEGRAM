@@ -60,7 +60,7 @@ def run_compress(archive_path: str, staging_dir: str):
     # 4. Run standard 7z subprocess
     try:
         subprocess.run(
-            [cmd, "a", "-t7z", archive_path, staging_dir],
+            [cmd, "a", "-t7z", "-m0=lzma2", "-mx=1", "-md=12k", archive_path, staging_dir],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,

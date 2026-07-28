@@ -1022,10 +1022,40 @@ def submit_single(
                             if "OPEN" in (a.get("assignmentStatusAlias") or "")]
             template_pool = open_assigns or all_assigns
             if not template_pool:
-                # Fallback to cached templates from disk if account has 0 assignments
-                fallback_sc = _load_survey_cache(ignore_email=True) or {}
-                if matched_key in fallback_sc and fallback_sc[matched_key].get("assignments"):
-                    template_pool = fallback_sc[matched_key]["assignments"]
+                # Account has 0 assignments of ANY status in its loaded cache.
+                # Fall back to searching for assignments from other cached accounts on disk,
+                # preferring OPEN but accepting any status in the SAME region.
+                import glob
+                fallback_pool = []
+                for cpath in glob.glob(os.path.join(REPO_ROOT, ".fasih_survey_cache_*.json")):
+                    try:
+                        with open(cpath) as cf:
+                            cdata = json.load(cf)
+                        f_caches = cdata.get("survey_caches") or {}
+                        if matched_key in f_caches:
+                            f_assigns = f_caches[matched_key].get("assignments") or []
+                            f_open = [a for a in f_assigns if "OPEN" in (a.get("assignmentStatusAlias") or "")]
+                            if f_open:
+                                fallback_pool = f_open
+                                break
+                            elif f_assigns and not fallback_pool:
+                                fallback_pool = f_assigns
+                    except Exception:
+                        pass
+
+                if not fallback_pool and os.path.exists(_SURVEY_CACHE_FILE):
+                    try:
+                        with open(_SURVEY_CACHE_FILE) as cf:
+                            cdata = json.load(cf)
+                        f_caches = cdata.get("survey_caches") or {}
+                        if matched_key in f_caches:
+                            f_assigns = f_caches[matched_key].get("assignments") or []
+                            f_open = [a for a in f_assigns if "OPEN" in (a.get("assignmentStatusAlias") or "")]
+                            fallback_pool = f_open or f_assigns
+                    except Exception:
+                        pass
+
+                template_pool = fallback_pool
 
             if not template_pool:
                 return False, f"❌ Akun BPS ini ({email_user}) belum memiliki tugas/assignment di survey {matched_key} (0 tugas). Admin BPS harus menugaskan minimal 1 sampel ke akun ini di Web Monitoring BPS."
@@ -1090,12 +1120,12 @@ def submit_single(
                     logger.warning(f"Gagal memuat arsip original dari S3: {ex}. Lanjut resubmit.")
             
             tv = None
-            if sc:
+            if orig_data:
+                tv = orig_data.get("templateVersion")
+            if not tv and sc:
                 tv = sc.get("template_version")
             if not tv and sc:
                 tv = ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
-            if not tv and orig_data:
-                tv = orig_data.get("templateVersion")
             if tv:
                 target["templateVersion"] = tv
             status_alias = target.get("assignmentStatusAlias") or ""

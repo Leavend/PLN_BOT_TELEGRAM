@@ -127,7 +127,7 @@ def build_new_assignment_target(template: dict, idpel: str, nometer: str, templa
     t[idpel_slot] = idpel
     t[nometer_slot] = nometer
     
-    for k in ("latitude", "longitude", "mediaJson", "remark"):
+    for k in ("latitude", "longitude", "mediaJson", "remark", "basePath"):
         t.pop(k, None)
     return t
 
@@ -1599,10 +1599,10 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         "hasilCheckIdPel": hasil_check_html,
         "r101b": flat_answers.get("r101b") or "",
         "hasilCheckNoMeter2": None,
-        "r102a": flat_answers.get("r102a") or "",
-        "r102b": flat_answers.get("r102b") or "",
-        "r102c": flat_answers.get("r102c") or "",
-        "r102d": flat_answers.get("r102d") or "",
+        "r102a": flat_answers.get("r102a") or f"[{l1_code}] {l1_name}",
+        "r102b": flat_answers.get("r102b") or f"[{l2_code}] {l2_name}",
+        "r102c": flat_answers.get("r102c") or f"[{l3_code}] {l3_name}",
+        "r102d": flat_answers.get("r102d") or f"[{l4_code}] {l4_name}",
         "r102e": flat_answers.get("r102e") or "",
         "r103": flat_answers.get("r103") or "",
         "r104": r104_answer,
@@ -1636,9 +1636,9 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         "r204": r204_answer,
         "no_kk": no_kk_val,
         "r301a": (flat_answers.get("r301a") or f"[{l1_code}] {l1_name}") if is_tambahan else [{"label": flat_answers.get("r301a") or f"[{l1_code}] {l1_name}", "value": l1_code}],
-        "r301b": (flat_answers.get("r301b") or f"[{l2_code}] {l2_name}") if is_tambahan else [{"label": flat_answers.get("r301b") or f"[{l2_code}] {l2_name}", "value": l2_fullcode}],
-        "r301c": (flat_answers.get("r301c") or f"[{l3_code}] {l3_name}") if is_tambahan else [{"label": flat_answers.get("r301c") or f"[{l3_code}] {l3_name}", "value": l3_fullcode}],
-        "r301d": (flat_answers.get("r301d") or f"[{l4_code}] {l4_name}") if is_tambahan else [{"label": flat_answers.get("r301d") or f"[{l4_code}] {l4_name}", "value": l4_fullcode}],
+        "r301b": (flat_answers.get("r301b") or f"[{l2_code[-2:]}] {l2_name}") if is_tambahan else [{"label": flat_answers.get("r301b") or f"[{l2_code[-2:]}] {l2_name}", "value": l2_fullcode}],
+        "r301c": (flat_answers.get("r301c") or f"[{l3_code[-3:]}] {l3_name}") if is_tambahan else [{"label": flat_answers.get("r301c") or f"[{l3_code[-3:]}] {l3_name}", "value": l3_fullcode}],
+        "r301d": (flat_answers.get("r301d") or f"[{l4_code[-3:]}] {l4_name}") if is_tambahan else [{"label": flat_answers.get("r301d") or f"[{l4_code[-3:]}] {l4_name}", "value": l4_fullcode}],
         "r301e": flat_answers.get("r301e") or "",
         "r302a": 1,
         "r302a_var": "1",

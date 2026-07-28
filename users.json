@@ -12,13 +12,14 @@
       "session_state": "e050c807-6d8c-4baa-8b1c-b836b2e0644a",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 0,
-    "last_date": "2026-07-25",
+    "daily_quota": 240,
+    "used_today": 231,
+    "last_date": "2026-07-29",
     "is_disabled": false,
-    "cooldown_until": 0,
     "group": "PALUKOTA",
-    "hits_429": 8
+    "hits_429": 2,
+    "_last_429_hit_ts": 1785254499.842898,
+    "cooldown_until": 1785254559.842898
   },
   {
     "email": "ap0620671@gmail.com",
@@ -33,13 +34,12 @@
       "session_state": "1d510995-fdf0-4d18-96c5-fea42f32b289",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 0,
-    "last_date": "2026-07-25",
+    "daily_quota": 207,
+    "used_today": 150,
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
-    "hits_429": 11
+    "hits_429": 0
   },
   {
     "email": "akbarpops793@gmail.com",
@@ -54,13 +54,12 @@
       "session_state": "264cb7ca-770e-49fa-bb76-75810b7f5270",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 201,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
-    "hits_429": 6
+    "hits_429": 0
   },
   {
     "email": "anwarkota5@gmail.com",
@@ -75,12 +74,11 @@
       "session_state": "90376ea1-ff0a-42ec-8c0c-7b6cc88d1e65",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 247,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -96,13 +94,12 @@
       "session_state": "0ea1e710-9a19-4a70-8a99-3b121f17a523",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 217,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
-    "hits_429": 1
+    "hits_429": 0
   },
   {
     "email": "awaludinalka87@gmail.com",
@@ -117,13 +114,12 @@
       "session_state": "d1011a06-d6cd-4c0b-8e1e-7008936bdbff",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 215,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
-    "hits_429": 20
+    "hits_429": 0
   },
   {
     "email": "edhyerianto@gmail.com",
@@ -138,13 +134,12 @@
       "session_state": "77751624-ba4c-466f-a4cc-455176f75b05",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 214,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
-    "hits_429": 10
+    "hits_429": 0
   },
   {
     "email": "harisplnt4@gmail.com",
@@ -159,12 +154,11 @@
       "session_state": "5f475b21-73b8-45fc-90b6-716117438793",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 208,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -180,12 +174,11 @@
       "session_state": "96465138-ac9d-456f-bb9f-619bb6b71300",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 247,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -201,12 +194,11 @@
       "session_state": "b80af898-6095-4731-9451-6ecc70379602",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 206,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -222,12 +214,11 @@
       "session_state": "1a332e15-3377-44e1-a391-1cc093d967e3",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 243,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -243,12 +234,11 @@
       "session_state": "3ac7b7a0-a950-4545-adf4-77e721410c98",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 247,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -264,12 +254,11 @@
       "session_state": "1235dbca-c782-4cce-b951-3136056cdf7b",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 234,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -285,12 +274,11 @@
       "session_state": "00456dc0-fa3c-419f-a01f-6a538449870d",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 205,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -306,12 +294,11 @@
       "session_state": "92a4f795-af5f-4024-bb8c-ddf616ff2435",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 237,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -327,12 +314,11 @@
       "session_state": "5dd97eaa-ca2a-402b-93bc-011015d2a518",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 227,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -348,12 +334,11 @@
       "session_state": "694c6be2-9d95-4241-b88d-fc11b41a9e73",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 202,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -369,12 +354,11 @@
       "session_state": "f4add609-ebd5-4676-80ca-5e1ad7b84033",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 201,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -390,12 +374,11 @@
       "session_state": "4938ab1f-4b78-48ac-aab1-612260689fc8",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 205,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -411,12 +394,11 @@
       "session_state": "6cc9617b-f62e-401b-be8a-bd5a30a0e088",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 213,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -432,12 +414,11 @@
       "session_state": "d5183122-5f29-4b23-9e95-303aa4ced6a4",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 214,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -453,12 +434,11 @@
       "session_state": "ff1bfd1a-e20f-4cb7-a259-a82f4c135259",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 232,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -474,12 +454,11 @@
       "session_state": "bf01a8ef-d7b6-4e9e-afa3-e2e13a4c0444",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 238,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -495,12 +474,11 @@
       "session_state": "3746fe96-2cc4-4d5a-a382-362be29c4c87",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 0,
-    "last_date": "2026-07-25",
+    "daily_quota": 201,
+    "used_today": 30,
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -516,12 +494,11 @@
       "session_state": "34b817ad-f300-41a2-9e75-5207f978ddd8",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 235,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -537,12 +514,11 @@
       "session_state": "d13c1f9e-2bec-4128-9e54-9b5f6b5a0e79",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 212,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -558,12 +534,11 @@
       "session_state": "d0a6416d-25a7-42ab-bc4c-3433c9a1db08",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 245,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": true,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -579,12 +554,11 @@
       "session_state": "5d284e53-050c-4ae5-9f65-8bab85368e7d",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 241,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": true,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -600,12 +574,11 @@
       "session_state": "73b1d31b-2429-484e-9181-2879f5423fba",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 244,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": true,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -621,12 +594,11 @@
       "session_state": "8717d0e2-1dd8-466f-a84b-e3f6b270c976",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 234,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": true,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -642,12 +614,11 @@
       "session_state": "d739031f-eabd-448f-ae74-e5c6c0e2c1a7",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 226,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": true,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -663,12 +634,11 @@
       "session_state": "b634aefa-a08f-405b-992c-d21129747144",
       "scope": "email profile"
     },
-    "daily_quota": 300,
+    "daily_quota": 214,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "PALUKOTA",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -686,9 +656,8 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
-    "cooldown_until": 0,
     "group": "KOLONODALE",
     "hits_429": 0
   },
@@ -707,10 +676,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "KOLONODALE",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -728,11 +696,12 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
-    "is_disabled": false,
+    "last_date": "2026-07-29",
+    "is_disabled": true,
     "group": "KOLONODALE",
     "cooldown_until": 0,
-    "hits_429": 0
+    "hits_429": 0,
+    "status": "Invalid User"
   },
   {
     "email": "husinbalino@gmail.com",
@@ -749,11 +718,12 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "KOLONODALE",
-    "cooldown_until": 0,
-    "hits_429": 0
+    "hits_429": 1,
+    "_last_429_hit_ts": 1785252533.9388852,
+    "cooldown_until": 1785252595.2691689
   },
   {
     "email": "yapkodal@gmail.com",
@@ -770,11 +740,12 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "KOLONODALE",
-    "cooldown_until": 0,
-    "hits_429": 0
+    "hits_429": 1,
+    "_last_429_hit_ts": 1785252545.624693,
+    "cooldown_until": 1785252605.6382751
   },
   {
     "email": "zanthomonaslaratelarate@gmail.com",
@@ -791,10 +762,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "KOLONODALE",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -812,10 +782,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "KOLONODALE",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -833,10 +802,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "KOLONODALE",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -854,10 +822,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "KOLONODALE",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -875,11 +842,12 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "KOLONODALE",
-    "cooldown_until": 0,
-    "hits_429": 0
+    "hits_429": 3,
+    "_last_429_hit_ts": 1785252737.017018,
+    "cooldown_until": 1785252797.041954
   },
   {
     "email": "alfadion95@gmail.com",
@@ -896,10 +864,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "KOLONODALE",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -917,11 +884,12 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
-    "is_disabled": false,
+    "last_date": "2026-07-29",
+    "is_disabled": true,
     "group": "KOLONODALE",
     "cooldown_until": 0,
-    "hits_429": 0
+    "hits_429": 0,
+    "status": "Invalid User"
   },
   {
     "email": "aldiii20081999@gmail.com",
@@ -938,11 +906,10 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 0,
-    "cooldown_until": 0
+    "hits_429": 0
   },
   {
     "email": "apliana1804@gmail.com",
@@ -959,10 +926,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -980,10 +946,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1001,10 +966,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1022,10 +986,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1043,10 +1006,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1064,10 +1026,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1085,10 +1046,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1106,10 +1066,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1127,10 +1086,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1139,7 +1097,7 @@
     "token_data": null,
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
     "hits_429": 0,
@@ -1161,11 +1119,10 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 0,
-    "cooldown_until": 0
+    "hits_429": 0
   },
   {
     "email": "cendranataliabulandtsen@gmail.com",
@@ -1182,11 +1139,10 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "hits_429": 0,
-    "cooldown_until": 0
+    "hits_429": 0
   },
   {
     "email": "dtsentriowibowo@gmail.com",
@@ -1194,7 +1150,7 @@
     "token_data": null,
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
     "hits_429": 0,
@@ -1216,10 +1172,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1237,10 +1192,9 @@
     },
     "daily_quota": 300,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "is_disabled": false,
     "group": "MALINAU",
-    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1257,12 +1211,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 429,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "hits_429": 20,
-    "cooldown_until": 1784813397.632816
+    "hits_429": 0
   },
   {
     "email": "Hasna.wi4@gmail.com",
@@ -1278,12 +1231,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 427,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": 1784813634.61769,
-    "hits_429": 8
+    "hits_429": 0
   },
   {
     "email": "Medesipuspita@gmail.com",
@@ -1299,12 +1251,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 426,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": 1784813731.55626,
-    "hits_429": 5
+    "hits_429": 0
   },
   {
     "email": "aldyrivaldo6@gmail.com",
@@ -1320,12 +1271,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 429,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": 1784813700.889314,
-    "hits_429": 5
+    "hits_429": 0
   },
   {
     "email": "vozzerv@gmail.com",
@@ -1341,12 +1291,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 429,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": 1784813702.5021179,
-    "hits_429": 5
+    "hits_429": 0
   },
   {
     "email": "ferariardiansyah@gmail.com",
@@ -1362,12 +1311,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 427,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": 1784813733.393256,
-    "hits_429": 5
+    "hits_429": 0
   },
   {
     "email": "bisar2039@gmail.com",
@@ -1383,12 +1331,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 429,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": 1784813871.3003159,
-    "hits_429": 11
+    "hits_429": 0
   },
   {
     "email": "rinorosyadi15@gmail.com",
@@ -1396,10 +1343,10 @@
     "token_data": null,
     "daily_quota": 400,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": null,
+    "cooldown_until": 0,
     "hits_429": 0
   },
   {
@@ -1416,12 +1363,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 421,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": 1784814319.272007,
-    "hits_429": 29
+    "hits_429": 0
   },
   {
     "email": "dyanfitryaaa@gmail.com",
@@ -1437,12 +1383,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 421,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "hits_429": 10,
-    "cooldown_until": 1784814343.1625412
+    "hits_429": 0
   },
   {
     "email": "echi.izzati@gmail.com",
@@ -1458,12 +1403,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 426,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": null,
-    "hits_429": 17
+    "hits_429": 0
   },
   {
     "email": "wahyuhidayanto51@gmail.com",
@@ -1479,11 +1423,10 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 409,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": null,
     "hits_429": 0
   },
   {
@@ -1500,12 +1443,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 420,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": 1784816452.093442,
-    "hits_429": 5
+    "hits_429": 0
   },
   {
     "email": "Bayuhandoyo00@gmail.com",
@@ -1521,12 +1463,12 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 402,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": 1784817045.952972,
-    "hits_429": 13
+    "cooldown_until": 1785054558.381187,
+    "hits_429": 3
   },
   {
     "email": "nurulha1995@gmail.com",
@@ -1542,12 +1484,11 @@
       "scope": "email profile"
     },
     "daily_quota": 400,
-    "used_today": 411,
-    "last_date": "2026-07-25",
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "TANJUNG REDEB",
     "is_disabled": false,
-    "cooldown_until": 1784817459.977088,
-    "hits_429": 5
+    "hits_429": 0
   },
   {
     "email": "sakarid861@gmail.com",
@@ -1562,13 +1503,12 @@
       "session_state": "5867d9f8-298c-4c5e-b711-d2a80f7be7b8",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 308,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "DONGGALA",
     "is_disabled": false,
-    "hits_429": 5,
-    "cooldown_until": 0
+    "hits_429": 0
   },
   {
     "email": "wiljanaija@gmail.com",
@@ -1583,13 +1523,12 @@
       "session_state": "29db169b-e66d-4725-9f0b-3dfbeab2908e",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 320,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "DONGGALA",
     "is_disabled": false,
-    "hits_429": 5,
-    "cooldown_until": 0
+    "hits_429": 0
   },
   {
     "email": "kevinmarco000@gmail.com",
@@ -1604,13 +1543,12 @@
       "session_state": "51d65fb1-2a00-4070-93be-fff052587d61",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 305,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "DONGGALA",
     "is_disabled": false,
-    "hits_429": 6,
-    "cooldown_until": 0
+    "hits_429": 0
   },
   {
     "email": "geraldymanginsihi12@gmail.com",
@@ -1625,13 +1563,12 @@
       "session_state": "8c6ebaa8-6d12-411b-8738-67462669bdcf",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 329,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "DONGGALA",
     "is_disabled": false,
-    "hits_429": 2,
-    "cooldown_until": 0
+    "hits_429": 0
   },
   {
     "email": "muhalee20@gmail.com",
@@ -1646,29 +1583,30 @@
       "session_state": "fd32a4e9-ad5f-43cd-a4e1-80c0e6011090",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 320,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "BUNGKU",
     "is_disabled": false,
-    "cooldown_until": 0,
     "nama": "Radat Masulili",
     "nik": "7206051309030002",
-    "username": "radatmasulili"
+    "username": "radatmasulili",
+    "hits_429": 0
   },
   {
     "email": "farhanhidayatinadjo@gmail.com",
     "password": "Pln@123",
     "token_data": null,
-    "daily_quota": 300,
+    "daily_quota": 400,
     "used_today": 0,
-    "last_date": "2026-07-25",
+    "last_date": "2026-07-29",
     "group": "BUNGKU",
     "is_disabled": false,
     "cooldown_until": 0,
     "nama": "Farhan Hidayat Inadjo",
     "nik": "7206051510030003",
-    "username": "farhanhidayatina"
+    "username": "farhanhidayatina",
+    "hits_429": 0
   },
   {
     "email": "ahmadalex2807@gmail.com",
@@ -1683,15 +1621,15 @@
       "session_state": "5c8c148d-35b9-469d-9370-0e68bbccc943",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 318,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "BUNGKU",
     "is_disabled": false,
-    "cooldown_until": 0,
     "nama": "Ahmad Maulana",
     "nik": "7271032805070000",
-    "username": "ahmadalex2807_20260619094220"
+    "username": "ahmadalex2807_20260619094220",
+    "hits_429": 0
   },
   {
     "email": "ml2250306@gmail.com",
@@ -1706,15 +1644,15 @@
       "session_state": "06c142c8-a3b9-4213-84af-478dc80738a2",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 317,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "BUNGKU",
     "is_disabled": false,
-    "cooldown_until": 0,
     "nama": "Moh. Satria Pakawaru",
     "nik": "7271020502080000",
-    "username": "ml2250306_20260619102744"
+    "username": "ml2250306_20260619102744",
+    "hits_429": 0
   },
   {
     "email": "rahmaruning@gmail.com",
@@ -1729,22 +1667,22 @@
       "session_state": "877569c0-d50d-4a83-bab7-e73ccaf0a372",
       "scope": "email profile"
     },
-    "daily_quota": 300,
-    "used_today": 305,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "BUNGKU",
     "is_disabled": false,
-    "cooldown_until": 0,
     "nama": "Nur Rahma Pertiwi",
     "nik": "7271025402030000",
-    "username": "rahmaruning_20260509140155"
+    "username": "rahmaruning_20260509140155",
+    "hits_429": 0
   },
   {
     "email": "arhamadim@gmail.com",
     "password": "Arham2026",
-    "daily_quota": 300,
-    "used_today": 300,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "PARIGI",
     "token_data": {
       "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiIxZjIxY2E4NS0xNzI2LTQ4ZDMtOGY2MS02YmI1MmI4N2E3NzAiLCJleHAiOjE3ODc1NzkzMTgsIm5iZiI6MCwiaWF0IjoxNzg0OTg3MzE4LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6ImE0OTk4Y2NkLWRjODUtNDFmNy1hOWI4LWQ2YzkwZTA5NGMxNyIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiOWEzMDFiNzEtZWFmYy00MjAwLTk1MjktMWVlZTRiMDExMTI3IiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6ImFyaGFtIiwicHJlZmVycmVkX3VzZXJuYW1lIjoiYXJoYW1hZGltQGdtYWlsLmNvbSIsImdpdmVuX25hbWUiOiIiLCJmYW1pbHlfbmFtZSI6ImFyaGFtIiwiZW1haWwiOiJhcmhhbWFkaW1AZ21haWwuY29tIn0.hfaW5Fv8cSE2MdhGRWbAq_Pm6LwxXcGrvvVUqS-YK3cuWmqPid_ZhKBUwStXOAGM_2jgaz-EWs03RLQhd0kvrGRhS_IPZBO0qVUHJaLDK00_16d5M-vlDnlS-spgU9Ps5NNvs0PgXGDR9m8vAQddS86ZEBIK_pJhTVEIN_kIVvx1sMKZG3Y3Ntd1sWO3OTWydrdCfF7lxV74xi7QIuni_UgYrU9XnKrZme62tZ-SerDEbi_Rwf09BRzQKJV-sDfyqjFSaiems8vlOtd_dagG5Ukooqy46OAUWyEDxwKsaZ8OuBB7R21YobteC6L1HLpcsH_f4USHudajt3y3MerfWA",
@@ -1757,15 +1695,15 @@
       "scope": "email profile"
     },
     "status": "Active",
-    "hits_429": 30,
-    "cooldown_until": 1784988201.645827
+    "hits_429": 0,
+    "cooldown_until": 0
   },
   {
     "email": "fadlicool731@gmail.com",
     "password": "Fadli2026",
-    "daily_quota": 300,
-    "used_today": 300,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "PARIGI",
     "token_data": {
       "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiIwYWI5MDlkMy05MWI1LTQwNjQtYmIyOC05ZDQ5M2I5MGU2ZDAiLCJleHAiOjE3ODc1NzkzMTgsIm5iZiI6MCwiaWF0IjoxNzg0OTg3MzE4LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6IjdlOWFlMzVkLWI5MDUtNDAzMi1iMjE5LTU1ZDcyZTNhOGMyMSIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiOGJmOTg0YmMtMTk1Mi00NmQ2LWExNDctODY2MDZmYjFmNmNlIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IkZhZGxpIiwicHJlZmVycmVkX3VzZXJuYW1lIjoiZmFkbGljb29sNzMxQGdtYWlsLmNvbSIsImdpdmVuX25hbWUiOiIiLCJmYW1pbHlfbmFtZSI6IkZhZGxpIiwiZW1haWwiOiJmYWRsaWNvb2w3MzFAZ21haWwuY29tIn0.gEY2o2PJoQiq37wbgTIe0hseeffYfpJ4JGm9h4bz_WdwpdYvvHJqh8LiM-45--JG9IGFIS0omhNOzFBuxVDUkIWiBNOMwRNlLUJpAsP0JGrOjyEfnBZ6eB9os5W8tJgchh-ebWgDkbNdOEnxuLWJOkUxNyFRavSeT45wsjw4F6DD6w7doss7OSuNpWqY10h0HUzXI-hAtVmSKwFz5VuL680Cnrp23zfMmwllxdItAYRXnEm3yN3ISMkIbyvB47ahF9qabkRrAOSsZt25rOkfbU6TcO0XBrGnYdaDql4u8Dh_G5gh5joDon0OIOUaDwb_3vtstHyQKKXhqqW1VtRUFg",
@@ -1778,15 +1716,15 @@
       "scope": "email profile"
     },
     "status": "Active",
-    "hits_429": 30,
-    "cooldown_until": 1784988205.7140532
+    "hits_429": 0,
+    "cooldown_until": 0
   },
   {
     "email": "fajaracopatawari@gmail.com",
     "password": "Fajar2026",
-    "daily_quota": 300,
-    "used_today": 300,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "PARIGI",
     "token_data": {
       "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiJjOGQyMmRiMi1jNGU1LTQ4NmYtODI2NC1hNTQ5NjY3NzJkYmUiLCJleHAiOjE3ODc1NzkzMTksIm5iZiI6MCwiaWF0IjoxNzg0OTg3MzE5LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6ImQ4NzMzNjAwLTYyNDMtNGQ2MS1iODg5LWU1YTE2MTYzODEwNCIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiYmFiMjRhMTYtZjVjZC00YjM4LWE0NDgtY2ZkZjA3Mzk3NjczIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik1vaC4gRmFqYXIiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJmYWphcmFjb3BhdGF3YXJpQGdtYWlsLmNvbSIsImdpdmVuX25hbWUiOiJNb2guIiwiZmFtaWx5X25hbWUiOiJGYWphciIsImVtYWlsIjoiZmFqYXJhY29wYXRhd2FyaUBnbWFpbC5jb20ifQ.FDquL0Z8EzaJ6ZqtyKLj7NQL2FAbZWDElAm8U2df6pHYPjMLFuGgHkPP3sBZS7peFwrZj9wSeDUIZrc-k4AdQhU7iIIldq2ei3rjFMi5GwW8k-ZRQ1eAJ484NRu7dNLHz5nhSpCgp6KzZkyrsr7700Bkn1GPlk7VM8GOluoHWpUrIOzcZyZB7b9Tw0K3-sBptagC_a0p3HHpb8UbrGqEOpttiwBbd1Brn5ZPClSplKN1P18z60vxHRg5cA8cJIOwwb04PA3AfAZIQbOmhxi-ZWmMotFEBeiR3FtmlERwNhKqwwxppSIjtVaRwtbOu4lHreGqJG444XFlAmQY0sTaaw",
@@ -1799,15 +1737,15 @@
       "scope": "email profile"
     },
     "status": "Active",
-    "cooldown_until": 1784988212.131571,
-    "hits_429": 22
+    "cooldown_until": 0,
+    "hits_429": 0
   },
   {
     "email": "andirustam514@gmail.com",
     "password": "Afandi2026",
-    "daily_quota": 300,
-    "used_today": 300,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "PARIGI",
     "token_data": {
       "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiJlZDVjODhiMy1kYjcyLTQ0ODUtOGM4Ny1jYTg3NGU0YTMxMmYiLCJleHAiOjE3ODc1NzkzMTksIm5iZiI6MCwiaWF0IjoxNzg0OTg3MzE5LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6ImNhYThhNGIzLWI1NDUtNDA1MC1hNTllLWUwMzBjZDlmNTBhYSIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiYzI0NTIwYTEtZDQwZC00MjczLWE1Y2YtMGRiOGFhYjlmMjFiIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IkhlcndhbnRvIEFmYW5kaSIsInByZWZlcnJlZF91c2VybmFtZSI6ImFuZGlydXN0YW01MTRAZ21haWwuY29tIiwiZ2l2ZW5fbmFtZSI6IkhlcndhbnRvIiwiZmFtaWx5X25hbWUiOiJBZmFuZGkiLCJlbWFpbCI6ImFuZGlydXN0YW01MTRAZ21haWwuY29tIn0.Dpa1G8ZQf7TpV-X_sSDXQ6cZL-WxQlCaEcaXiuXN7ggzyniEW1iNk-ElC8eLrXSyflx7bFzWNl9sf76MvGhdjC48DRDBmiOTDSzGMvPo4XR7U-7nVBF0KBxqI4RhK6N-1HQXwtLUOh3hbBRGFDLdwUmuAsamenmUo39-fkXQVPtnB9o8niI88p-vvGvlXxdor-oaf1QFCZJ5Sg9P55xCE8Kh2_Vq57zcOgUhR2u8z1jHpdDvID_6mpk7u_dD2LRBHZJgB4pXZjkJPngs0gcDuC-rNfdsUVd0YNTwFd72o9zN-CPSYRdf4f7QFcybPc2g0-SR5RUWlGlZ7zhMrBo8XQ",
@@ -1820,15 +1758,15 @@
       "scope": "email profile"
     },
     "status": "Active",
-    "hits_429": 8,
-    "cooldown_until": 1784988213.894563
+    "hits_429": 0,
+    "cooldown_until": 0
   },
   {
     "email": "dalilalong05@gmail.com",
     "password": "Dalil2026",
-    "daily_quota": 300,
-    "used_today": 303,
-    "last_date": "2026-07-25",
+    "daily_quota": 400,
+    "used_today": 0,
+    "last_date": "2026-07-29",
     "group": "PARIGI",
     "token_data": {
       "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U0lwdENNMVVfcEVDSW50SEEyaVhlSUhHZXdqNTZxbWpzejlsNnY1c2JZIn0.eyJqdGkiOiI5MTI5ZjY0OC01M2MxLTQ5YmMtYmEyZC1mMjhmMjdlNzE1NjkiLCJleHAiOjE3ODc1NzkzMTksIm5iZiI6MCwiaWF0IjoxNzg0OTg3MzE5LCJpc3MiOiJodHRwczovL3Nzby5icHMuZ28uaWQvYXV0aC9yZWFsbXMvZWtzdGVybmFsIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6IjBmYjQ0ZTNlLTEwMzUtNGU5Mi1iNTRkLTdiMDhhMmVhNTU2NSIsInR5cCI6IkJlYXJlciIsImF6cCI6IjAzMzEwLWljc2NhcGktazA5IiwiYXV0aF90aW1lIjowLCJzZXNzaW9uX3N0YXRlIjoiMWMxZmZmY2QtMDA1OC00ZjBhLWFhYmMtNTdlMDY3NjJhZTQ4IiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vZmFzaWgtc3VydmV5LWRldi5icHMuZ28uaWQiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6ImRhbGlsIiwicHJlZmVycmVkX3VzZXJuYW1lIjoiZGFsaWxhbG9uZzA1QGdtYWlsLmNvbSIsImdpdmVuX25hbWUiOiIiLCJmYW1pbHlfbmFtZSI6ImRhbGlsIiwiZW1haWwiOiJkYWxpbGFsb25nMDVAZ21haWwuY29tIn0.djO3pKeSJbBwh_YDxjPqQ5VggXNBwClsuKcMjMi2xguZCa93_cmrHGggLpmr-4xrqM42h1KwhVGFvmKDNqJBigKu_hQfUT2pdb2NBEG8onljQOQCfmNPX9bYFW06NYsXpw-VdmA1s7fhW-HdNPm1-kosxG1Iw-2v9mDvrmQY6wixNPMcBqwOEx3gAna37PBo4OzJg2FYFrEKz3Sm08brQ7Wnbaz85EytJmZKY7exw5HPNRVYDnPUYezJ82SzUAx4wHGCQUvfLfzYTgl_Eijp0VJT4d3OnbD5gyK1GIJOwWcIK7gFrirg2Hz4_91QlJAEeNEok3i89DHHICjelGZAvQ",
@@ -1841,7 +1779,6 @@
       "scope": "email profile"
     },
     "status": "Active",
-    "cooldown_until": 1784988215.153801,
-    "hits_429": 9
+    "hits_429": 0
   }
 ]

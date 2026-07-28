@@ -1,5 +1,2 @@
-# URL server PLN (Cloudflare tunnel). Sumber kebenaran untuk petugas_client.
-# Tunnel quick trycloudflare.com ganti URL tiap restart — update baris di bawah
-# lalu commit + push. Petugas cukup `fasih-update` (git pull), TIDAK perlu edit .env.
-# Baris pertama non-komentar = URL aktif.
-https://freelance-citizens-printed-list.trycloudflare.com
+# URL server PLN (Cloudflare tunnel).
+https://gazette-unlikely-roller-hoping.trycloudflare.com
