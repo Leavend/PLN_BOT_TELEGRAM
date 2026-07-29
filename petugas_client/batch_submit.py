@@ -61,6 +61,35 @@ import requests as req_lib
 import base64
 import hashlib
 
+# --- Environment & Restrictions ---
+
+def is_local_environment() -> bool:
+    """Check if execution is running in user's Local environment vs HP Petugas (Termux)."""
+    if os.getenv("FASIH_LOCAL", "").lower() in ("1", "true", "yes"):
+        return True
+    if "--local" in sys.argv or "--bypass-restrictions" in sys.argv:
+        return True
+    if sys.platform == "darwin" or os.path.exists("/Users/leavend"):
+        return True
+    return False
+
+def check_working_hours(is_local: bool = False) -> tuple[bool, str]:
+    """Enforces 07:00 WITA - 18:00 WITA working hours restriction on HP Petugas."""
+    if is_local:
+        return True, "Mode Local — Pembatasan jam kerja dilewati."
+    from datetime import timezone, timedelta
+    wita_tz = timezone(timedelta(hours=8))
+    now_wita = datetime.now(wita_tz)
+    hour = now_wita.hour
+    if 7 <= hour < 18:
+        return True, f"Jam Kerja Valid ({now_wita.strftime('%H:%M:%S')} WITA)"
+    else:
+        return False, (
+            f"❌ [HP PETUGAS RESTRICTION] Pengerjaan fasih-submit-batch di HP Petugas HANYA dapat dilakukan pada jam kerja:\n"
+            f"   ⏰ 07.00 WITA - 18.00 WITA.\n"
+            f"   Waktu saat ini: {now_wita.strftime('%H:%M:%S')} WITA (Diluar Jam Kerja)."
+        )
+
 # --- Logging ---
 
 logging.basicConfig(
@@ -1474,6 +1503,7 @@ def main():
     parser = argparse.ArgumentParser(description="Batch Submit Petugas")
     parser.add_argument("input", nargs="?", help="File .txt berisi daftar IDPel/NoMeter (satu per baris)")
     parser.add_argument("--list", "-l", help="Daftar IDPel/NoMeter dipisah koma")
+    parser.add_argument("--local", action="store_true", help="Paksa mode local (bypass jam kerja & delay HP)")
     parser.add_argument("--dry-run", action="store_true", help="Test tanpa submit ke BPS")
     parser.add_argument("--force", action="store_true", help="Re-register: paksa submit ulang record lama yang BELUM tercatat di FASIH (fasih_exists=false); yang sudah tercatat dilewati")
     parser.add_argument("--no-cek", action="store_true", help="Skip CEK IDPel/NIK dari awal (hindari 429 rate-limit). Data tetap TERDATA di FASIH via paradata; kehilangan routing prelist + tampilan pemadanan NIK")
@@ -1486,6 +1516,12 @@ def main():
     parser.add_argument("--delay", type=float, default=0.5, help="Stagger acak per item (detik) untuk hindari thundering-herd; 0 = tanpa stagger")
     parser.add_argument("--workers", type=int, default=4, help="Jumlah submit paralel (default 4). Item nunggu latency BPS ~8-10 dtk, jadi paralel = jauh lebih cepat. 1 = serial")
     args = parser.parse_args()
+
+    is_local = is_local_environment() or args.local
+    ok_hours, hours_msg = check_working_hours(is_local)
+    if not ok_hours:
+        print(f"\n{hours_msg}\n")
+        sys.exit(1)
 
     # Parse item list
     items = []
@@ -1731,7 +1767,11 @@ def main():
     start_time = time.time()
 
     def _worker(idx: int, val: str):
-        if args.delay > 0:
+        if not is_local:
+            delay_sec = random.uniform(30.0, 60.0)
+            logger.info(f"⏳ [HP Petugas Delay] Worker delay {delay_sec:.1f}s sebelum submit {val}...")
+            time.sleep(delay_sec)
+        elif args.delay > 0:
             time.sleep(random.uniform(0, args.delay))  # stagger, avoid thundering-herd
         wdir = tempfile.mkdtemp(prefix="fasih_")
         try:

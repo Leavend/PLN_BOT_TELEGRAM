@@ -44,68 +44,11 @@ else:
 " "\$@"
 EOF
 
-# fasih-submit-batch: interactive paste mode (or auto-fetch if --resubmit-* passed)
+# fasih-submit-batch: multi-account parallel runner with HP Petugas restrictions
 cat > "$BIN/fasih-submit-batch" << 'OUTER'
 #!/bin/bash
 cd "REPO_PLACEHOLDER"
-python3 -c "
-import sys, re, subprocess
-
-# If --resubmit-* flag passed, run batch_submit directly without interactive paste loop
-has_resubmit = any(a in sys.argv[1:] for a in ['--resubmit-reject', '--resubmit-open', '--resubmit-reopen', '--resubmit-all'])
-if has_resubmit:
-    subprocess.run([sys.executable, 'petugas_client/batch_submit.py'] + sys.argv[1:])
-    sys.exit(0)
-
-print('📋 Paste ID Pelanggan (satu per baris)')
-print('   Tekan ENTER 2x untuk mulai submit')
-print('─' * 40)
-
-lines = []
-empty = 0
-while True:
-    try:
-        line = input()
-    except EOFError:
-        break
-    stripped = line.strip()
-    if not stripped:
-        empty += 1
-        if empty >= 2:
-            break
-        continue
-    empty = 0
-    # extract 12-digit numbers from line
-    ids = re.findall(r'\b\d{12}\b', stripped)
-    if ids:
-        lines.extend(ids)
-    elif stripped.isdigit() and len(stripped) >= 8:
-        lines.append(stripped)
-
-if not lines:
-    print('❌ Tidak ada ID valid')
-    sys.exit(1)
-
-# dedup, preserve order
-seen = set()
-unique = []
-for x in lines:
-    if x not in seen:
-        seen.add(x)
-        unique.append(x)
-
-print(f'\n✅ {len(unique)} ID Pelanggan siap submit:')
-for i, x in enumerate(unique, 1):
-    print(f'   {i}. {x}')
-
-confirm = input(f'\nLanjut submit {len(unique)} ID? (y/n): ').strip().lower()
-if confirm not in ('y', 'yes', ''):
-    print('❌ Dibatalkan')
-    sys.exit(0)
-
-ids_str = ','.join(unique)
-subprocess.run([sys.executable, 'petugas_client/batch_submit.py'] + sys.argv[1:] + ['--list', ids_str])
-" "$@"
+python3 petugas_client/submit_batch_runner.py "$@"
 OUTER
 sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-submit-batch" 2>/dev/null || \
   sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-submit-batch"
