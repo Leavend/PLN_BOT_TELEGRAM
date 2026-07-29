@@ -179,7 +179,7 @@ TOKEN_FILE = os.path.join(REPO_ROOT, "fasih_token.json")
 # --- PLN API Client ---
 
 DEFAULT_MAPBOX_TOKEN = base64.b64decode(
-    "cGsuZXlKMWlqb2lkbVZ1WkhaaGJXRnlhVzRoSWlvaUptMXlhTmQzTW13eVp6SnlibXd3YzNOMlpUVjFOelV5SW4wLnhoOVZGMU1INkdEWTRReUNJMFM3ekE="
+    "cGsuZXlKMUlqb2lkbVZ1WkhOaGJXRnlhVzVrWVNJc0ltRWlPaUpqYlhKck4zbDNNbXd5WnpKeU1ubHdjM042WVRWMU56VTJJbjAueGg5VkYxTUhHNkRZcTRReUNJMFN6QQ=="
 ).decode("utf-8")
 
 def apply_region_config() -> str:
