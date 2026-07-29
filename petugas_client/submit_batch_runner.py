@@ -566,7 +566,28 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
     print("🏁 HASIL PENGERJAAN BATCH PARALEL SELESAI")
     print("=" * 65)
     print(f"✅ Total Sukses: {success_cnt}")
+
+    _succ = [r for r in report_rows if r["status"] == "SUCCESS"]
+    _sent = [r for r in _succ if r["message"].startswith("Sukses") or "berhasil" in r["message"].lower()]
+    _terc = [r for r in _succ if r["message"].startswith("Sudah") or "TERCATAT" in r["message"]]
+
+    if _sent:
+        print(f"   📤 Baru dikirim ke BPS  : {len(_sent)}")
+        sample_sent = [r['idpel'] for r in _sent[:10]]
+        print(f"      IDPel: {', '.join(sample_sent)}" + (f" ... (+{len(_sent)-10} lainnya)" if len(_sent) > 10 else ""))
+    if _terc:
+        print(f"   🟢 Sudah tercatat (skip): {len(_terc)}")
+        sample_terc = [r['idpel'] for r in _terc[:10]]
+        print(f"      IDPel: {', '.join(sample_terc)}" + (f" ... (+{len(_terc)-10} lainnya)" if len(_terc) > 10 else ""))
+
     print(f"❌ Total Gagal : {failed_cnt}")
+
+    failed_rows = [r for r in report_rows if r["status"] == "FAILED"]
+    if failed_rows:
+        print(f"\n❌ Rincian {len(failed_rows)} IDPel Gagal:")
+        for r in failed_rows:
+            print(f"   • {r['idpel']} ({r['email']}) — {r['message']}")
+
     print(f"⏱  Total Waktu : {m}m {s}s")
     print("=" * 65)
 
