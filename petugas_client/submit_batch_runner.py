@@ -541,6 +541,17 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
 
 
 def main():
+    # If user passed direct CLI flags or input files (e.g. --fast, --workers, --list, data.txt), delegate directly to batch_submit.py
+    known_direct_flags = ('--fast', '--workers', '--delay', '--list', '-l', '--resubmit', '--force', '--no-cek')
+    has_direct_input = any(arg.endswith(('.txt', '.csv')) for arg in sys.argv[1:])
+    has_direct_flag = any(arg.startswith(known_direct_flags) for arg in sys.argv[1:])
+
+    if len(sys.argv) > 1 and (has_direct_input or has_direct_flag):
+        import subprocess
+        cmd = [sys.executable, os.path.join(REPO_ROOT, "petugas_client", "batch_submit.py")] + sys.argv[1:]
+        result = subprocess.run(cmd)
+        sys.exit(result.returncode)
+
     parser = argparse.ArgumentParser(description="fasih-submit-batch Interactive & Parallel Runner")
     parser.add_argument("input", nargs="?", help="File .txt berisi list IDPel (optional)")
     parser.add_argument("--list", "-l", help="List IDPel dipisah koma (optional)")
@@ -553,7 +564,11 @@ def main():
     parser.add_argument("--resubmit-open", action="store_true", help="Submit data OPEN")
     parser.add_argument("--resubmit-reopen", action="store_true", help="Submit data REOPEN")
     parser.add_argument("--skip-cek-idpln", "--no-cek", action="store_true", dest="skip_cek_idpln", help="Skip CEK IDPel BPS")
-    args = parser.parse_args()
+    parser.add_argument("--fast", action="store_true", help="Setup survei dari cache disk")
+    parser.add_argument("--workers", type=int, default=4, help="Jumlah submit paralel")
+    parser.add_argument("--delay", type=float, default=0.5, help="Stagger delay per item")
+
+    args, unknown = parser.parse_known_args()
 
     is_local = is_local_environment() or args.local or args.bypass_restrictions
     _mb = apply_region_config()
