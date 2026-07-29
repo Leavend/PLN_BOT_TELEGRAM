@@ -482,8 +482,12 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
         except Exception as e:
             print(f"     ❌ Gagal memuat survei {email}: {e}")
 
-    # Determine worker count (1 worker per account or min 4)
-    workers_count = max(1, len(account_tasks))
+    # Determine worker count (from --workers parameter if specified, else min 4 or len(account_tasks))
+    req_workers = mode_flags.get("workers") or 0
+    if req_workers > 0:
+        workers_count = req_workers
+    else:
+        workers_count = max(4, len(account_tasks))
     print(f"\n⚡ Worker Paralel Aktif: {workers_count} Worker Thread")
     print("=" * 65 + "\n")
 
