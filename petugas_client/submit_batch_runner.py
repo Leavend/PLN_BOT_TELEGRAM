@@ -301,25 +301,70 @@ def step1_setoran_creds(accounts: list[dict]) -> list[dict]:
 
 
 def step2_select_account_count(accounts: list[dict]) -> list[dict]:
-    """Simulasi 2: Ditanyakan mau jalankan berapa akun berdasarkan Creds yang diinput."""
+    """Simulasi 2: Ditanyakan mau jalankan berapa/yang mana akun berdasarkan Creds yang diinput."""
     print("\n" + "=" * 65)
-    print("📊 SIMULASI 2: PENENTUAN JUMLAH AKUN BPS YANG AKAN DIJALANKAN")
+    print("📊 SIMULASI 2: PENENTUAN AKUN BPS YANG AKAN DIJALANKAN")
     print("=" * 65)
     print(f"Daftar Creds Akun BPS yang tersedia ({len(accounts)} akun):")
     for idx, acc in enumerate(accounts, 1):
-        print(f"   [{idx}] {acc.get('email')}")
+        print(f"   [{idx:3d}] {acc.get('email')}")
 
     print("-" * 65)
-    while True:
-        num_str = input(f"👉 Mau jalankan pengerjaan berapa akun BPS? [1 - {len(accounts)}]: ").strip()
-        if num_str.isdigit():
-            k = int(num_str)
-            if 1 <= k <= len(accounts):
-                break
-        print(f"❌ Harap masukkan angka valid antara 1 s.d. {len(accounts)}.")
+    print("📌 OPSI PILIHAN AKUN:")
+    print("  • Masukkan 1 nomor (misal: 1 untuk HANYA akun ke-1)")
+    print("  • Masukkan rentang nomor (misal: 1-5 untuk akun ke-1 s.d. ke-5)")
+    print("  • Masukkan nomor terpisah (misal: 1,3,7)")
+    print("  • Paste Email BPS (misal: heriplnt90@gmail.com)")
+    print(f"  • Tekan ENTER / ketik 'ALL' untuk menggunakan SEMUA akun (1 - {len(accounts)})")
+    print("-" * 65)
 
-    selected_accounts = accounts[:k]
-    print(f"\n✅ {len(selected_accounts)} Akun BPS akan dijalankan pada pengerjaan kali ini:")
+    selected_accounts = []
+    while True:
+        inp = input(f"👉 Pilih Akun BPS yang akan dijalankan: ").strip()
+
+        if not inp or inp.upper() in ("ALL", "SEMUA"):
+            selected_accounts = list(accounts)
+            break
+
+        # Check if email is entered
+        if "@" in inp:
+            matched = [a for a in accounts if inp.lower() in a.get("email", "").lower()]
+            if matched:
+                selected_accounts = matched
+                break
+            else:
+                print(f"❌ Akun dengan email '{inp}' tidak ditemukan.")
+                continue
+
+        # Check range e.g. 1-5
+        if "-" in inp and inp.replace("-", "").isdigit():
+            parts = inp.split("-")
+            s_idx = max(1, min(len(accounts), int(parts[0])))
+            e_idx = max(s_idx, min(len(accounts), int(parts[1])))
+            selected_accounts = accounts[s_idx - 1 : e_idx]
+            break
+
+        # Check comma separated e.g. 1, 3, 5
+        if "," in inp:
+            try:
+                indices = [int(x.strip()) for x in inp.split(",") if x.strip().isdigit()]
+                valid = [accounts[i - 1] for i in indices if 1 <= i <= len(accounts)]
+                if valid:
+                    selected_accounts = valid
+                    break
+            except Exception:
+                pass
+
+        # Check single number e.g. 1
+        if inp.isdigit():
+            val = int(inp)
+            if 1 <= val <= len(accounts):
+                selected_accounts = [accounts[val - 1]]
+                break
+            else:
+                print(f"❌ Masukkan nomor antara 1 dan {len(accounts)}.")
+
+    print(f"\n✅ {len(selected_accounts)} Akun BPS dipilih untuk pengerjaan kali ini:")
     for idx, acc in enumerate(selected_accounts, 1):
         print(f"   {idx}. {acc.get('email')}")
 
@@ -458,13 +503,7 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
         if not survey_caches:
             return idpel, email, False, f"❌ Survey cache tidak tersedia untuk {email}"
 
-        # Pembatasan 2: Delay 30 - 60 Detik per Data di HP Petugas
-        if not is_local:
-            delay_sec = random.uniform(30.0, 60.0)
-            print(f"⏳ [HP Petugas Delay] Worker ({email}) delay {delay_sec:.1f}s sebelum submit {idpel}...")
-            time.sleep(delay_sec)
-        else:
-            time.sleep(random.uniform(0.1, 0.4))
+        # No artificial 30-60s delay — execute at maximum performance
 
         # Re-check working hours periodically during execution
         ok_h, msg_h = check_working_hours(is_local)
