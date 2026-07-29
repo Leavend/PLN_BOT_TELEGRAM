@@ -541,12 +541,11 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
 
 
 def main():
-    # If user passed direct CLI flags or input files (e.g. --fast, --workers, --list, data.txt), delegate directly to batch_submit.py
-    known_direct_flags = ('--fast', '--workers', '--delay', '--list', '-l', '--resubmit', '--force', '--no-cek')
+    # Only delegate to batch_submit.py if an explicit input file (.txt/.csv) or --list / --resubmit-* flag is passed
     has_direct_input = any(arg.endswith(('.txt', '.csv')) for arg in sys.argv[1:])
-    has_direct_flag = any(arg.startswith(known_direct_flags) for arg in sys.argv[1:])
+    has_resubmit_or_list = any(arg.startswith(('--list', '-l', '--resubmit-reject', '--resubmit-open', '--resubmit-reopen', '--resubmit-all')) for arg in sys.argv[1:])
 
-    if len(sys.argv) > 1 and (has_direct_input or has_direct_flag):
+    if len(sys.argv) > 1 and (has_direct_input or has_resubmit_or_list):
         import subprocess
         cmd = [sys.executable, os.path.join(REPO_ROOT, "petugas_client", "batch_submit.py")] + sys.argv[1:]
         result = subprocess.run(cmd)
@@ -565,7 +564,7 @@ def main():
     parser.add_argument("--resubmit-reopen", action="store_true", help="Submit data REOPEN")
     parser.add_argument("--skip-cek-idpln", "--no-cek", action="store_true", dest="skip_cek_idpln", help="Skip CEK IDPel BPS")
     parser.add_argument("--fast", action="store_true", help="Setup survei dari cache disk")
-    parser.add_argument("--workers", type=int, default=4, help="Jumlah submit paralel")
+    parser.add_argument("--workers", type=int, default=0, help="Jumlah submit paralel")
     parser.add_argument("--delay", type=float, default=0.5, help="Stagger delay per item")
 
     args, unknown = parser.parse_known_args()
@@ -609,6 +608,9 @@ def main():
         "resubmit_open": args.resubmit_open,
         "resubmit_reopen": args.resubmit_reopen,
         "skip_cek_idpln": args.skip_cek_idpln,
+        "fast": args.fast,
+        "workers": args.workers,
+        "delay": args.delay,
     }
 
     step4_execute_parallel_batch(account_tasks, is_local, mode_flags)
