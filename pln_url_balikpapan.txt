@@ -1,5 +1,8 @@
-# URL server PLN (Cloudflare tunnel). Sumber kebenaran untuk petugas_client.
-# Tunnel quick trycloudflare.com ganti URL tiap restart — update baris di bawah
-# lalu commit + push. Petugas cukup `fasih-update` (git pull), TIDAK perlu edit .env.
+# URL server PLN untuk region balikpapan.
+# BACKUP: server PLN balikpapan mati (quick tunnel gazette hangus), belum dimigrasi
+# ke domain permanen. Sementara di-reroute ke server Bontang (domain permanen, stabil)
+# — lookup AP2T nasional jadi tetap jalan. Petugas cukup `fasih-update` (git pull).
+# CATATAN: selama reroute ini, FOTO RUMAH ikut dari pool Bontang (bukan balikpapan)
+# kecuali server Bontang dikonfigurasi menyajikan pool balikpapan (lihat chat).
 # Baris pertama non-komentar = URL aktif.
-https://gazette-unlikely-roller-hoping.trycloudflare.com
+https://bontang.xyzfasih.site
