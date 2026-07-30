@@ -313,6 +313,9 @@ adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100, 
 _HTTP_SESSION.mount("http://", adapter)
 _HTTP_SESSION.mount("https://", adapter)
 
+# Shared global ThreadPoolExecutor for per-item parallel BPS/PLN fetches (avoids per-item pool creation overhead)
+_PIPELINE_EXECUTOR = ThreadPoolExecutor(max_workers=64)
+
 # Fast-path cache for working PLN server URL and API Key
 _FAST_PLN_URL: Optional[str] = None
 _FAST_PLN_KEY: Optional[str] = None
@@ -329,6 +332,13 @@ def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
         params["idpel"] = idpel
     if nometer:
         params["nometer"] = nometer
+    # Kirim region klien supaya server backup (mis. Bontang menopang balikpapan)
+    # memilih FOTO dari pool region ini, bukan pool region server. Server lama /
+    # tanpa pool region ini akan MENGABAIKAN param → perilaku lama (aman).
+    try:
+        params["region"] = get_region()
+    except Exception:
+        pass
 
     now = time.time()
     with _FAST_LOCK:
@@ -783,12 +793,12 @@ def submit_single(
             idpel_map = sc.get("assignment_by_idpel")
             if idpel_map and val_clean in idpel_map:
                 matches.append((skey, sc, idpel_map[val_clean]))
-
-            for a in sc["assignments"]:
-                v_idpel = (a.get(idpel_slot) or "").strip()
-                v_nometer = (a.get(nometer_slot) or "").strip()
-                if v_idpel == val_clean or v_nometer == val_clean:
-                    matches.append((skey, sc, a))
+            else:
+                for a in sc["assignments"]:
+                    v_idpel = (a.get(idpel_slot) or "").strip()
+                    v_nometer = (a.get(nometer_slot) or "").strip()
+                    if v_idpel == val_clean or v_nometer == val_clean:
+                        matches.append((skey, sc, a))
 
         # Select the best target based on mode and responsibility status
         target = None
@@ -918,30 +928,28 @@ def submit_single(
             skip_cek_idpln = True
 
         import uuid
+        from concurrent.futures import ThreadPoolExecutor as _TPE
         aid = target.get("id") if target else str(uuid.uuid4())
-        d_idpln = _cek(check_idpln, headers, aid, idpel_val) if (idpel_val and not skip_cek_idpln) else None
-        if d_idpln and d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
-            return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
-
-        # ═══════════════════════════════════════════════════════════════════
-        # PARALLEL PIPELINE: Run PLN lookup + photo download concurrently
-        # instead of sequentially to cut per-item latency by ~60%
-        # ═══════════════════════════════════════════════════════════════════
-        from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
         lat, lon = override_lat, override_lon
         pln_data = None
         photo_path = None
 
         def _do_pln_lookup():
-            for attempt in range(1, 4):
+            for attempt in range(1, 3):
                 result = pln_lookup(idpel=idpel_val, nometer=nometer_val)
                 if result:
                     return result
-                if attempt < 3:
-                    time.sleep(0.5)
+                if attempt < 2:
+                    time.sleep(0.1)
             return None
 
-        pln_data = _do_pln_lookup()
+        # PARALLEL PIPELINE: Run BPS check_idpln and PLN lookup concurrently using shared global executor
+        fut_cek = _PIPELINE_EXECUTOR.submit(lambda: _cek(check_idpln, headers, aid, idpel_val) if (idpel_val and not skip_cek_idpln) else None)
+        fut_pln = _PIPELINE_EXECUTOR.submit(_do_pln_lookup)
+        d_idpln = fut_cek.result()
+        if d_idpln and d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
+            return True, "Sudah TERCATAT di FASIH — skip (anti-dupe)."
+        pln_data = fut_pln.result()
 
         # GUARD: never submit without valid PLN data.
         if not pln_data:
@@ -1774,11 +1782,7 @@ def main():
     start_time = time.time()
 
     def _worker(idx: int, val: str):
-        if not is_local:
-            delay_sec = random.uniform(30.0, 60.0)
-            logger.info(f"⏳ [HP Petugas Delay] Worker delay {delay_sec:.1f}s sebelum submit {val}...")
-            time.sleep(delay_sec)
-        elif args.delay > 0:
+        if hasattr(args, "delay") and args.delay > 0:
             time.sleep(random.uniform(0, args.delay))  # stagger, avoid thundering-herd
         wdir = tempfile.mkdtemp(prefix="fasih_")
         try:

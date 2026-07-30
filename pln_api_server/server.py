@@ -59,6 +59,11 @@ def get_photo_dirs(region):
 
 
 PHOTO_DIRS = get_photo_dirs(REGION)
+# Region foto tambahan yang server ini ikut sajikan (backup lintas-wilayah, mis.
+# Bontang menopang balikpapan). Tiap region -> pool bernama = nama region, dipilih
+# saat klien kirim ?region=<nama>. KOSONG (default) = perilaku lama, hanya foto
+# region sendiri. Aman: folder region yang tak ada otomatis dilewati.
+EXTRA_PHOTO_REGIONS = [r.strip().lower() for r in os.getenv("PLN_EXTRA_PHOTO_REGIONS", "").split(",") if r.strip()]
 # Database foto server WAJIB webp. Sengaja webp-only: file selain webp yang nyasar ke
 # folder wilayah akan DIABAIKAN (tidak disajikan), bukan diam-diam ikut terpakai.
 # Konversi dulu ke webp sebelum ditaruh (lihat docs/runbook-foto-wilayah.md).
@@ -113,6 +118,32 @@ def load_photos():
                                       for k, v in json.load(fh).items()}
             except Exception as e:
                 logger.warning(f"pools.json tak terbaca ({e}) — routing pool dilewati")
+
+    # Backup lintas-wilayah: muat foto region lain sebagai pool bernama = nama region.
+    # Dipilih HANYA saat klien kirim ?region=<nama> (lihat _pick_photo_id). Defensif:
+    # region == diri sendiri / folder tak ada → dilewati (perilaku lama tak berubah).
+    for rg in EXTRA_PHOTO_REGIONS:
+        if rg == REGION:
+            continue
+        d = os.path.join(REPO, "house_photos", rg)
+        if not os.path.isdir(d):
+            logger.warning(f"Extra photo region '{rg}': folder {d} tak ada — dilewati")
+            continue
+        flat = []
+        for f in os.listdir(d):
+            p = os.path.join(d, f)
+            if os.path.isfile(p) and f.lower().endswith(VALID_EXTENSIONS):
+                flat.append(p)
+            elif os.path.isdir(p):
+                sub = [os.path.join(p, s) for s in os.listdir(p)
+                       if s.lower().endswith(VALID_EXTENSIONS)]
+                _pools.setdefault(f"{rg}/{f}", []).extend(sub)
+                _photo_list.extend(sub)
+        if flat:
+            _pools.setdefault(rg, []).extend(flat)
+            _photo_list.extend(flat)
+        logger.info(f"Extra photo region '{rg}': {len(flat)} foto (pool '{rg}')")
+
     summary = ", ".join(f"{k}:{len(v)}" for k, v in _pools.items())
     logger.info(f"Loaded {len(_photo_list)} foto | pool[{summary}] | routing:{list(_pool_prefixes)}")
 
@@ -336,8 +367,11 @@ def lookup():
     if not profile:
         return jsonify({"error": "Data tidak ditemukan", "query": idpel or nometer}), 404
 
-    # Attach photo URL (local photo resolved by photo_id on this server)
-    photo_id = _pick_photo_id(profile.get("idpel", ""))
+    # Attach photo URL (local photo resolved by photo_id on this server).
+    # ?region=<nama> dari klien memilih pool foto region itu bila server ini
+    # menyajikannya sebagai backup (PLN_EXTRA_PHOTO_REGIONS) — mis. balikpapan
+    # nembak Bontang tetap dapat FOTO balikpapan, bukan foto bontang.
+    photo_id = _pick_photo_id(profile.get("idpel", ""), request.args.get("region", ""))
     if photo_id:
         profile["photo_url"] = f"/api/photo/{photo_id}"
     else:
@@ -394,9 +428,14 @@ def _hash_path(path: str) -> str:
     return hashlib.md5(os.path.basename(path).encode()).hexdigest()[:12]
 
 
-def _pick_photo_id(idpel: str = "") -> str | None:
+def _pick_photo_id(idpel: str = "", region: str = "") -> str | None:
     """Foto acak dari pool sesuai prefix idpel. Pool kosong -> None (bukan foto
-    area lain)."""
+    area lain). Kalau klien minta region lain yang di-backup server ini
+    (?region=<nama> & pool bernama itu ada) -> ambil dari pool region itu."""
+    region = (region or "").strip().lower()
+    if region and region != REGION and _pools.get(region):
+        rpics = _pools[region]
+        return _hash_path(random.choice(rpics)) if rpics else None
     pics = _pools.get(_route_pool(idpel)) or []
     return _hash_path(random.choice(pics)) if pics else None
 
