@@ -95,15 +95,22 @@ def check_working_hours(is_local: bool = False) -> tuple[bool, str]:
         )
 
 
-def load_saved_accounts() -> list[dict]:
-    """Load all saved BPS accounts from users.json, .fasih_accounts.txt, and fasih_token.json."""
+PETUGAS_ACCOUNTS_FILE = os.path.join(REPO_ROOT, "petugas_accounts.json")
+
+
+def load_saved_accounts(is_local: bool = False) -> list[dict]:
+    """
+    Load saved BPS accounts.
+    - HP Petugas (is_local=False): ONLY loads local setoran accounts on this HP (petugas_accounts.json) & fasih_token.json.
+    - Local Machine (is_local=True): Loads master users.json, .fasih_accounts.txt, and local accounts.
+    """
     accounts = []
     seen = set()
 
-    # 1. users.json
-    if os.path.exists(USERS_FILE):
+    # 1. Local petugas_accounts.json (Setoran Akun khusus HP ini)
+    if os.path.exists(PETUGAS_ACCOUNTS_FILE):
         try:
-            with open(USERS_FILE, "r") as f:
+            with open(PETUGAS_ACCOUNTS_FILE, "r") as f:
                 data = json.load(f)
                 for acc in data:
                     em = (acc.get("email") or "").strip()
@@ -113,26 +120,7 @@ def load_saved_accounts() -> list[dict]:
         except Exception:
             pass
 
-    # 2. .fasih_accounts.txt
-    if os.path.exists(FASIH_ACCOUNTS_FILE):
-        try:
-            with open(FASIH_ACCOUNTS_FILE, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    if ":" in line:
-                        em, pw = line.split(":", 1)
-                        em, pw = em.strip(), pw.strip()
-                    else:
-                        em, pw = line, "Pln@1234"
-                    if em and em.lower() not in seen:
-                        seen.add(em.lower())
-                        accounts.append({"email": em, "password": pw})
-        except Exception:
-            pass
-
-    # 3. fasih_token.json
+    # 2. Currently logged in account on device (fasih_token.json)
     if os.path.exists(TOKEN_FILE):
         try:
             with open(TOKEN_FILE, "r") as f:
@@ -144,11 +132,43 @@ def load_saved_accounts() -> list[dict]:
         except Exception:
             pass
 
+    # 3. ONLY if running on LOCAL Computer (MacBook / Admin), load master users.json & .fasih_accounts.txt
+    if is_local:
+        if os.path.exists(USERS_FILE):
+            try:
+                with open(USERS_FILE, "r") as f:
+                    data = json.load(f)
+                    for acc in data:
+                        em = (acc.get("email") or "").strip()
+                        if em and em.lower() not in seen:
+                            seen.add(em.lower())
+                            accounts.append(acc)
+            except Exception:
+                pass
+
+        if os.path.exists(FASIH_ACCOUNTS_FILE):
+            try:
+                with open(FASIH_ACCOUNTS_FILE, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        if ":" in line:
+                            em, pw = line.split(":", 1)
+                            em, pw = em.strip(), pw.strip()
+                        else:
+                            em, pw = line, "Pln@1234"
+                        if em and em.lower() not in seen:
+                            seen.add(em.lower())
+                            accounts.append({"email": em, "password": pw})
+            except Exception:
+                pass
+
     return accounts
 
 
-def save_accounts_to_disk(accounts: list[dict]):
-    """Save updated accounts to users.json."""
+def save_accounts_to_disk(accounts: list[dict], is_local: bool = False):
+    """Save accounts locally. HP Petugas saves to petugas_accounts.json; Local machine saves to users.json."""
     try:
         clean_accs = []
         for a in accounts:
@@ -161,10 +181,11 @@ def save_accounts_to_disk(accounts: list[dict]):
                 "last_date": a.get("last_date", datetime.date.today().isoformat()),
                 "is_disabled": a.get("is_disabled", False)
             })
-        with open(USERS_FILE, "w") as f:
+        target_file = USERS_FILE if is_local else PETUGAS_ACCOUNTS_FILE
+        with open(target_file, "w") as f:
             json.dump(clean_accs, f, indent=2)
     except Exception as e:
-        print(f"⚠️ Gagal menyimpan users.json: {e}")
+        print(f"⚠️ Gagal menyimpan file akun: {e}")
 
 
 def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True) -> dict:
@@ -226,17 +247,20 @@ def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True) -> di
 
 # --- SIMULATION WIZARD ---
 
-def step1_setoran_creds(accounts: list[dict]) -> list[dict]:
+def step1_setoran_creds(accounts: list[dict], is_local: bool = False) -> list[dict]:
     """Simulasi 1: Setoran Creds akun BPS yang akan dijalankan di HP Petugas."""
     print("\n" + "=" * 65)
     print("🔑 SIMULASI 1: SETORAN CREDS AKUN BPS (HP PETUGAS)")
     print("=" * 65)
 
     if accounts:
-        print(f"📋 Ditemukan {len(accounts)} Akun Creds BPS yang tersimpan di sistem:")
+        print(f"📋 Ditemukan {len(accounts)} Akun Creds BPS tersimpan di HP ini:")
         for idx, acc in enumerate(accounts, 1):
             em = acc.get("email", "Unknown")
             print(f"   {idx:2d}. {em}")
+        print("-" * 65)
+    else:
+        print("📋 Belum ada Creds Akun BPS tersimpan di HP ini.")
         print("-" * 65)
 
     ans = input("Apakah ingin menambah / setoran Creds Akun BPS baru? (y/N): ").strip().lower()
@@ -270,7 +294,7 @@ def step1_setoran_creds(accounts: list[dict]) -> list[dict]:
                         "password": password,
                         "token_data": td
                     })
-                save_accounts_to_disk(accounts)
+                save_accounts_to_disk(accounts, is_local)
             else:
                 print(f"❌ Login SSO Gagal untuk {email}. Silakan cek email & password.")
 
@@ -279,7 +303,7 @@ def step1_setoran_creds(accounts: list[dict]) -> list[dict]:
                 break
 
     if not accounts:
-        print("\n❌ Belum ada Creds akun BPS tersimpan. Wajib setoran minimal 1 Creds akun BPS!")
+        print("\n❌ Belum ada Creds akun BPS tersimpan di HP ini. Wajib setoran minimal 1 Creds akun BPS!")
         while not accounts:
             print("\n➕ Input Creds Akun BPS Pertama:")
             email = input("   Email BPS SSO   : ").strip()
@@ -293,7 +317,7 @@ def step1_setoran_creds(accounts: list[dict]) -> list[dict]:
                 if td and "access_token" in td:
                     print(f"✅ Login SSO BERHASIL untuk {email}!")
                     accounts.append({"email": email, "password": password, "token_data": td})
-                    save_accounts_to_disk(accounts)
+                    save_accounts_to_disk(accounts, is_local)
                 else:
                     print("❌ Login SSO Gagal. Coba lagi.")
 
@@ -651,11 +675,11 @@ def main():
         print(f"\n{hours_msg}")
         sys.exit(1)
 
-    # 1. Load accounts
-    accounts = load_saved_accounts()
+    # 1. Load accounts (HP Petugas loads local setoran accounts, Local machine loads master repo accounts)
+    accounts = load_saved_accounts(is_local)
 
     # 2. Step 1: Setoran Creds Akun BPS
-    accounts = step1_setoran_creds(accounts)
+    accounts = step1_setoran_creds(accounts, is_local)
 
     # 3. Step 2: Mau jalankan berapa akun?
     selected_accounts = step2_select_account_count(accounts)
