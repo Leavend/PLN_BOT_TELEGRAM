@@ -1336,7 +1336,9 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     ms_start = _rnd.randint(100, 999)
     
     local_start = local_now.replace(hour=hour_start, minute=minute_start, second=second_start, microsecond=ms_start*1000)
-    duration_secs = _rnd.randint(120, 360)
+    # Durasi survei realistis 10–20 menit (app asli ~28 mnt; 2–6 mnt lama terlalu
+    # cepat untuk survei rumah = tell tidak wajar). Tetap dalam jam kerja (clamp <18).
+    duration_secs = _rnd.randint(600, 1200)
     local_end = local_start + timedelta(seconds=duration_secs)
     if local_end.hour >= 18:
         local_end = local_end.replace(hour=17, minute=_rnd.randint(45, 59))
