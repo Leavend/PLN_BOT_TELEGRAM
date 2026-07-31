@@ -1447,7 +1447,42 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         }, ensure_ascii=False, separators=(',', ':')), ensure_ascii=False, separators=(',', ':'))
     else:
         result_callnik_str = json.dumps('{"data":{"alamat":null,"exists":false,"nama":null,"nomor_kartu_keluarga":null,"success":true},"success":true,"message":"Successfully hit an API.","httpStatus":"OK"}', ensure_ascii=False, separators=(',', ':'))
-    
+
+    # --- 0.6.7 NOMOR METER verification (form engine 0.2.7 added `result_nomor_meter`
+    # + `hasilCheckNoMeter`). Mirrors the CEK-IDPel card but for the meter number.
+    nometer_val = flat_answers.get("r101b") or ""
+    hasil_nometer_html = (
+        '\n            <div class="font-normal border-2 text-center note"'
+        '\n            style="padding: 0.8em; color: rgb(21, 128, 61); border-color: rgb(21, 128, 61); font-size: 12px;">'
+        '\n            <table style="border-collapse: collapse;">'
+        '\n              <tr>'
+        '\n                <td style="vertical-align: top; white-space: nowrap;">NOMOR METER</td>'
+        f'\n                <td style="vertical-align: top;">: <b>[ <span style="white-space: nowrap;">{nometer_val}</span> ]</b></td>'
+        '\n              </tr>'
+        '\n              <tr>'
+        '\n                <td style="vertical-align: top;">STATUS</td>'
+        '\n                <td style="vertical-align: top;">: <b>DITEMUKAN DAN BELUM TERCATAT PADA SISTEM FASIH</b></td>'
+        '\n              </tr>'
+        '\n            </table>'
+        '\n            </div>'
+    )
+    _rnm = {
+        "data": {
+            "alamat": flat_answers.get("r102e") or "",
+            "exists": True, "fasih_exists": False,
+            "id_pelanggan": flat_answers.get("r101a") or "",
+            "kode_desa": l4_fullcode, "kode_kab": l2_fullcode,
+            "kode_kec": l3_fullcode, "kode_prov": l1_code,
+            "nama": flat_answers.get("r103") or "",
+            "nama_desa": l4_name, "nama_kab": l2_name,
+            "nama_kec": l3_name, "nama_prov": l1_name,
+            "success": True,
+            "unitap": flat_answers.get("unitap") or l2.get("code") or "23BTG",
+        },
+        "success": True, "message": "Successfully hit an API.", "httpStatus": "OK",
+    }
+    result_nomor_meter_val = json.dumps(json.dumps(_rnm, ensure_ascii=False, separators=(',', ':')), ensure_ascii=False, separators=(',', ':'))
+
     is_pasca = flat_answers.get("_is_pasca", False)
     is_tambahan = use_legacy_format
 
@@ -1578,15 +1613,19 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
             "catatan", "selesai"
         ]
     else:
-        # 0.6.7 Prabayar schema (includes verification fields)
+        # 0.6.7 Prabayar schema — EXACT match to form-engine-0.2.7 app payload
+        # (verified vs decrypted app .7z 2026-07-31). 36 fields, precise order.
+        # NOTE vs old: +result_nomor_meter +hasilCheckNoMeter, and NO hasilCheckIdPel
+        # /unitupi/unitap/unitup/catatan (those broke rendering → "data corrupt").
         keys_list = [
-            "mulai", "r101a", "result_idpln", "hasilCheckIdPel2", "hasilCheckIdPel",
-            "r101b", "hasilCheckNoMeter2", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
-            "r104", "r105", "r106", "unitupi", "unitap", "unitup",
+            "mulai", "r101a", "result_idpln", "hasilCheckIdPel2",
+            "r101b", "result_nomor_meter", "hasilCheckNoMeter2", "hasilCheckNoMeter",
+            "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
+            "r104", "r105", "r106",
             "r201", "r202", "hasilPemadananNIK", "hasilPemadananNIK2", "no_kk", "result_callnik",
             "r203", "r204", "nama_ktp",
             "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
-            "catatan", "selesai"
+            "selesai"
         ]
 
     # Pre-compute all answers mapped to their values
@@ -1598,7 +1637,9 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         "hasilCheckIdPel2": "2",
         "hasilCheckIdPel": hasil_check_html,
         "r101b": flat_answers.get("r101b") or "",
-        "hasilCheckNoMeter2": None,
+        "result_nomor_meter": result_nomor_meter_val,
+        "hasilCheckNoMeter2": "2",
+        "hasilCheckNoMeter": hasil_nometer_html,
         "r102a": flat_answers.get("r102a") or f"[{l1_code}] {l1_name}",
         "r102b": flat_answers.get("r102b") or f"[{l2_code}] {l2_name}",
         "r102c": flat_answers.get("r102c") or f"[{l3_code}] {l3_name}",
@@ -1653,15 +1694,20 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     keys_with_timestamps = {
         "r104", "catatan"
     }
+    # form-engine 0.2.7 (template 0.6.7) stamps updatedAt/createdAt on EVERY answer
+    # item (epoch-ms int); older 0.5.9 only on selected blocks. Missing per-item
+    # timestamps was part of what made 0.6.7 payloads unreadable in the app.
+    all_items_ts = (tv == "0.6.7")
     for k in keys_list:
         ans_obj = {
             "dataKey": k,
             "answer": computed_answers[k]
         }
-        # Add timestamps for blocks II, III, IV, plus r104 and catatan
-        if k in keys_with_timestamps or k.startswith("r2") or k.startswith("r3") or k in ("nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "no_kk"):
-            ans_obj["createdAt"] = now_ms
+        # Add timestamps for blocks II, III, IV, plus r104 and catatan (0.5.9),
+        # or ALL items (0.6.7 — matches the app).
+        if all_items_ts or k in keys_with_timestamps or k.startswith("r2") or k.startswith("r3") or k in ("nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "no_kk"):
             ans_obj["updatedAt"] = now_ms
+            ans_obj["createdAt"] = now_ms
         answers_list.append(ans_obj)
         
     return {
