@@ -1695,17 +1695,33 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
         "r104", "catatan"
     }
     # form-engine 0.2.7 (template 0.6.7) stamps updatedAt/createdAt on EVERY answer
-    # item (epoch-ms int); older 0.5.9 only on selected blocks. Missing per-item
-    # timestamps was part of what made 0.6.7 payloads unreadable in the app.
+    # item (epoch-ms int); older 0.5.9 only on selected blocks. In the real app each
+    # item's timestamp = WHEN that field was filled during the interview — spread
+    # across [mulai, selesai], increasing with field order — NOT the submit instant.
+    # So distribute per-item ts over the interview window instead of a single now_ms
+    # (all-same-ms would be an impossible-survey tell).
     all_items_ts = (tv == "0.6.7")
-    for k in keys_list:
+    if all_items_ts:
+        try:
+            _start_ms = int(utc_start.timestamp() * 1000)
+            _end_ms = int(utc_end.timestamp() * 1000)
+        except Exception:
+            _start_ms = _end_ms = now_ms
+        if _end_ms < _start_ms:
+            _end_ms = _start_ms
+        _span = max(1, len(keys_list) - 1)
+    for i, k in enumerate(keys_list):
         ans_obj = {
             "dataKey": k,
             "answer": computed_answers[k]
         }
-        # Add timestamps for blocks II, III, IV, plus r104 and catatan (0.5.9),
-        # or ALL items (0.6.7 — matches the app).
-        if all_items_ts or k in keys_with_timestamps or k.startswith("r2") or k.startswith("r3") or k in ("nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "no_kk"):
+        if all_items_ts:
+            # per-item ts within [mulai, selesai], monotonic by field order —
+            # mirrors the app (mulai→start, selesai→end).
+            ts = _start_ms + round(i * (_end_ms - _start_ms) / _span)
+            ans_obj["updatedAt"] = ts
+            ans_obj["createdAt"] = ts
+        elif k in keys_with_timestamps or k.startswith("r2") or k.startswith("r3") or k in ("nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik", "no_kk"):
             ans_obj["updatedAt"] = now_ms
             ans_obj["createdAt"] = now_ms
         answers_list.append(ans_obj)
