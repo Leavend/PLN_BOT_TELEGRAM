@@ -1593,16 +1593,20 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
                 "catatan", "selesai"
             ]
         else:
-            # 0.5.9 Pascabayar schema (legacy)
+            # 0.5.9 Pascabayar schema — EXACT match to app payload (verified vs
+            # decrypted app .7z 2026-08-01). 38 fields. Pascabayar is STILL on
+            # template 0.5.9 (only prabayar moved to 0.6.7). NOTE vs old: carries the
+            # NIK-pemadanan block (nama_ktp/hasilPemadananNIK/result_callnik/no_kk/
+            # hasilPemadananNIK2) and DROPS the invented DIL fields (UPI/UP3/ULP/RBM/
+            # daya/tarif/kdpm/layanan/status_dil) that the app never sends.
             keys_list = [
                 "flagpre", "mulai", "r101a", "r101b",
                 "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
-                "r104", "r105", "r106", "unitupi", "unitap", "unitup",
-                "kode_rbm", "kddk", "selesai",
-                "UPI", "UP3", "ULP", "RBM", "daya", "tarif", "kdpm", "layanan", "status_dil",
-                "r201", "r202", "r203", "r204",
+                "r104", "r105", "r106", "unitupi", "unitap", "unitup", "kode_rbm", "kddk",
+                "r201", "r202", "nama_ktp", "hasilPemadananNIK", "result_callnik",
+                "r203", "r204", "no_kk", "hasilPemadananNIK2",
                 "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
-                "catatan"
+                "catatan", "selesai"
             ]
     elif tv == "0.5.9":
         # 0.5.9 Prabayar schema: NO verification fields included!
@@ -1694,7 +1698,7 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
     # Generate the formatted answers list
     answers_list = []
     keys_with_timestamps = {
-        "r104", "catatan"
+        "r104", "catatan", "mulai", "selesai"
     }
     # form-engine 0.2.7 (template 0.6.7) stamps updatedAt/createdAt on EVERY answer
     # item (epoch-ms int); older 0.5.9 only on selected blocks. In the real app each
