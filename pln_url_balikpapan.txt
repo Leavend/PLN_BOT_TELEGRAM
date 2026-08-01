@@ -1,8 +1,5 @@
-# URL server PLN untuk region balikpapan.
-# BACKUP: server PLN balikpapan mati (quick tunnel gazette hangus), belum dimigrasi
-# ke domain permanen. Sementara di-reroute ke server Bontang (domain permanen, stabil)
-# — lookup AP2T nasional jadi tetap jalan. Petugas cukup `fasih-update` (git pull).
-# CATATAN: selama reroute ini, FOTO RUMAH ikut dari pool Bontang (bukan balikpapan)
-# kecuali server Bontang dikonfigurasi menyajikan pool balikpapan (lihat chat).
+# URL server PLN region balikpapan — domain permanen (named/dashboard tunnel).
+# Server balikpapan sudah hidup lagi (cloudflared service install + supervisor),
+# tidak lagi di-reroute ke bontang. Petugas cukup `fasih-update` (git pull).
 # Baris pertama non-komentar = URL aktif.
-https://bontang.xyzfasih.site
+https://balikpapan.xyzfasih.site
