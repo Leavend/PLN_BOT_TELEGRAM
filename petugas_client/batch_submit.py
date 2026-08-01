@@ -1835,7 +1835,12 @@ def main():
     start_time = time.time()
 
     def _worker(idx: int, val: str):
-        if hasattr(args, "delay") and args.delay > 0:
+        if args.resubmit_reject:
+            # Delay 30-60 dtk per data untuk resubmit-reject: menyebar beban ke BPS +
+            # pola lebih manusiawi (bukan burst massal). Per item (tiap worker menunggu
+            # sebelum submit-nya). Naikkan --workers kalau mau throughput lebih tinggi.
+            time.sleep(random.uniform(30, 60))
+        elif hasattr(args, "delay") and args.delay > 0:
             time.sleep(random.uniform(0, args.delay))  # stagger, avoid thundering-herd
         wdir = tempfile.mkdtemp(prefix="fasih_")
         try:
