@@ -264,36 +264,26 @@ def test_wrap_answers_pasca_067_keys_order():
     }
     result = wrap_answers(flat_answers, target, "test_user")
     keys = [a["dataKey"] for a in result["answers"]]
-    
-    # Check that it contains new 0.6.7 Pascabayar fields in the correct order
-    assert "flagpre" not in keys
-    assert "result_idpln" in keys
-    assert "hasilCheckIdPel2" in keys
-    assert "hasilCheckIdPel" in keys
-    assert "nama_ktp" in keys
-    assert "hasilPemadananNIK" in keys
-    assert "hasilPemadananNIK2" in keys
-    assert "result_callnik" in keys
-    assert "no_kk" in keys
-    assert "catatan" in keys
-    assert "selesai" in keys
-    
-    # Ensure legacy UPI/UP3/etc fields are NOT present in 0.6.7
-    assert "UPI" not in keys
-    assert "UP3" not in keys
-    
-    # Ensure correct relative order in block II: r201 -> r202 -> nama_ktp -> hasilPemadananNIK -> hasilPemadananNIK2 -> result_callnik -> r203 -> r204 -> no_kk
-    idx_r201 = keys.index("r201")
-    idx_r202 = keys.index("r202")
-    idx_nama_ktp = keys.index("nama_ktp")
-    idx_hasilPemadananNIK = keys.index("hasilPemadananNIK")
-    idx_hasilPemadananNIK2 = keys.index("hasilPemadananNIK2")
-    idx_result_callnik = keys.index("result_callnik")
-    idx_r203 = keys.index("r203")
-    idx_r204 = keys.index("r204")
-    idx_no_kk = keys.index("no_kk")
-    
-    assert idx_r201 < idx_r202 < idx_nama_ktp < idx_hasilPemadananNIK < idx_hasilPemadananNIK2 < idx_result_callnik < idx_r203 < idx_r204 < idx_no_kk
+
+    # 0.6.x Pascabayar = 37 fields, verified vs app samples (tv 0.6.0/0.6.5/0.6.6).
+    # Pascabayar KEEPS DIL fields + NIK-pemadanan, and does NOT carry the prabayar
+    # CEK cards nor `catatan`.
+    assert len(keys) == 37
+    for k in ("flagpre", "unitupi", "unitap", "unitup", "kode_rbm", "kddk",
+              "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik",
+              "no_kk", "mulai", "selesai"):
+        assert k in keys, k
+    for k in ("result_idpln", "hasilCheckIdPel", "hasilCheckIdPel2",
+              "result_nomor_meter", "hasilCheckNoMeter", "catatan",
+              "UPI", "UP3", "ULP", "daya", "tarif"):
+        assert k not in keys, k
+
+    # Block II order: r201 -> r202 -> nama_ktp -> hasilPemadananNIK ->
+    # hasilPemadananNIK2 -> result_callnik -> r203 -> r204 -> no_kk
+    order = ["r201", "r202", "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2",
+             "result_callnik", "r203", "r204", "no_kk"]
+    idxs = [keys.index(k) for k in order]
+    assert idxs == sorted(idxs)
 
 
 if __name__ == "__main__":
