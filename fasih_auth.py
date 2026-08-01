@@ -175,8 +175,31 @@ def get_sso_session() -> requests.Session:
     """
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0 (Linux; Android 13)"})
-    # Direct connection - no proxy, no IP rewriting
+    # Poor-network resilience (mis. di lapangan/hutan, sinyal jelek): retry
+    # transient connect/read failures with backoff on the SSO calls so login tetap
+    # jalan di link yang flaky. Tetap koneksi langsung (no proxy, no IP rewriting).
+    try:
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        retry = Retry(total=5, connect=5, read=4, backoff_factor=1.5,
+                      status_forcelist=(429, 500, 502, 503, 504),
+                      allowed_methods=frozenset(["GET", "POST"]),
+                      raise_on_status=False)
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=4)
+        session.mount("https://", adapter)
+    except Exception:
+        pass
     return session
+
+
+def _sso_timeout():
+    """(connect, read) timeout untuk SSO. Longgar buat jaringan lambat; bisa
+    dinaikin via env FASIH_SSO_TIMEOUT (detik). Default read 45s (was 15s)."""
+    try:
+        t = float(os.getenv("FASIH_SSO_TIMEOUT", "45"))
+    except (TypeError, ValueError):
+        t = 45.0
+    return (min(20.0, t), t)
 
 def try_direct_grant(email, password, realm, client_id):
     """Mencoba Resource Owner Password Credentials (direct access grant)."""
@@ -189,7 +212,7 @@ def try_direct_grant(email, password, realm, client_id):
     }
     try:
         session = get_sso_session()
-        resp = session.post(token_url, data=data, timeout=15)
+        resp = session.post(token_url, data=data, timeout=_sso_timeout())
         if resp.status_code == 200:
             return resp.json()
     except Exception:
@@ -219,7 +242,7 @@ def exchange_code_for_token(token_url, client_id, redirect_uri, code):
     }
     try:
         session = get_sso_session()
-        resp = session.post(token_url, data=exchange_data, timeout=15)
+        resp = session.post(token_url, data=exchange_data, timeout=_sso_timeout())
         return resp.json() if resp.status_code == 200 else None
     except Exception:
         return None
@@ -231,10 +254,10 @@ def try_browser_auth_code_flow(email, password, realm, client_id, redirect_uri):
     params = {"client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code"}
     session = get_sso_session()
     try:
-        resp = session.get(auth_url, params=params, timeout=15)
+        resp = session.get(auth_url, params=params, timeout=_sso_timeout())
         action = get_login_action(resp.text) if resp.status_code == 200 else None
         if action:
-            resp2 = session.post(action, data={"username": email, "password": password}, timeout=15, allow_redirects=False)
+            resp2 = session.post(action, data={"username": email, "password": password}, timeout=_sso_timeout(), allow_redirects=False)
             code = get_auth_code(resp2.headers.get("Location", "")) if resp2.status_code in (302, 303) else None
             if code:
                 return exchange_code_for_token(token_url, client_id, redirect_uri, code)
