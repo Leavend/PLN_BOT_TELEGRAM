@@ -1539,7 +1539,14 @@ def _reject_idpels(survey_caches: dict) -> list[str]:
 
 
 def _open_idpels(survey_caches: dict) -> list[str]:
-    """IDPel / NoMeter dari assignment berstatus OPEN / PERNAH DIBUKA."""
+    """IDPel (atau NoMeter bila IDPel kosong) dari assignment berstatus OPEN /
+    PERNAH DIBUKA.
+
+    Satu assignment => PALING BANYAK satu item. Sebelumnya idpel DAN nometer
+    sama-sama dimasukkan, jadi satu record OPEN bisa dikerjakan dua kali (live:
+    435 assignment -> 758 item, 326 di antaranya dobel). Submit kedua tidak
+    tertahan guard status karena survey_caches cuma snapshot — alias di memori
+    tetap "OPEN" walau record-nya barusan terkirim."""
     out, seen = [], set()
     for sc in survey_caches.values():
         tm = sc.get("template_mapping") or {}
@@ -1547,15 +1554,15 @@ def _open_idpels(survey_caches: dict) -> list[str]:
         nometer_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
         for a in sc.get("assignments") or []:
             alias = (a.get("assignmentStatusAlias") or "").strip().upper()
-            if "OPEN" in alias or "PERNAH DIBUKA" in alias:
-                idp = (a.get(idpel_slot) or "").strip()
-                nom = (a.get(nometer_slot) or "").strip()
-                if idp and 8 <= len(idp) <= 15 and idp not in seen:
-                    seen.add(idp)
-                    out.append(idp)
-                if nom and 8 <= len(nom) <= 15 and nom not in seen:
-                    seen.add(nom)
-                    out.append(nom)
+            if "OPEN" not in alias and "PERNAH DIBUKA" not in alias:
+                continue
+            idp = (a.get(idpel_slot) or "").strip()
+            nom = (a.get(nometer_slot) or "").strip()
+            # IDPel dulu; nometer hanya cadangan kalau IDPel tak terpakai.
+            val = idp if (idp and 8 <= len(idp) <= 15) else (nom if (nom and 8 <= len(nom) <= 15) else "")
+            if val and val not in seen:
+                seen.add(val)
+                out.append(val)
     return out
 
 

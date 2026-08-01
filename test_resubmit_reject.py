@@ -49,9 +49,12 @@ def _createStatus(target):
     return "true" if target.get("isNew", False) else "false"
 
 def _is_edit(target, resubmit_reject=False):
-    # HAR-proven: only SUBMITTED uses /edit. OPEN and REJECTED both use /submit.
-    status_alias = target.get("assignmentStatusAlias") or ""
-    return "SUBMITTED" in status_alias
+    # Mirrors submit_single: an existing S3 archive (basePath) or a SUBMITTED alias
+    # routes to /edit; reject always forces /submit. OPEN (never opened, no basePath)
+    # uses /submit. REOPEN carries a basePath, so it correctly lands on /edit.
+    status_alias = (target.get("assignmentStatusAlias") or "").upper()
+    return ((bool(target.get("basePath")) or "SUBMITTED" in status_alias)
+            and not resubmit_reject and "REJECT" not in status_alias)
 
 
 def test_reject_target_resubmits_existing_no_duplicate():
@@ -95,6 +98,87 @@ def test_missing_survey_version_keeps_fallback():
     sc = {"survey": {"templateLookup": [{}]}}  # no templateVersion in survey either
     reject = {"id": "x", "assignmentStatusAlias": "REJECTED x"}
     assert _stamped_template_version(sc, reject) == "0.5.9"
+
+
+# --- OPEN carries the same 0.6.7 obligation as reject. An OPEN record was never
+# opened, so it has NO basePath and therefore NO original archive to merge: the stamp
+# is the ONLY thing that can supply the version. If it were skipped for lack of
+# orig_data, wrap_answers would fall back to 0.5.9 and the app would render the
+# submitted record empty ("data corrupt") — the original bug, on a different path. ---
+
+def test_open_stamps_current_template_version_without_orig_data():
+    sc = {"survey": {"templateLookup": [{"templateVersion": "0.6.7"}]}}
+    open_target = {"id": "o", "assignmentStatusAlias": "OPEN"}  # no basePath, no orig_data
+    assert _stamped_template_version(sc, open_target) == "0.6.7"
+
+
+def test_open_stamp_prefers_cached_template_version():
+    # sc["template_version"] is the fast-cache field; it must win over the survey lookup
+    # so a --fast run stamps the same version a full fetch would.
+    sc = {"template_version": "0.6.7", "survey": {"templateLookup": [{"templateVersion": "0.5.9"}]}}
+    tv = sc.get("template_version") or \
+        ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
+    assert tv == "0.6.7"
+
+
+def test_open_pasca_wrap_answers_is_067_shape():
+    """An OPEN pascabayar record, once stamped 0.6.7, must produce the 0.6.7 payload
+    (37 fields + catatan) — not the 0.5.9 shape."""
+    from submit_fasih import wrap_answers
+    sc = {"survey": {"templateLookup": [{"templateVersion": "0.6.7"}]}}
+    open_target = {
+        "id": "open-1",
+        "assignmentStatusAlias": "OPEN",
+        "region": {"level1": {"code": "72"}, "level2": {"code": "72PLU"},
+                   "level3": {"code": "72701"}, "level4": {"code": "PALU"}},
+    }
+    _stamped_template_version(sc, open_target)
+    assert open_target["templateVersion"] == "0.6.7"
+    result = wrap_answers({"r101a": "312700443566", "_is_pasca": True}, open_target, "petugas")
+    keys = [a["dataKey"] for a in result["answers"]]
+    assert len(keys) == 38, f"OPEN pasca must be 0.6.x shape, got {len(keys)}"
+    for k in ("flagpre", "nama_ktp", "hasilPemadananNIK", "mulai", "catatan", "selesai"):
+        assert k in keys, k
+
+
+def test_open_idpels_one_item_per_assignment():
+    """A record carrying BOTH idpel and nometer must yield ONE item, not two —
+    otherwise the same OPEN assignment is submitted twice in a single run (the
+    cached alias stays 'OPEN', so the status guard cannot catch the second pass)."""
+    caches = {"PASCABAYAR": {
+        "template_mapping": {"data1": "r101a", "data3": "r101b"},
+        "assignments": [
+            {"assignmentStatusAlias": "OPEN", "data1": "231020250892", "data3": "56984078510"},
+            {"assignmentStatusAlias": "OPEN", "data1": "231020250893", "data3": "56984078511"},
+        ],
+    }}
+    assert bs._open_idpels(caches) == ["231020250892", "231020250893"]
+
+
+def test_open_idpels_falls_back_to_nometer_when_idpel_missing():
+    caches = {"PRABAYAR": {
+        "template_mapping": {"data3": "r101a", "data1": "r101b"},
+        "assignments": [{"assignmentStatusAlias": "OPEN", "data3": "", "data1": "32117566151"}],
+    }}
+    assert bs._open_idpels(caches) == ["32117566151"]
+
+
+def test_open_idpels_skips_record_without_usable_identifier():
+    # live case: a prabayar OPEN row whose only value is a 2-char prelist field
+    caches = {"PRABAYAR": {
+        "template_mapping": {"data3": "r101a", "data1": "r101b"},
+        "assignments": [{"assignmentStatusAlias": "OPEN", "data3": "", "data1": "28"}],
+    }}
+    assert bs._open_idpels(caches) == []
+
+
+def test_reopen_with_basepath_routes_to_edit():
+    """REOPEN ('OPEN PERNAH DIBUKA') already has an S3 archive, so it must update it
+    via /edit rather than submitting a second archive."""
+    reopen = {"id": "r", "assignmentStatusAlias": "OPEN PERNAH DIBUKA",
+              "basePath": "s3/path/to/archive"}
+    assert _is_edit(reopen) is True
+    assert _createStatus(reopen) == "false"  # still binds the existing assignment
 
 
 def test_wrap_answers_interview_times():
@@ -161,16 +245,21 @@ def test_wrap_answers_interview_times():
 # --- OPEN / PERNAH DIBUKA helper tests ---
 
 def test_open_idpels_picks_status_open_and_pernah_dibuka():
-    """_open_idpels: matches OPEN and PERNAH DIBUKA status, collecting IDPel and NoMeter."""
+    """_open_idpels: matches OPEN and PERNAH DIBUKA, one item per assignment.
+
+    Row 1 carries both an IDPel (data3 = r101a) and a NoMeter (data1 = r101b);
+    only the IDPel is emitted — emitting both made the same assignment get
+    submitted twice in one run. Row 2 has no IDPel, so its NoMeter is the
+    fallback identifier."""
     caches = _cache([
-        {"assignmentStatusAlias": "OPEN", "data3": "111111111111", "data1": "45450136058"},         # OPEN Prabayar ✓
-        {"assignmentStatusAlias": "PERNAH DIBUKA", "data1": "222222222222"},                  # PERNAH DIBUKA ✓
+        {"assignmentStatusAlias": "OPEN", "data3": "111111111111", "data1": "45450136058"},   # OPEN ✓ (idpel wins)
+        {"assignmentStatusAlias": "PERNAH DIBUKA", "data1": "222222222222"},                  # PERNAH DIBUKA ✓ (nometer fallback)
         {"assignmentStatusAlias": "SUBMITTED BY Pencacah", "data3": "444444444444"},          # SUBMITTED ✗
         {"assignmentStatusAlias": "REJECTED BY Admin Kabupaten", "data3": "555555555555"},    # REJECTED ✗
     ])
     result = bs._open_idpels(caches)
     assert "111111111111" in result
-    assert "45450136058" in result
+    assert "45450136058" not in result   # same assignment as row 1 — must not double up
     assert "222222222222" in result
     assert "444444444444" not in result
     assert "555555555555" not in result
