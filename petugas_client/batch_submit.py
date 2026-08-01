@@ -476,6 +476,17 @@ def ensure_login() -> dict:
 
 # --- Submit Pipeline ---
 
+def _demangle_name(name: str) -> str:
+    """Old AP2T/DIL rows store some names with a space after EVERY letter
+    ('A G U S' = AGUS, 'A D U L' = ADUL). If every token is a single char, collapse
+    them into one word so it can be masked meaningfully. Normal names pass through
+    unchanged. Word boundaries in multi-word mangled names can't be recovered."""
+    toks = str(name or "").split()
+    if len(toks) > 1 and all(len(t) == 1 for t in toks):
+        return "".join(toks)
+    return str(name or "")
+
+
 def _is_prabayar(direct_args: dict) -> bool:
     """Determine product type from PLN API explicit 'produk' field, tarif suffix (T = Prabayar/Token), or prelist."""
     produk = (direct_args.get("produk") or "").strip().upper()
@@ -1336,7 +1347,6 @@ def submit_single(
 
             # 2. Merge new answers
             flat_orig["idpln_response"] = d_idpln
-            print("DEBUG MERGE: answers r101a =", answers.get("r101a"), ", flat_orig r101a before =", flat_orig.get("r101a"))
             preserved_keys = {
                 "r101a", "r101b", "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
                 "result_idpln", "hasilCheckIdPel", "hasilCheckIdPel2"
@@ -1345,7 +1355,19 @@ def submit_single(
                 if k in preserved_keys and flat_orig.get(k):
                     continue
                 flat_orig[k] = v
-            print("DEBUG MERGE: flat_orig r101a after =", flat_orig.get("r101a"))
+
+            # Prefer the REAL name from PLN/AP2T over the archived one. Old rejects
+            # often carry a mangled single-char name (e.g. "A D U L") in r103 — replace
+            # it with the authoritative AP2T name: r103 = real full name (archive),
+            # data2 = masked (app/Pengawas quick-view).
+            _real_nama = clean_pln_name(direct_args.get("pln_nama") or direct_args.get("nama") or "")
+            if _real_nama and _real_nama.upper() != "NONAME":
+                # r103 (archive) keeps the AP2T value verbatim → matches BPS's DIL for
+                # validation (resubmit with a spaced name is proven accepted). data2
+                # (display) uses the DE-MANGLED + masked form so Pengawas sees a proper
+                # masked name ('A G U S' → 'AGUS' → 'A**S') instead of 'A G U S'.
+                flat_orig["r103"] = _real_nama
+                target["data2"] = mask_pii_name(_demangle_name(_real_nama))
 
             # 3. Wrap using wrap_answers to get perfectly structured BPS payload
             wrapped = wrap_answers(flat_orig, target, user_name)
