@@ -93,3 +93,11 @@ staging/
 
 # decompiled APK — moved to ~/Fasih-APK-Decompile
 src/sources/
+
+# BPS master account database + backups (LOCAL ONLY — never push; each HP Petugas
+# uses its own petugas_accounts.json). users.json.example stays tracked as template.
+users.json
+users.json.bak*
+*.bak-*
+petugas_accounts.json
+*.flock
