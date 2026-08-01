@@ -45,7 +45,7 @@ from fasih_api import (
     fetch_template_mapping, fetch_regions,
     request_photo_presign_put, upload_photo_to_s3, request_photo_presign_get,
     confirm_submit, request_presign_url, upload_to_s3,
-    map_answers_to_data_slots,
+    map_answers_to_data_slots, mask_pii_name,
     check_idpln, check_nikpln,
 )
 from fasih_crypto import compute_md5, compute_md5_base64
@@ -1107,7 +1107,10 @@ def submit_single(
             target = build_new_assignment_target(
                 template_assignment, idpel_val, nometer_val, sc["template_mapping"])
             target["id"] = aid  # same id used for CEK, mirrors the app
-            target["data2"] = direct_args.get("nama") or ""
+            # data2 = plaintext quick-view slot shown in the app / to Pengawas → MASK
+            # the name (like the official FASIH app). The REAL name stays in the
+            # encrypted archive (r103), so BPS validation vs the DIL is unaffected.
+            target["data2"] = mask_pii_name(direct_args.get("nama") or "")
             target["data4"] = direct_args.get("alamat") or ""
             target["data5"] = direct_args.get("alamat") or ""
 
