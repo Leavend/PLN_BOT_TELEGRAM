@@ -1404,6 +1404,12 @@ def submit_single(
             key = f"data{i}"
             data_slots[key] = str(target.get(key) or "")
         data_slots["data7"] = "1. Berhasil didata"
+        # data2 = plaintext nama quick-view (app / Pengawas). On reject/resubmit the
+        # slot is inherited from the existing BPS record — often UNMASKED (old 0.5.9
+        # submit) → re-mask it like the app. Idempotent: skip if already masked (has
+        # '*'), so a create_new value already masked upstream isn't double-masked.
+        if data_slots.get("data2") and "*" not in data_slots["data2"]:
+            data_slots["data2"] = mask_pii_name(data_slots["data2"])
 
 
 
