@@ -268,15 +268,17 @@ def test_wrap_answers_pasca_067_keys_order():
     # 0.6.x Pascabayar = 37 fields, verified vs app samples (tv 0.6.0/0.6.5/0.6.6).
     # Pascabayar KEEPS DIL fields + NIK-pemadanan, and does NOT carry the prabayar
     # CEK cards nor `catatan`.
-    assert len(keys) == 37
+    assert len(keys) == 38  # 37 base + catatan (Blok IV, live-verified valid on 0.6.7)
     for k in ("flagpre", "unitupi", "unitap", "unitup", "kode_rbm", "kddk",
               "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik",
-              "no_kk", "mulai", "selesai"):
+              "no_kk", "mulai", "catatan", "selesai"):
         assert k in keys, k
     for k in ("result_idpln", "hasilCheckIdPel", "hasilCheckIdPel2",
-              "result_nomor_meter", "hasilCheckNoMeter", "catatan",
+              "result_nomor_meter", "hasilCheckNoMeter",
               "UPI", "UP3", "ULP", "daya", "tarif"):
         assert k not in keys, k
+    # catatan is Blok IV notes, placed right before selesai
+    assert keys.index("catatan") < keys.index("selesai")
 
     # Block II order: r201 -> r202 -> nama_ktp -> hasilPemadananNIK ->
     # hasilPemadananNIK2 -> result_callnik -> r203 -> r204 -> no_kk

@@ -218,16 +218,25 @@ def generate_random_phone() -> str:
     return f"{prefix}{digits}"
 
 def generate_random_comment() -> str:
+    """Catatan Blok IV yang natural + acak (KOMBINASI frasa, bukan kalimat template
+    kaku), maks ~10 kata. Kadang 1 frasa, kadang gabungan 2-3 — variatif, bukan pola
+    bot yang sama terus."""
     import random
-    comments = [
-        "Pendataan berjalan lancar, responden sangat kooperatif.",
-        "Rumah sesuai dengan koordinat, data ID pelanggan valid.",
-        "Responden kooperatif, informasi tarif dan daya sesuai.",
-        "Data berhasil dicatat lengkap, kondisi fisik rumah sesuai foto.",
-        "Wawancara dilaksanakan dengan lancar bersama pemilik rumah.",
-        "Kondisi meteran berfungsi dengan baik, tidak ada kendala."
-    ]
-    return random.choice(comments)
+    kondisi = ["rumah permanen", "rumah semi permanen", "bangunan tempat tinggal",
+               "rumah dihuni", "hunian tetap", "rumah layak huni", "rumah panggung",
+               "rumah kayu", "rumah batu"]
+    penghuni = ["penghuni ada", "pelanggan ditemui", "responden kooperatif",
+                "pemilik hadir", "dijawab penghuni", "ada penghuni saat kunjungan",
+                "penghuni menerima dengan baik"]
+    verif = ["data sesuai lapangan", "meteran terpasang", "koordinat diambil",
+             "identitas sesuai", "sesuai data pelanggan", "foto rumah diambil",
+             "kondisi normal", "tarif dan daya sesuai", "no meter terbaca"]
+    # 1-3 frasa dari pool berbeda, urutan & jumlah acak → tidak monoton
+    pools = random.sample([kondisi, penghuni, verif], k=random.randint(1, 3))
+    parts = [random.choice(p) for p in pools]
+    note = ", ".join(parts)
+    words = note.split()
+    return " ".join(words[:10]) if len(words) > 10 else note
 
 import re
 
@@ -1586,9 +1595,9 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
             # samples tv 0.6.0 / 0.6.5 / 0.6.6 (2026-08-01). Pascabayar KEEPS the DIL
             # fields (flagpre/unitupi/unitap/unitup/kode_rbm/kddk) and the NIK-pemadanan
             # block, and does NOT carry the prabayar CEK cards (result_idpln/
-            # hasilCheckIdPel*/result_nomor_meter/hasilCheckNoMeter*) or `catatan`.
-            # NOTE: no verified 0.6.7 pasca sample yet (nobody has submitted pasca
-            # since the 0.6.7 bump), but the field set is stable across all 0.6.x.
+            # hasilCheckIdPel*/result_nomor_meter/hasilCheckNoMeter*). PLUS `catatan`
+            # (Blok IV notes) — live-verified 2026-08-01 that BPS accepts it on a 0.6.7
+            # pasca record (reject flipped to SUBMITTED, catatan present, renders).
             keys_list = [
                 "flagpre", "mulai", "r101a", "r101b",
                 "r102a", "r102b", "r102c", "r102d", "r102e", "r103",
@@ -1596,7 +1605,7 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
                 "r201", "r202", "nama_ktp", "hasilPemadananNIK", "hasilPemadananNIK2", "result_callnik",
                 "r203", "r204", "no_kk",
                 "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
-                "selesai"
+                "catatan", "selesai"
             ]
         else:
             # 0.5.9 Pascabayar schema — EXACT match to app payload (verified vs
@@ -1625,10 +1634,11 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
             "catatan", "selesai"
         ]
     else:
-        # 0.6.7 Prabayar schema — EXACT match to form-engine-0.2.7 app payload
-        # (verified vs decrypted app .7z 2026-07-31). 36 fields, precise order.
-        # NOTE vs old: +result_nomor_meter +hasilCheckNoMeter, and NO hasilCheckIdPel
-        # /unitupi/unitap/unitup/catatan (those broke rendering → "data corrupt").
+        # 0.6.7 Prabayar schema — matches form-engine-0.2.7 app payload (verified vs
+        # decrypted app .7z 2026-07-31): 36 app fields + `catatan` (Blok IV notes,
+        # optional/omitted-when-empty in the app; live-verified 2026-08-01 that BPS
+        # accepts it and the record renders). NO hasilCheckIdPel/unitupi/unitap/unitup
+        # (those broke rendering → "data corrupt").
         keys_list = [
             "mulai", "r101a", "result_idpln", "hasilCheckIdPel2",
             "r101b", "result_nomor_meter", "hasilCheckNoMeter2", "hasilCheckNoMeter",
@@ -1637,7 +1647,7 @@ def wrap_answers(flat_answers: dict, target: dict, user_name: str) -> dict:
             "r201", "r202", "hasilPemadananNIK", "hasilPemadananNIK2", "no_kk", "result_callnik",
             "r203", "r204", "nama_ktp",
             "r301a", "r301b", "r301c", "r301d", "r301e", "r302a", "r302a_var", "r302a_no#1", "r302b_1#1",
-            "selesai"
+            "catatan", "selesai"
         ]
 
     # Pre-compute all answers mapped to their values
