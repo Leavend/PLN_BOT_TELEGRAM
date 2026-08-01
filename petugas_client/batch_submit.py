@@ -1163,13 +1163,17 @@ def submit_single(
                 except Exception as ex:
                     logger.warning(f"Gagal memuat arsip original dari S3: {ex}. Lanjut resubmit.")
             
+            # Template version MUST match the survey's CURRENT template (what BPS
+            # validates against NOW), not the archived record's version. An old 0.5.9
+            # record resubmitted to a now-0.6.7 survey with tv=0.5.9 = "data corrupt /
+            # beda versi template" (app can't render it). So: survey version FIRST,
+            # the original record's version only as a last-resort fallback.
             tv = None
-            if orig_data:
+            if sc:
+                tv = sc.get("template_version") or \
+                     ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
+            if not tv and orig_data:
                 tv = orig_data.get("templateVersion")
-            if not tv and sc:
-                tv = sc.get("template_version")
-            if not tv and sc:
-                tv = ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
             if tv:
                 target["templateVersion"] = tv
             status_alias = target.get("assignmentStatusAlias") or ""
@@ -1270,6 +1274,18 @@ def submit_single(
         except Exception:
             pass
 
+        # UNIVERSAL: every path (create_new, OPEN match, resubmit) must carry the
+        # survey's CURRENT template version so wrap_answers picks the right schema.
+        # Missing it → wrap_answers defaults to 0.5.9 → 0.5.9 data on a 0.6.7 survey =
+        # "data corrupt / opens empty" in the FASIH app (the exact bug reported).
+        try:
+            _survey_tv = sc.get("template_version") or \
+                ((sc.get("survey") or {}).get("templateLookup") or [{}])[0].get("templateVersion")
+            if _survey_tv:
+                target["templateVersion"] = _survey_tv
+        except Exception:
+            pass
+
         if orig_data and isinstance(orig_data.get("answers"), list):
             # 1. Flatten the original answers
             flat_orig = {}
@@ -1333,7 +1349,13 @@ def submit_single(
             payload_to_encrypt = wrapped
             principal_data = build_principal_json(flat_orig, target, user_name)
         else:
-            payload_to_encrypt = answers
+            # Normal create_new: run the raw answers through wrap_answers too, so the
+            # payload matches the survey's CURRENT template schema (0.6.7 = 36-field
+            # prabayar / 37 pasca with per-item timestamps). Previously this path sent
+            # build_dynamic_answers' 0.5.9-shaped dict verbatim → 0.5.9 data on a 0.6.7
+            # survey = "data corrupt / opens empty" in the app. wrap_answers is
+            # version-aware (falls back to the 0.5.9 layout when tv is 0.5.9).
+            payload_to_encrypt = wrap_answers(answers, target, user_name)
             principal_data = build_principal_json(answers, target, user_name)
 
         encrypted = stage_and_encrypt(payload_to_encrypt, key_bytes, target, user_name)
