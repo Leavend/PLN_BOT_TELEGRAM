@@ -42,6 +42,9 @@ from petugas_client.batch_submit import (
     _load_survey_cache,
     _save_survey_cache,
     _account_email,
+    _reject_idpels,
+    _open_idpels,
+    _reopen_idpels,
     apply_region_config,
     PLN_API_URL
 )
@@ -188,8 +191,11 @@ def save_accounts_to_disk(accounts: list[dict], is_local: bool = False):
         print(f"⚠️ Gagal menyimpan file akun: {e}")
 
 
-def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True) -> dict:
-    """Load or fetch BPS survey caches for a specific BPS account."""
+def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True, full_fetch: bool = False) -> dict:
+    """Load or fetch BPS survey caches for a specific BPS account.
+
+    full_fetch=True pages through EVERY assignment (needed by discovery modes —
+    reject/open/reopen live beyond page-0) and bypasses the page-0 disk cache."""
     token_data = account_info.get("token_data")
     email = account_info.get("email") or _account_email(token_data)
 
@@ -204,7 +210,8 @@ def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True) -> di
         token_data = refresh_token_if_needed(token_data, token_file=None, exit_on_failure=False)
         account_info["token_data"] = token_data
 
-    survey_caches = _load_survey_cache(email) if fast_mode else None
+    # The disk "fast" cache only holds page-0 templates — useless for discovery, skip it.
+    survey_caches = _load_survey_cache(email) if (fast_mode and not full_fetch) else None
     if survey_caches:
         return survey_caches
 
@@ -225,8 +232,11 @@ def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True) -> di
             tl = template_lookup[0]
             template_mapping = fetch_template_mapping(headers, tl["templateId"], tl["templateVersion"])
 
-        fp = fetch_assignments(headers, pid, 0)
-        assignments = (fp.get("data") or {}).get("content", []) or []
+        if full_fetch:
+            assignments = fetch_all_assignments(headers, pid)
+        else:
+            fp = fetch_assignments(headers, pid, 0)
+            assignments = (fp.get("data") or {}).get("content", []) or []
         regions = fetch_regions(headers, pid)
         lookup = survey.get("templateLookup") or []
         tv = lookup[0].get("templateVersion") if lookup else None
@@ -239,7 +249,8 @@ def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True) -> di
             "template_version": tv,
         }
 
-    if email and survey_caches:
+    # Never persist the full-list fetch as the page-0 "fast" cache.
+    if email and survey_caches and not full_fetch:
         _save_survey_cache(email, survey_caches)
 
     return survey_caches
@@ -451,7 +462,66 @@ def step3_input_dil_tasks_per_account(selected_accounts: list[dict]) -> dict:
     return account_tasks
 
 
-def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags: dict):
+def step3_discover_tasks_per_account(selected_accounts: list[dict], discover_mode: str) -> tuple[dict, dict]:
+    """Step 3 for discovery modes (reject/open/reopen): instead of pasting IDPel lists,
+    auto-derive each selected account's work-list straight from BPS. Accounts with zero
+    matching records are kept but simply contribute nothing (user does not have to know
+    upfront which accounts have rejects). Returns (account_tasks, caches_by_email) — the
+    full-list caches are reused by Step 4 so the resubmit engine can bind each record."""
+    label = {
+        "reject": "REJECT",
+        "open": "OPEN (belum dibuka)",
+        "reopen": "OPEN (pernah dibuka)",
+    }[discover_mode]
+    discover_fn = {
+        "reject": _reject_idpels,
+        "open": _open_idpels,
+        "reopen": _reopen_idpels,
+    }[discover_mode]
+
+    print("\n" + "=" * 65)
+    print(f"📋 SIMULASI 3: DETEKSI OTOMATIS DATA {label} PER AKUN BPS")
+    print("=" * 65)
+    print(f"   Tidak perlu paste IDPel — sistem ambil daftar {label} langsung dari BPS")
+    print(f"   untuk tiap akun terpilih (login pakai creds tersimpan, tanpa login manual).")
+
+    account_tasks = {}
+    caches_by_email = {}
+    n = len(selected_accounts)
+    for idx, acc in enumerate(selected_accounts, 1):
+        email = acc.get("email") or _account_email(acc.get("token_data"))
+        try:
+            caches = get_or_fetch_survey_caches(acc, full_fetch=True)
+        except Exception as e:
+            print(f"   [{idx}/{n}] {email}: ❌ gagal ambil survei — {str(e)[:80]} (dilewati)")
+            continue
+        ids = discover_fn(caches)
+        caches_by_email[email] = caches
+        account_tasks[email] = {"account": acc, "tasks": ids}
+        tail = "" if ids else " — tidak ada, dilewati"
+        print(f"   [{idx}/{n}] {email}: {len(ids)} data {label}{tail}")
+
+    total = sum(len(v["tasks"]) for v in account_tasks.values())
+    print("-" * 65)
+    print(f"📊 Total {total} data {label} ditemukan di {len(account_tasks)} akun.")
+
+    # Optional per-account cap (mirrors single-account --resubmit-reject "mau berapa?").
+    if total > 0 and sys.stdin.isatty():
+        try:
+            ans = input(f"👉 Berapa data {label} per akun di-resubmit? [ENTER=SEMUA, atau angka misal 10]: ").strip()
+            if ans.isdigit() and int(ans) > 0:
+                cap = int(ans)
+                for v in account_tasks.values():
+                    v["tasks"] = v["tasks"][:cap]
+                print(f"🎯 Dibatasi maksimal {cap} data {label} per akun.")
+        except (KeyboardInterrupt, EOFError):
+            print("\n❌ Dibatalkan oleh pengguna.")
+            sys.exit(0)
+
+    return account_tasks, caches_by_email
+
+
+def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags: dict, caches_by_email: dict = None):
     """
     Simulasi 4: Running Script fasih-submit-batch secara Paralel dengan Pembatasan:
       1. Waktu: 07.00 - 18.00 WITA (Khusus HP Petugas).
@@ -495,16 +565,18 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
 
     print(f"🚀 Memulai pengerjaan {total_tasks} IDPel pada {len(account_tasks)} Creds Akun BPS...")
 
-    # Fetch survey caches for all involved accounts upfront
-    caches_by_email = {}
-    print("\n📊 Mempersiapkan cache survei BPS untuk setiap akun...")
-    for email, info in account_tasks.items():
-        try:
-            print(f"   • Memuat survei untuk {email}...")
-            caches_by_email[email] = get_or_fetch_survey_caches(info["account"], fast_mode=True)
-            print(f"     ✅ Survei {email} siap.")
-        except Exception as e:
-            print(f"     ❌ Gagal memuat survei {email}: {e}")
+    # Fetch survey caches for all involved accounts upfront — unless the discovery step
+    # already built the full-list caches (reject/open/reopen), in which case reuse them.
+    if caches_by_email is None:
+        caches_by_email = {}
+        print("\n📊 Mempersiapkan cache survei BPS untuk setiap akun...")
+        for email, info in account_tasks.items():
+            try:
+                print(f"   • Memuat survei untuk {email}...")
+                caches_by_email[email] = get_or_fetch_survey_caches(info["account"], fast_mode=True)
+                print(f"     ✅ Survei {email} siap.")
+            except Exception as e:
+                print(f"     ❌ Gagal memuat survei {email}: {e}")
 
     # Determine worker count (from --workers parameter if specified, else min 4 or len(account_tasks))
     req_workers = mode_flags.get("workers") or 0
@@ -531,7 +603,10 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
         if not survey_caches:
             return idpel, email, False, f"❌ Survey cache tidak tersedia untuk {email}"
 
-        # No artificial 30-60s delay — execute at maximum performance
+        # Reject resubmit: 30-60s/data to spread BPS load + human-like pacing (matches
+        # single-account --resubmit-reject). Other modes run at full speed.
+        if mode_flags.get("resubmit_reject"):
+            time.sleep(random.uniform(30, 60))
 
         # Re-check working hours periodically during execution
         ok_h, msg_h = check_working_hours(is_local)
@@ -629,11 +704,16 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
 
 
 def main():
-    # Only delegate to batch_submit.py if an explicit input file (.txt/.csv) or --list / --resubmit-* flag is passed
+    # Delegate to the single-account batch_submit.py engine ONLY for explicit-list modes:
+    # a direct .txt/.csv file, --list/-l, or --resubmit-all (all need a caller-supplied
+    # list). Discovery modes (--resubmit-reject/open/reopen) now run through the SAME
+    # multi-account wizard below — auto-deriving each account's list from BPS with the
+    # saved creds, no single login/logout — UNLESS an explicit file/list is also given.
     has_direct_input = any(arg.endswith(('.txt', '.csv')) for arg in sys.argv[1:])
-    has_resubmit_or_list = any(arg.startswith(('--list', '-l', '--resubmit-reject', '--resubmit-open', '--resubmit-reopen', '--resubmit-all')) for arg in sys.argv[1:])
+    has_list = any(arg in ('--list', '-l') or arg.startswith(('--list=', '-l=')) for arg in sys.argv[1:])
+    has_resubmit_all = any(arg == '--resubmit-all' for arg in sys.argv[1:])
 
-    if len(sys.argv) > 1 and (has_direct_input or has_resubmit_or_list):
+    if len(sys.argv) > 1 and (has_direct_input or has_list or has_resubmit_all):
         import subprocess
         cmd = [sys.executable, os.path.join(REPO_ROOT, "petugas_client", "batch_submit.py")] + sys.argv[1:]
         result = subprocess.run(cmd)
@@ -684,8 +764,22 @@ def main():
     # 3. Step 2: Mau jalankan berapa akun?
     selected_accounts = step2_select_account_count(accounts)
 
-    # 4. Step 3: Input list tugas IDPel per akun 1 per 1
-    account_tasks = step3_input_dil_tasks_per_account(selected_accounts)
+    # 4. Step 3: discovery modes auto-derive the per-account list from BPS; otherwise
+    # the user pastes an IDPel list per account.
+    discover_mode = (
+        "reject" if args.resubmit_reject else
+        "open" if args.resubmit_open else
+        "reopen" if args.resubmit_reopen else None
+    )
+    caches_by_email = None
+    if discover_mode:
+        account_tasks, caches_by_email = step3_discover_tasks_per_account(selected_accounts, discover_mode)
+    else:
+        account_tasks = step3_input_dil_tasks_per_account(selected_accounts)
+
+    if not account_tasks or all(not v.get("tasks") for v in account_tasks.values()):
+        print("\n✅ Tidak ada data untuk diproses pada akun terpilih. Selesai.")
+        sys.exit(0)
 
     # 5. Step 4: Execute parallel submit with restrictions
     mode_flags = {
@@ -701,7 +795,7 @@ def main():
         "delay": args.delay,
     }
 
-    step4_execute_parallel_batch(account_tasks, is_local, mode_flags)
+    step4_execute_parallel_batch(account_tasks, is_local, mode_flags, caches_by_email=caches_by_email)
 
 
 if __name__ == "__main__":
