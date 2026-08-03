@@ -145,6 +145,7 @@ def load_saved_accounts(is_local: bool = False) -> list[dict]:
                         em = (acc.get("email") or "").strip()
                         if em and em.lower() not in seen:
                             seen.add(em.lower())
+                            acc["_src"] = "users"   # milik users.json — boleh ditulis balik
                             accounts.append(acc)
             except Exception:
                 pass
@@ -163,7 +164,10 @@ def load_saved_accounts(is_local: bool = False) -> list[dict]:
                             em, pw = line, "Pln@1234"
                         if em and em.lower() not in seen:
                             seen.add(em.lower())
-                            accounts.append({"email": em, "password": pw})
+                            # Sumber khusus fasih-submit-batch. JANGAN ditulis ke
+                            # users.json — itu daftar kerja fasih-auto-runner
+                            # (ULP Sulawesi & Berau) yang punya field `group`.
+                            accounts.append({"email": em, "password": pw, "_src": "fasih_txt"})
             except Exception:
                 pass
 
@@ -171,22 +175,54 @@ def load_saved_accounts(is_local: bool = False) -> list[dict]:
 
 
 def save_accounts_to_disk(accounts: list[dict], is_local: bool = False):
-    """Save accounts locally. HP Petugas saves to petugas_accounts.json; Local machine saves to users.json."""
+    """Simpan akun. HP Petugas -> petugas_accounts.json; Local -> users.json.
+
+    MERGE, bukan timpa. Versi lama menulis ulang seluruh daftar in-memory dengan
+    set field tetap, sehingga dua kerusakan terjadi sekaligus di mesin local:
+      1. `group` dan `hits_429` milik users.json terhapus (pengelompokan ULP
+         fasih-auto-runner hilang — 233 akun jadi tanpa group);
+      2. akun yang cuma ada di .fasih_accounts.txt (khusus fasih-submit-batch)
+         ikut tertulis ke users.json, jadi daftar kerja runner tercemar.
+    Sekarang: field lama dipertahankan, dan hanya akun milik users.json atau yang
+    baru disetor lewat wizard yang ditulis balik."""
     try:
-        clean_accs = []
-        for a in accounts:
-            clean_accs.append({
-                "email": a.get("email", ""),
-                "password": a.get("password", ""),
-                "token_data": a.get("token_data"),
-                "daily_quota": a.get("daily_quota", 400),
-                "used_today": a.get("used_today", 0),
-                "last_date": a.get("last_date", datetime.date.today().isoformat()),
-                "is_disabled": a.get("is_disabled", False)
-            })
         target_file = USERS_FILE if is_local else PETUGAS_ACCOUNTS_FILE
-        with open(target_file, "w") as f:
-            json.dump(clean_accs, f, indent=2)
+        existing = []
+        try:
+            with open(target_file) as f:
+                existing = json.load(f) or []
+        except Exception:
+            existing = []
+        by_email = {str(a.get("email", "")).strip().lower(): a for a in existing}
+
+        for a in accounts:
+            em = str(a.get("email", "")).strip()
+            if not em:
+                continue
+            key = em.lower()
+            # Akun dari sumber lain (.fasih_accounts.txt / token login) tidak boleh
+            # menambah baris baru di sini — kecuali memang sudah tercatat.
+            if a.get("_src") in ("fasih_txt",) and key not in by_email:
+                continue
+            row = by_email.get(key)
+            if row is None:
+                row = {
+                    "email": em,
+                    "daily_quota": 400,
+                    "used_today": 0,
+                    "last_date": datetime.date.today().isoformat(),
+                    "is_disabled": False,
+                }
+                by_email[key] = row
+                existing.append(row)
+            # perbarui hanya yang memang berubah; field lain (group, hits_429, dst) utuh
+            for k in ("password", "token_data"):
+                if a.get(k):
+                    row[k] = a[k]
+
+        with open(target_file + ".tmp", "w") as f:
+            json.dump([{k: v for k, v in r.items() if k != "_src"} for r in existing], f, indent=2)
+        os.replace(target_file + ".tmp", target_file)
     except Exception as e:
         print(f"⚠️ Gagal menyimpan file akun: {e}")
 

@@ -101,3 +101,4 @@ users.json.bak*
 *.bak-*
 petugas_accounts.json
 *.flock
+users_arsip_*.json

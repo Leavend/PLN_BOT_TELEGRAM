@@ -577,7 +577,19 @@ def _load_survey_cache(email: str = "", ignore_email: bool = False):
         with open(cfile) as f:
             c = json.load(f)
         if (ignore_email or c.get("email") == email or not email) and (time.time() - c.get("ts", 0)) < _SURVEY_CACHE_TTL:
-            return c.get("survey_caches")
+            scs = c.get("survey_caches")
+            # A cache written before `template_version` existed has neither that key
+            # NOR the `survey` object (_save_survey_cache strips it). Callers then
+            # find no survey version, fall back to the ARCHIVED record's version
+            # (0.5.9) and skip the 0.6.7 stamp — the submitted record renders blank
+            # in the app. Such a cache is unusable: force a refetch instead.
+            if isinstance(scs, dict) and scs and not all(
+                (v or {}).get("template_version") or ((v or {}).get("survey") or {}).get("templateLookup")
+                for v in scs.values() if isinstance(v, dict)
+            ):
+                logger.warning("Cache survei lama tanpa template_version — diabaikan, ambil ulang dari BPS.")
+                return None
+            return scs
     except Exception:
         pass
     return None
@@ -709,6 +721,18 @@ def fetch_and_decrypt_original(headers: dict, assignment_id: str, survey_period_
         
         data_json_path = os.path.join(extract_path, assignment_id, 'data.json')
         content = open(data_json_path, 'r').read()
+
+        # Arsip DRAFT yang ditulis aplikasi menyimpan data.json sebagai JSON POLOS
+        # (tidak dienkripsi). Tanpa cabang ini, ketiga percobaan dekripsi di bawah
+        # gagal dan record dianggap "tak terbaca" — padahal isinya bisa langsung
+        # dipakai. Dibuktikan dari HAR aplikasi 2026-08-03 (assignment 7cc2bdc9,
+        # templateVersion 0.6.6, 36 answers).
+        stripped = content.lstrip()
+        if stripped[:1] in ("{", "["):
+            try:
+                return json.loads(stripped)
+            except Exception:
+                pass
 
         if region_key_bytes:
             try:
@@ -853,10 +877,12 @@ def submit_single(
                     reject_matches = [m for m in working_matches if "SUBMITTED" in (m[2].get("assignmentStatusAlias") or "").upper()]
                 matched_key, sc, target = reject_matches[0] if reject_matches else working_matches[0]
             elif resubmit_open:
-                open_matches = [m for m in working_matches if "OPEN" in (m[2].get("assignmentStatusAlias") or "").upper()]
+                open_matches = [m for m in working_matches if _is_unsubmitted_alias(m[2].get("assignmentStatusAlias"))]
                 matched_key, sc, target = open_matches[0] if open_matches else working_matches[0]
             elif resubmit_reopen:
-                reopen_matches = [m for m in working_matches if "REOPEN" in (m[2].get("assignmentStatusAlias") or "").upper()]
+                reopen_matches = [m for m in working_matches
+                                  if "REOPEN" in (m[2].get("assignmentStatusAlias") or "").upper()
+                                  or "PERNAH DIBUKA" in (m[2].get("assignmentStatusAlias") or "").upper()]
                 matched_key, sc, target = reopen_matches[0] if reopen_matches else working_matches[0]
             else:
                 active_matches = [m for m in working_matches if not any(x in (m[2].get("assignmentStatusAlias") or "").upper() for x in ["SUBMIT", "DONE", "APPROV"])]
@@ -912,12 +938,11 @@ def submit_single(
             if not target or ("REJECT" not in status_alias.upper() and "SUBMITTED" not in status_alias.upper()):
                 return True, "Bukan data REJECT / SUBMITTED (status berubah / tak ketemu) — dilewati."
 
-        # RESUBMIT-OPEN / RESUBMIT-REOPEN: touch OPEN or PERNAH DIBUKA records.
+        # RESUBMIT-OPEN / RESUBMIT-REOPEN: hanya sentuh record yang belum terkirim
+        # (OPEN / PERNAH DIBUKA / DRAFT).
         if resubmit_open or resubmit_reopen:
-            status_alias = (target or {}).get("assignmentStatusAlias") or ""
-            alias_u = status_alias.upper()
-            if not target or ("OPEN" not in alias_u and "PERNAH DIBUKA" not in alias_u):
-                return True, "Bukan data OPEN / PERNAH DIBUKA (status berubah / tak ketemu) — dilewati."
+            if not target or not _is_unsubmitted_alias(target.get("assignmentStatusAlias")):
+                return True, "Bukan data OPEN / PERNAH DIBUKA / DRAFT (status berubah / tak ketemu) — dilewati."
 
 
 
@@ -1176,6 +1201,14 @@ def submit_single(
                         direct_args[k] = v
                 except Exception as ex:
                     logger.warning(f"Gagal memuat arsip original dari S3: {ex}. Lanjut resubmit.")
+
+                # Arsip yang benar-benar tak terbaca (bukan JSON polos, bukan salah
+                # satu kunci) tak bisa dipakai sebagai dasar merge — payload rakitan
+                # akan ditolak BPS "Versi data tidak valid". Berhenti di sini daripada
+                # membuang kuota submit.
+                if (resubmit_open or resubmit_reopen) and orig_data is None:
+                    return False, ("📱 Arsip asli data ini tidak bisa dibaca tool. Selesaikan lewat "
+                                   "APK FASIH di HP petugas — submit dari tool akan ditolak BPS.")
             
             # Template version MUST match the survey's CURRENT template (what BPS
             # validates against NOW), not the archived record's version. An old 0.5.9
@@ -1392,7 +1425,17 @@ def submit_single(
 
         # If the assignment already has a submitted S3 archive (basePath is present),
         # we must use /edit path to update it. Otherwise, use /submit.
-        is_edit = (bool(target.get("basePath")) or "SUBMITTED" in status_alias.upper()) and not resubmit_reject and "REJECT" not in status_alias.upper()
+        # basePath saja BUKAN bukti record pernah terkirim: DRAFT (dan OPEN PERNAH
+        # DIBUKA) juga punya arsip walau belum pernah di-submit. Live-probe pada
+        # DRAFT 7cc2bdc9: `edit/presign-url` -> success=false "No access for
+        # assignment", `presign-url` -> success=true. Jadi status yang belum
+        # terkirim harus lewat jalur submit, bukan edit.
+        is_edit = (
+            (bool(target.get("basePath")) or "SUBMITTED" in status_alias.upper())
+            and not resubmit_reject
+            and "REJECT" not in status_alias.upper()
+            and not _is_unsubmitted_alias(status_alias)
+        )
         copy_from_id = (target.get("copyFromId") or target.get("id")) if (is_edit or target.get("isNew")) else None
         # Match the FASIH app exactly: archive filename carries a submit-time epoch
         # ms suffix ({id}_{epochms}.7z). BPS's registration pipeline keys off this
@@ -1507,10 +1550,11 @@ def submit_single(
         # BPS rejects it with "Versi data tidak valid" — every observable submit field
         # (params/envelope/paradata/encryption/X-Device-Id) already matches the app.
         if (resubmit_reject or resubmit_open or resubmit_reopen) and "versi data tidak valid" in msg.lower():
-            logger.error(f"Resubmit {val}: BPS tolak versi payload (limitasi diketahui).")
+            _mode = "reject" if resubmit_reject else "open"
+            logger.error(f"Resubmit {val}: BPS tolak versi payload (mode {_mode}).")
             return False, ("❌ BPS tolak update ('Versi data tidak valid') — struktur payload "
-                           "reject belum disamakan ke app (butuh 1 sampel 7z app). Sementara: "
-                           "perbaiki reject ini lewat app FASIH.")
+                           f"tidak sama dengan record aslinya di BPS. Selesaikan data {_mode} ini "
+                           "lewat APK FASIH di HP petugas.")
         logger.error(f"Submit error for {val}: {msg}")
         return False, f"Error: {msg}"
     finally:
@@ -1538,9 +1582,21 @@ def _reject_idpels(survey_caches: dict) -> list[str]:
     return out
 
 
+def _is_unsubmitted_alias(alias: str) -> bool:
+    """Assignment yang belum terkirim ke BPS, apa pun sebutannya.
+
+    BPS memakai tiga alias untuk kondisi ini: "OPEN" (belum dibuka),
+    "OPEN PERNAH DIBUKA", dan "DRAFT" (statusId 0 — sudah diisi & punya arsip
+    tapi belum di-submit). Di aplikasi ketiganya sama-sama tampil sebagai data
+    yang belum selesai, jadi --resubmit-open harus menyapu ketiganya. DRAFT
+    sempat terlewat dan bikin akun dengan sisa DRAFT terbaca "0 data OPEN"."""
+    a = (alias or "").strip().upper()
+    return "OPEN" in a or "PERNAH DIBUKA" in a or "DRAFT" in a
+
+
 def _open_idpels(survey_caches: dict) -> list[str]:
-    """IDPel (atau NoMeter bila IDPel kosong) dari assignment berstatus OPEN /
-    PERNAH DIBUKA.
+    """IDPel (atau NoMeter bila IDPel kosong) dari assignment yang BELUM terkirim
+    (OPEN / PERNAH DIBUKA / DRAFT).
 
     Satu assignment => PALING BANYAK satu item. Sebelumnya idpel DAN nometer
     sama-sama dimasukkan, jadi satu record OPEN bisa dikerjakan dua kali (live:
@@ -1553,8 +1609,7 @@ def _open_idpels(survey_caches: dict) -> list[str]:
         idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
         nometer_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
         for a in sc.get("assignments") or []:
-            alias = (a.get("assignmentStatusAlias") or "").strip().upper()
-            if "OPEN" not in alias and "PERNAH DIBUKA" not in alias:
+            if not _is_unsubmitted_alias(a.get("assignmentStatusAlias")):
                 continue
             idp = (a.get(idpel_slot) or "").strip()
             nom = (a.get(nometer_slot) or "").strip()

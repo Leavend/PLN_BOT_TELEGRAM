@@ -49,12 +49,14 @@ def _createStatus(target):
     return "true" if target.get("isNew", False) else "false"
 
 def _is_edit(target, resubmit_reject=False):
-    # Mirrors submit_single: an existing S3 archive (basePath) or a SUBMITTED alias
-    # routes to /edit; reject always forces /submit. OPEN (never opened, no basePath)
-    # uses /submit. REOPEN carries a basePath, so it correctly lands on /edit.
+    # Mirrors submit_single. basePath alone does NOT mean "already submitted":
+    # DRAFT / OPEN PERNAH DIBUKA carry an archive but were never sent, and BPS
+    # answers `edit/presign-url` for those with "No access for assignment"
+    # (live-probed on DRAFT 7cc2bdc9) while `presign-url` succeeds.
     status_alias = (target.get("assignmentStatusAlias") or "").upper()
     return ((bool(target.get("basePath")) or "SUBMITTED" in status_alias)
-            and not resubmit_reject and "REJECT" not in status_alias)
+            and not resubmit_reject and "REJECT" not in status_alias
+            and not bs._is_unsubmitted_alias(status_alias))
 
 
 def test_reject_target_resubmits_existing_no_duplicate():
@@ -172,13 +174,40 @@ def test_open_idpels_skips_record_without_usable_identifier():
     assert bs._open_idpels(caches) == []
 
 
-def test_reopen_with_basepath_routes_to_edit():
-    """REOPEN ('OPEN PERNAH DIBUKA') already has an S3 archive, so it must update it
-    via /edit rather than submitting a second archive."""
-    reopen = {"id": "r", "assignmentStatusAlias": "OPEN PERNAH DIBUKA",
-              "basePath": "s3/path/to/archive"}
-    assert _is_edit(reopen) is True
-    assert _createStatus(reopen) == "false"  # still binds the existing assignment
+def test_draft_counts_as_unsubmitted():
+    """BPS pakai alias DRAFT (statusId 0) untuk record yang sudah diisi tapi belum
+    dikirim; aplikasi menampilkannya sebagai data belum selesai. Live: satu akun
+    punya 3 DRAFT tapi --resubmit-open melaporkan '0 data OPEN'."""
+    for alias in ("OPEN", "OPEN PERNAH DIBUKA", "DRAFT", "draft"):
+        assert bs._is_unsubmitted_alias(alias) is True, alias
+    for alias in ("SUBMITTED BY Pencacah", "REJECTED BY Admin Kabupaten", "APPROVED", "", None):
+        assert bs._is_unsubmitted_alias(alias) is False, alias
+
+
+def test_open_idpels_includes_draft():
+    caches = _cache([
+        {"assignmentStatusAlias": "DRAFT", "data3": "231102018187"},
+        {"assignmentStatusAlias": "OPEN", "data3": "231102034703"},
+        {"assignmentStatusAlias": "SUBMITTED BY Pencacah", "data3": "231571698050"},
+    ])
+    assert bs._open_idpels(caches) == ["231102018187", "231102034703"]
+
+
+def test_unsubmitted_with_basepath_routes_to_submit_not_edit():
+    """A DRAFT / OPEN-PERNAH-DIBUKA record owns an archive but has never been sent,
+    so it must go through /submit. Using /edit makes BPS answer "No access for
+    assignment" — live-probed on DRAFT 7cc2bdc9 (edit=false, submit=true)."""
+    for alias in ("DRAFT", "OPEN PERNAH DIBUKA"):
+        t = {"id": "r", "assignmentStatusAlias": alias, "basePath": "s3/path/to/archive"}
+        assert _is_edit(t) is False, alias
+        assert _createStatus(t) == "false"  # tetap terikat assignment yang ada
+
+
+def test_submitted_still_routes_to_edit():
+    """A genuinely submitted record keeps using /edit."""
+    t = {"id": "s", "assignmentStatusAlias": "SUBMITTED BY Pencacah",
+         "basePath": "s3/path/to/archive"}
+    assert _is_edit(t) is True
 
 
 def test_wrap_answers_interview_times():
