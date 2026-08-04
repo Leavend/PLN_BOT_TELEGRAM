@@ -84,13 +84,22 @@ def main():
     if ring:
         print("\n" + "\n".join("   " + b for b in ring.splitlines()))
 
-    # Jalur 1: menu Bagikan Android
+    # Jalur 1: menu Bagikan Android.
+    # `pkg install termux-api` saja TIDAK cukup — perlu aplikasi Termux:API juga.
+    # Tanpa aplikasinya, termux-share menggantung tanpa pesan apa pun (petugas
+    # cuma melihat kursor berkedip), jadi diberi batas waktu lalu jatuh ke salinan.
     if _punya("termux-share"):
         print("\n📲 Membuka menu Bagikan — pilih WhatsApp, lalu pilih tujuannya.")
         try:
-            subprocess.run(["termux-share", "-a", "send", "-t", "text/csv", path], check=True)
+            subprocess.run(["termux-share", "-a", "send", "-t", "text/csv", path],
+                           check=True, timeout=20)
             print("✅ Menu Bagikan terbuka. Kalau WhatsApp tidak muncul, geser daftarnya.")
             return
+        except subprocess.TimeoutExpired:
+            print("⚠️  Menu Bagikan tidak muncul dalam 20 detik.")
+            print("    Biasanya aplikasi Termux:API belum terpasang (paket termux-api saja belum cukup).")
+            print("    Pasang Termux:API dari sumber yang SAMA dengan Termux-mu (Play Store / F-Droid).")
+            print("    Sementara ini pakai cara salin file:")
         except subprocess.CalledProcessError as e:
             print(f"⚠️  termux-share gagal ({e}). Pakai cara salin file.")
 
@@ -106,10 +115,12 @@ def main():
         print(f"\n✅ Laporan disalin ke: {akhir}")
         print("   Buka WhatsApp → chat tujuan → 📎 → Dokumen → Download → pilih file ini.")
     else:
-        print("\n⚠️  termux-share belum ada dan penyimpanan bersama belum aktif.")
-        print("   Aktifkan sekali saja, lalu ulangi perintah ini:")
-        print("     pkg install termux-api      # + pasang app Termux:API dari Play Store")
+        print("\n⚠️  Penyimpanan bersama belum aktif, jadi file belum bisa disalin.")
+        print("   Jalankan sekali saja, lalu ulangi perintah ini:")
         print("     termux-setup-storage")
+        if not _punya("termux-share"):
+            print("\n   Supaya bisa langsung lewat menu Bagikan (tanpa salin-salin):")
+            print("     pkg install termux-api      # + pasang app Termux:API")
         print(f"\n   Sementara itu, file ada di: {path}")
 
 
