@@ -639,9 +639,10 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
         if not survey_caches:
             return idpel, email, False, f"❌ Survey cache tidak tersedia untuk {email}"
 
-        # Reject resubmit: 30-60s/data to spread BPS load + human-like pacing (matches
-        # single-account --resubmit-reject). Other modes run at full speed.
-        if mode_flags.get("resubmit_reject"):
+        # Reject resubmit: 30-60 dtk/data di HP Petugas — menyebar beban BPS dan
+        # menyerupai ritme manusia. Di mesin LOCAL (admin) jeda ini dilewati, sama
+        # seperti pembatasan jam kerja.
+        if mode_flags.get("resubmit_reject") and not is_local:
             time.sleep(random.uniform(30, 60))
 
         # Re-check working hours periodically during execution

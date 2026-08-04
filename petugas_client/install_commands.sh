@@ -213,6 +213,16 @@ else
 fi
 EOF
 
+# fasih-kirim-report: bagikan batch_report terakhir ke WhatsApp (menu Bagikan Android)
+cat > "$BIN/fasih-kirim-report" << 'OUTER'
+#!/bin/bash
+cd "REPO_PLACEHOLDER"
+python3 petugas_client/kirim_report.py "$@"
+OUTER
+sed -i "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-kirim-report" 2>/dev/null || \
+  sed -i '' "s|REPO_PLACEHOLDER|$REPO|g" "$BIN/fasih-kirim-report"
+chmod +x "$BIN/fasih-kirim-report"
+
 # fasih-update: pull latest code, purge local house photos, and re-install shortcut commands
 cat > "$BIN/fasih-update.tmp" << 'OUTER'
 #!/bin/bash
@@ -377,6 +387,7 @@ echo "  fasih-submit-batch        Paste ID, enter 2x, jalan"
 echo "  fasih-reregister          Submit ulang record lama yang belum tercatat"
 echo "  fasih-cek                 Cek TERCATAT/BELUM (cache — hemat kuota)"
 echo "  fasih-cek-submit          Verifikasi assignment hasil submit (BLOK I/III, region)"
+echo "  fasih-kirim-report        Bagikan laporan terakhir ke WhatsApp"
 echo "  fasih-login               Login BPS SSO"
 echo "  fasih-logout              Logout & ganti akun"
 echo "  fasih-lookup 234000...    Cek data PLN"

@@ -406,11 +406,32 @@ def request_presign_url(headers: dict, assignment_id: str, survey_period_id: str
     }
     if copy_from_id:
         body["copyFromId"] = copy_from_id
-    resp = session.post(
-        f"{BASE_URL}/mobile/assignment-submit-2/api/assignment/s3/{url_path}",
-        headers=headers, json=body,
-        params={"surveyPeriodId": survey_period_id}, timeout=30
-    )
+
+    # urllib3 tidak pernah me-retry POST (allowed_methods default hanya GET/PUT/…),
+    # jadi status_forcelist=[500,502,503,504] pada adapter TIDAK berlaku di sini dan
+    # satu 503 sesaat langsung menggagalkan item. Presign aman diulang — ia cuma
+    # menerbitkan URL upload, tidak mengubah data. Backoff eksponensial + jitter
+    # supaya puluhan worker tidak serentak memukul server yang sedang megap-megap.
+    last = None
+    for attempt in range(4):
+        resp = session.post(
+            f"{BASE_URL}/mobile/assignment-submit-2/api/assignment/s3/{url_path}",
+            headers=headers, json=body,
+            params={"surveyPeriodId": survey_period_id}, timeout=30
+        )
+        if resp.status_code not in (500, 502, 503, 504):
+            break
+        last = resp
+        if attempt < 3:
+            ra = resp.headers.get("Retry-After")
+            try:
+                delay = float(ra) if ra else 0.0
+            except (TypeError, ValueError):
+                delay = 0.0
+            time.sleep(delay or (0.8 * (2 ** attempt) + random.uniform(0, 0.6)))
+    else:
+        resp = last or resp
+
     resp.raise_for_status()
     res_json = resp.json()
     if not res_json.get("success"):

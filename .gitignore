@@ -102,3 +102,12 @@ users.json.bak*
 petugas_accounts.json
 *.flock
 users_arsip_*.json
+
+# Data DIL hasil cleansing + turunannya (PII pelanggan: nama, IDPel, koordinat).
+# LOKAL saja — jangan pernah masuk repo publik.
+Folder-Runner-Cleansed/
+*.cache.pkl
+*.checkpoint.csv
+cleansing_lookup_cache.json
+.fasih_checkers_cache.json
+app_env_*.json
