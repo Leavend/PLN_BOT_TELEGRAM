@@ -251,6 +251,25 @@ fi
 echo "📥 Updating repo..."
 git pull
 bash petugas_client/install_commands.sh
+
+# Siapkan prasyarat fasih-kirim-report (khusus HP Petugas / Termux).
+# Dilewati di mesin non-Termux, dan tidak diulang kalau sudah siap — supaya
+# fasih-update tetap cepat dan tidak memaksa unduhan tiap kali.
+if [ -n "$PREFIX" ] && command -v pkg >/dev/null 2>&1; then
+    if ! command -v termux-share >/dev/null 2>&1; then
+        echo "📦 Memasang termux-api (untuk fasih-kirim-report)..."
+        pkg install -y termux-api >/dev/null 2>&1 \
+            && echo "   ✅ paket termux-api terpasang" \
+            || echo "   ⚠️  gagal memasang termux-api (cek koneksi)"
+    fi
+    if [ ! -d "$HOME/storage" ]; then
+        echo "📂 Mengaktifkan akses penyimpanan (izinkan di layar HP)..."
+        termux-setup-storage 2>/dev/null || true
+    fi
+    echo "ℹ️  fasih-kirim-report siap. Kalau menu Bagikan tidak muncul, pasang"
+    echo "   aplikasi Termux:API dari sumber yang SAMA dengan Termux (Play Store / F-Droid)."
+fi
+
 echo "✅ Script & Shortcut Commands Berhasil Di-update!"
 echo "🔒 Foto rumah lokal berhasil dibersihkan & di-isolasi ke Server PLN."
 OUTER
