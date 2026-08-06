@@ -549,6 +549,41 @@ def _cek(fn, *args, skip_cek_idpln: bool = False) -> dict:
         return {}
 
 
+# --- Global per-run CEK cache (keyed by IDPel / NIK) -------------------------
+# The check-idpln / check-nikpln RESULT is a property of the IDPel/NIK
+# (prelist_source, region codes, nama, meter, pemadanan) — NOT of the account or
+# assignment id used to fetch it. Without a cache, every PLN-retry (3x loop) and
+# every account an item spills to re-CEKs the SAME IDPel, so each account's daily
+# connector quota gets burned on idpels that aren't even "its" — which 429s
+# accounts far below their real submit quota. Caching by idpel/nik spends the
+# connector quota ONCE per unique IDPel for the whole run, while still feeding the
+# real CEK data into the payload (data stays valid; prelist routing preserved).
+_CEK_CACHE_LOCK = threading.Lock()
+_CEK_IDPLN_CACHE: dict = {}
+_CEK_NIK_CACHE: dict = {}
+
+
+def _cek_cached(kind: str, fn, headers, aid, key, skip_cek_idpln: bool = False) -> dict:
+    """_cek with a global per-run cache keyed by idpel/nik. On a cache hit NO HTTP
+    call is made (saves the account's connector quota). Only real (non-empty)
+    results are cached; a 429 still raises so the caller handles it as before. The
+    HTTP call is intentionally NOT held under the lock (workers must not serialize);
+    at worst a few concurrent first-touches of the same idpel double-call, then it's
+    cached."""
+    if skip_cek_idpln or not key:
+        return {}
+    cache = _CEK_IDPLN_CACHE if kind == "idpln" else _CEK_NIK_CACHE
+    with _CEK_CACHE_LOCK:
+        hit = cache.get(key)
+    if hit is not None:
+        return hit
+    data = _cek(fn, headers, aid, key, skip_cek_idpln=skip_cek_idpln)  # may raise 429
+    if data:  # cache only successful, non-empty lookups
+        with _CEK_CACHE_LOCK:
+            cache[key] = data
+    return data
+
+
 # --fast survey cache: the survey/periode/template/region setup is stable within
 # a period, so cache it to disk (per account) and reuse — subsequent --fast runs
 # do ZERO BPS fetch (can't time out). create_new still needs a template to clone
@@ -762,6 +797,34 @@ def fetch_and_decrypt_original(headers: dict, assignment_id: str, survey_period_
             shutil.rmtree(temp_dir)
 
 
+def _sane_override_coord(lat, lon):
+    """Guard corrupt DIL coords before they reach BPS.
+
+    BPS rejects `latitude must be between -90 and 90`; a lat/lon that got
+    transposed in the DIL (e.g. lat=112.17, a Kalimantan *longitude*) is the
+    usual cause. Return the pair as-is when it plausibly sits in Indonesia,
+    swapped when the pair is transposed, else (None, None) so submit_single's
+    PLN → geocode → centroid ladder resolves it instead of the whole batch
+    failing. Passing (None, None) through is a no-op (no Excel override).
+    """
+    def _f(v):
+        try:
+            f = float(v)
+            return f if f != 0.0 else None
+        except (TypeError, ValueError):
+            return None
+    la, lo = _f(lat), _f(lon)
+    if la is None or lo is None:
+        return None, None
+    # Indonesia bounding box (generous): lat ~[-11.5, 6.5], lon ~[94, 141.5].
+    in_id = lambda a, o: -11.5 <= a <= 6.5 and 94.0 <= o <= 141.5
+    if in_id(la, lo):
+        return la, lo
+    if in_id(lo, la):          # transposed X/Y in the DIL
+        return lo, la
+    return None, None          # corrupt → discard, let the ladder resolve
+
+
 def submit_single(
     token_data: dict,
     val: str,
@@ -966,7 +1029,12 @@ def submit_single(
         import uuid
         from concurrent.futures import ThreadPoolExecutor as _TPE
         aid = target.get("id") if target else str(uuid.uuid4())
-        lat, lon = override_lat, override_lon
+        lat, lon = _sane_override_coord(override_lat, override_lon)
+        if override_lat is not None and lat is None:
+            logger.warning(
+                f"⚠️ Koordinat DIL tak wajar (lat={override_lat}, lon={override_lon}) "
+                f"untuk {val} — diabaikan, pakai fallback PLN/geocode."
+            )
         pln_data = None
         photo_path = None
 
@@ -980,7 +1048,7 @@ def submit_single(
             return None
 
         # PARALLEL PIPELINE: Run BPS check_idpln and PLN lookup concurrently using shared global executor
-        fut_cek = _PIPELINE_EXECUTOR.submit(lambda: _cek(check_idpln, headers, aid, idpel_val) if (idpel_val and not skip_cek_idpln) else None)
+        fut_cek = _PIPELINE_EXECUTOR.submit(lambda: _cek_cached("idpln", check_idpln, headers, aid, idpel_val, skip_cek_idpln=skip_cek_idpln) if idpel_val else None)
         fut_pln = _PIPELINE_EXECUTOR.submit(_do_pln_lookup)
         d_idpln = fut_cek.result()
         if d_idpln and d_idpln.get("fasih_exists") and not resubmit_all and not resubmit_reject and not resubmit_open and not resubmit_reopen:
@@ -1056,7 +1124,7 @@ def submit_single(
         # just resolved via PLN (nometer input) and not already checked or skipped.
         if d_idpln is None and idpel_val and not skip_cek_idpln:
             try:
-                d_idpln = _cek(check_idpln, headers, aid, idpel_val, skip_cek_idpln=skip_cek_idpln)
+                d_idpln = _cek_cached("idpln", check_idpln, headers, aid, idpel_val, skip_cek_idpln=skip_cek_idpln)
             except Exception as e:
                 err_msg = str(e)
                 if any(k in err_msg.lower() for k in ("429", "rate_limit_exceeded", "terlampaui")):
@@ -1241,7 +1309,7 @@ def submit_single(
         nik_val = direct_args.get("nik") or ""
         nikpln_data = {}
         if nik_val and not skip_cek_idpln:
-            nikpln_data = _cek(check_nikpln, headers, aid, nik_val, skip_cek_idpln=skip_cek_idpln)
+            nikpln_data = _cek_cached("nik", check_nikpln, headers, aid, nik_val, skip_cek_idpln=skip_cek_idpln)
             if nikpln_data and not nikpln_data.get("exists"):
                 logger.warning(f"CEK NIK {nik_val} (IDPel: {idpel_val}{email_tag}): exists=false (tidak padan) di BPS")
 
