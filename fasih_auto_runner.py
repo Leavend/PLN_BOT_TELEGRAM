@@ -46,6 +46,7 @@ from petugas_client.batch_submit import (
     _save_survey_cache,
     load_persistent_cek_cache,
     cek_cache_verdict,
+    put_survey_cache,
     PLN_API_URL
 )
 
@@ -1159,13 +1160,13 @@ class AutonomousRunner:
                                 fp = fetch_assignments(headers, active_p["id"], 0)
                                 assignments = (fp.get("data") or {}).get("content", []) or []
 
-                            sc[skey] = {
+                            put_survey_cache(sc, skey, {
                                 "survey": s,
                                 "periode": active_p,
                                 "template_mapping": tm,
                                 "assignments": assignments,
                                 "regions": fetch_regions(headers, active_p["id"])
-                            }
+                            })
                         except Exception as e:
                             logger.warning(f"⚠️ Gagal mengambil daftar tugas untuk survei {sname} via {email}: {e}")
                 if not sc:

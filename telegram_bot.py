@@ -40,7 +40,8 @@ from fasih_archive import create_7z_archive
 from fasih_api import (
     fetch_surveys, fetch_assignments, fetch_all_assignments, fetch_regions, request_presign_url, upload_to_s3,
     request_photo_presign_put, upload_photo_to_s3, request_photo_presign_get, confirm_submit,
-    fetch_template_mapping, map_answers_to_data_slots, check_idpln, check_nikpln
+    fetch_template_mapping, map_answers_to_data_slots, check_idpln, check_nikpln,
+    put_survey_cache
 )
 
 # Async wrappers for blocking functions using asyncio.to_thread
@@ -2911,12 +2912,12 @@ async def batch_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
             except Exception:
                 regs = None
 
-            survey_caches[skey] = {
+            skey = put_survey_cache(survey_caches, skey, {
                 "survey": sv, "periode": ap, "pid": ap["id"],
                 "template_mapping": tm, "assignments": assigns, "regions": regs,
                 "idpel_slot": next((s for s, v in tm.items() if v == "r101a"), "data3"),
                 "nometer_slot": next((s for s, v in tm.items() if v == "r101b"), "data1"),
-            }
+            })
             logger.info(f"Survey {skey}: {len(assigns)} assignments cached")
 
         if not survey_caches:
@@ -3490,10 +3491,10 @@ async def handle_csv_document(update: Update, context: ContextTypes.DEFAULT_TYPE
                         regs = await call_with_retry(async_fetch_regions, headers, ap["id"])
                     except Exception:
                         regs = None
-                    csv_survey_caches[skey] = {
+                    skey = put_survey_cache(csv_survey_caches, skey, {
                         "survey": sv, "periode": ap, "pid": ap["id"],
                         "template_mapping": tm, "assignments": assigns, "regions": regs,
-                    }
+                    })
                     logger.info(f"CSV Survey {skey}: {len(assigns)} assignments cached")
 
                 if csv_survey_caches:

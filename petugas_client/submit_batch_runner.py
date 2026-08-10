@@ -45,6 +45,7 @@ from petugas_client.batch_submit import (
     _reject_idpels,
     _open_idpels,
     _reopen_idpels,
+    put_survey_cache,
     apply_region_config,
     PLN_API_URL
 )
@@ -276,14 +277,14 @@ def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True, full_
         regions = fetch_regions(headers, pid)
         lookup = survey.get("templateLookup") or []
         tv = lookup[0].get("templateVersion") if lookup else None
-        survey_caches[skey] = {
+        put_survey_cache(survey_caches, skey, {
             "survey": survey,
             "periode": active_periode,
             "template_mapping": template_mapping,
             "assignments": assignments,
             "regions": regions,
             "template_version": tv,
-        }
+        })
 
     # Never persist the full-list fetch as the page-0 "fast" cache.
     if email and survey_caches and not full_fetch:

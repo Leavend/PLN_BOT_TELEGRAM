@@ -580,6 +580,31 @@ def fetch_template_mapping(headers: dict, template_id: str, version: str) -> dic
     return mapping
 
 
+def put_survey_cache(survey_caches: dict, skey: str, entry: dict) -> str:
+    """Simpan satu survei ke survey_caches tanpa menimpa survei lain yang sekey.
+
+    Nama survei dipetakan kasar ke dua key ("PRABAYAR"/"PASCABAYAR"), padahal satu
+    akun bisa dapat DUA survei yang sama-sama mengandung "PRABAYAR" — mis. survei
+    asli plus varian uji coba "[INDA] GROUNDCHECK ... PRABAYAR". Dulu yang belakangan
+    menimpa yang duluan; kalau yang belakangan tugasnya kosong, seluruh tugas akun
+    ikut hilang. Live: akun dengan 2.943 tugas prabayar (389 REJECT) terbaca "0 data
+    REJECT" karena survei [INDA] berisi 0 assignment menimpa cache-nya.
+
+    Yang tugasnya paling banyak memegang key utama supaya routing create_new
+    ("PRABAYAR" in survey_caches) tetap ketemu; sisanya disimpan dengan akhiran
+    "#n" sehingga pencarian target tetap menyapu dua-duanya. Kembalikan key final.
+    """
+    if skey in survey_caches:
+        prev = survey_caches[skey]
+        alt = f"{skey}#{len(survey_caches)}"
+        if len(entry.get("assignments") or []) > len(prev.get("assignments") or []):
+            survey_caches[alt] = prev          # yang lama mundur ke key cadangan
+        else:
+            skey = alt                          # yang baru yang mundur
+    survey_caches[skey] = entry
+    return skey
+
+
 def mask_pii_name(name: str) -> str:
     """Mask a person's name the way the FASIH mobile app does in the plaintext
     quick-view slot: keep the first and last character of each word, replace the

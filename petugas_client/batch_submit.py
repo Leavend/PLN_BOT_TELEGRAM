@@ -45,7 +45,7 @@ from fasih_api import (
     fetch_template_mapping, fetch_regions,
     request_photo_presign_put, upload_photo_to_s3, request_photo_presign_get,
     confirm_submit, request_presign_url, upload_to_s3,
-    map_answers_to_data_slots, mask_pii_name,
+    map_answers_to_data_slots, mask_pii_name, put_survey_cache,
     check_idpln, check_nikpln,
 )
 from fasih_crypto import compute_md5, compute_md5_base64
@@ -1947,14 +1947,14 @@ def main():
 
             lookup = survey.get("templateLookup") or []
             tv = lookup[0].get("templateVersion") if lookup else None
-            survey_caches[skey] = {
+            skey = put_survey_cache(survey_caches, skey, {
                 "survey": survey,
                 "periode": active_periode,
                 "template_mapping": template_mapping,
                 "assignments": assignments,
                 "regions": regions,
                 "template_version": tv,
-            }
+            })
             print(f"   {skey}: {len(assignments)} tugas")
 
         if not survey_caches:
