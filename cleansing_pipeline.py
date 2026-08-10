@@ -164,8 +164,8 @@ def process_cleansing_file(file_path: str):
     valid_idpels = set()
     invalid_pln_cnt = 0
     
-    # Check if raw Excel column already has valid 10-digit KD_KEL
-    kel_col = next((c for c in df.columns if str(c).upper().strip() in ("KD_KEL", "KDKEL", "KODE_KELURAHAN")), None)
+    # Check if raw Excel column already has valid 10-digit KD_KEL or KELURAHAN_DESA prefix
+    kel_col = next((c for c in df.columns if str(c).upper().strip() in ("KD_KEL", "KDKEL", "KODE_KELURAHAN", "KELURAHAN_DESA")), None)
     raw_kdkel_map = {}
     if kel_col:
         for _, row in df_filtered.iterrows():
@@ -175,6 +175,13 @@ def process_cleansing_file(file_path: str):
                 try:
                     s = str(int(float(val))).strip()
                     if len(s) == 10 and s.isdigit():
+                        raw_kdkel_map[idp] = True
+                        continue
+                except Exception:
+                    pass
+                try:
+                    s_pref = str(val).strip()[:10]
+                    if len(s_pref) == 10 and s_pref.isdigit():
                         raw_kdkel_map[idp] = True
                 except Exception:
                     pass
@@ -260,13 +267,8 @@ if __name__ == "__main__":
         target_files = sys.argv[1:]
     else:
         target_files = [
-            "Folder-Runner-Cleansed/Bungku DIL no filter.xlsx",
-            "Folder-Runner-Cleansed/DIL 20 MARET 2025 ULP KODAL 44913 PLGN.xlsx",
-            "Folder-Runner-Cleansed/DIL DONGGALA SEPTEMBER 2025.xlsx",
-            "Folder-Runner-Cleansed/DIL_SALDO_MASK_202605_23350.xlsx",
-            "Folder-Runner-Cleansed/DTSEN SISA TJR 33.375 PELANGGAN.xlsx",
-            "Folder-Runner-Cleansed/PASCA&PRABAYAR PARIGI.xlsx",
-            "Folder-Runner-Cleansed/PELANGGAN PRABAYAR ULP PALUKOTA (1).xlsx"
+            "Folder-Runner-Cleansed/Folder/DIL KAMONJI MEI 2026.xlsx",
+            "Folder-Runner-Cleansed/Folder/DIL TENTENA MEI 26 ALL.xlsx"
         ]
     for tf in target_files:
         full_p = os.path.join(REPO_ROOT, tf) if not os.path.isabs(tf) else tf
@@ -274,4 +276,5 @@ if __name__ == "__main__":
             process_cleansing_file(full_p)
         else:
             logger.error(f"❌ File not found: {tf}")
+
 

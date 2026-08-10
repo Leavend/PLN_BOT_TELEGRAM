@@ -243,6 +243,15 @@ import re
 def clean_pln_name(name: str) -> str:
     if not name:
         return ""
+    # Nama yang SUDAH ter-mask ("N********H") bukan nama kotor — itu memang bentuk
+    # tampilannya. Kalau '*' ikut dibuang oleh filter [^a-zA-Z\s] di bawah, yang
+    # tersisa cuma inisial: "N********H" -> "NH". Live IDPel 232111177499 terkirim
+    # dengan r103/data2 = "NH" persis lewat jalur ini (slot data2 dari prelist BPS
+    # sudah ter-mask, dipakai sebagai sumber nama). Lewatkan apa adanya supaya
+    # pemanggil bisa memilih nama asli AP2T kalau ada, dan kalau tidak ada yang
+    # tersimpan tetap mask utuh — bukan inisial.
+    if "*" in name:
+        return re.sub(r"\s+", " ", str(name)).strip()
     # Strip any numeric suffixes/digits
     # E.g., "ABDUL RAHMAN 02" or "ABDUL RAHMAN02" or "01 ABDUL"
     # To handle trailing digits specifically (like "ABDUL RAHMAN 02"):
@@ -304,6 +313,112 @@ def resolve_r204_from_keperluan(keperluan: str) -> str:
 
 _kec_lookup_cache = None
 _desa_lookup_cache = None
+_desa_by_kec_cache = None   # kec_fullcode -> [(nama_ternormalisasi, kode_desa, nama_asli)]
+_desa_by_kab_cache = None   # (kab4, nama_ternormalisasi) -> [(kode_desa, kec_fullcode, nama_asli)]
+_kec_by_prov_cache = None   # kd_prov -> [(nama_ternormalisasi, info_kec)]
+_kec_by_code_cache = None   # kec_fullcode -> nama kecamatan versi master BPS
+
+# PLN dan BPS mengeja nomor desa beda: "WANI SATU" vs "WANI I", "WANI DUA" vs "WANI II".
+_ROMAN_WORDS = (("SATU", "I"), ("DUA", "II"), ("TIGA", "III"), ("EMPAT", "IV"), ("LIMA", "V"))
+
+
+def _fuzzy_desa_in_kec(kec_code: str, target_kel: str):
+    """Cari desa paling mirip DI DALAM satu kecamatan saja.
+
+    Nama desa PLN sering beda tipis dari master BPS (TANAMEA/TANAHMEA, PANAWU/PANAU,
+    HANGIRA/HANGGIRA, GUMBASA/KUMBASA). Dulu kodenya jatuh ke pencarian nama tanpa
+    batas wilayah — itu mengembalikan desa dari kecamatan/provinsi lain (terukur 7.802
+    baris, 826 di antaranya lintas provinsi). Kandidat di sini cuma 5-25 desa milik
+    kecamatan yang sudah benar, jadi salah-cocok tetap berada di kecamatan yang sama.
+    Kembalikan None kalau tidak ada yang cukup mirip ATAU dua kandidat sama kuatnya.
+    """
+    import difflib
+
+    cands = (_desa_by_kec_cache or {}).get(kec_code) or []
+    if not cands:
+        return None
+
+    def _fold(s):
+        for word, roman in _ROMAN_WORDS:
+            if s.endswith(word):
+                return s[: -len(word)] + roman
+        return s
+
+    t = _fold(target_kel)
+    folded = [(_fold(n), code, raw) for n, code, raw in cands]
+
+    exact = [c for c in folded if c[0] == t]
+    if len(exact) == 1:
+        return {"full_code": exact[0][1], "full_name": exact[0][2], "kec_code": kec_code}
+
+    # Batang nama tanpa nomor ("WANI" untuk WANI I / II / III) tidak boleh ditebak.
+    if sum(1 for n, _, _ in folded if n.startswith(t) and n != t) >= 2:
+        return None
+
+    scored = sorted(
+        ((difflib.SequenceMatcher(None, t, n).ratio(), code, raw) for n, code, raw in folded),
+        reverse=True,
+    )
+    best = scored[0]
+    runner_up = scored[1][0] if len(scored) > 1 else 0.0
+    if best[0] >= 0.80 and (best[0] - runner_up) >= 0.05:
+        return {"full_code": best[1], "full_name": best[2], "kec_code": kec_code}
+
+    # Desa yang di-rename dengan menempelkan kata (BPS "O O" vs PLN "O'O PARESE") skor
+    # kemiripannya rendah padahal jelas desa yang sama. Terima hanya kalau di kecamatan
+    # itu PERSIS satu kandidat yang bersarang — "WANI" dengan WANI I/II/III tetap ditolak.
+    # Bersarang saja tidak cukup: "KAMPUNG BARU" akan tersedot ke desa "BARU" dan
+    # "SOPO" ke "OP" (nol kasus di Sulteng, tapi nyata di Kaltim/Aceh). Terima hanya
+    # kalau yang pendek adalah AWALAN yang panjang (rename dengan menempel kata:
+    # "O O" -> "O'O PARESE") atau porsinya besar ("DIDIRI" di "OMPO DIDIRI" = 60%).
+    def _nests(a, b):
+        short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+        if len(short) < 2 or short not in long_:
+            return False
+        return long_.startswith(short) or len(short) / len(long_) >= 0.6
+
+    sub = [(n, code, raw) for n, code, raw in folded if _nests(n, t)]
+    if len(sub) == 1:
+        return {"full_code": sub[0][1], "full_name": sub[0][2], "kec_code": kec_code}
+    return None
+
+
+def _desa_unique_in_kab(kab_code: str, target_kel: str):
+    """Desa tak ada di kecamatan yang disebut PLN, tapi ada TEPAT SATU di kabupatennya.
+
+    Sebabnya pemekaran: BPS memindahkan SIDERA/BORA/WATUNONJU dari SIGI BIROMARU ke
+    kecamatan baru SIGI KOTA, sedangkan DIL PLN masih menyebut kecamatan lama. Master
+    BPS-lah yang menentukan kode, jadi kecamatannya ikut dikoreksi oleh pemanggil.
+    Pencocokannya nama PERSIS (bukan mirip), jadi harus dipanggil SEBELUM
+    _fuzzy_desa_in_kec. Diuji atas 84.151 baris master ber-ground-truth:
+    79.221 setuju, 0 beda, 4.930 abstain (nama tak ada / ambigu di kabupaten).
+    Ambigu (nama sama di >1 kecamatan dalam kabupaten itu) sengaja ditolak.
+    """
+    hits = (_desa_by_kab_cache or {}).get((str(kab_code)[:4], target_kel)) or []
+    if len(hits) != 1:
+        return None
+    full_code, kec_code, raw = hits[0]
+    return {"full_code": full_code, "full_name": raw, "kec_code": kec_code}
+
+
+def _fuzzy_kec_in_prov(prov: str, target_kec: str):
+    """Nama kecamatan beda ejaan antara PLN dan BPS (PAMONA PUSELEMBA / PUSALEMBA).
+
+    Dibatasi satu provinsi supaya nama kembar antar provinsi (PARIGI, LEMBO) tidak
+    ikut tersapu. Aturan penerimaannya sama ketatnya dengan pencocokan desa.
+    """
+    import difflib
+
+    cands = (_kec_by_prov_cache or {}).get(str(prov)) or []
+    if not cands:
+        return None
+    scored = sorted(((difflib.SequenceMatcher(None, target_kec, n).ratio(), n, info)
+                     for n, info in cands), reverse=True)
+    best = scored[0]
+    runner_up = scored[1][0] if len(scored) > 1 else 0.0
+    if best[0] >= 0.85 and (best[0] - runner_up) >= 0.05:
+        return best[2]
+    return None
 
 def _norm_region(name_raw):
     """Normalize a region name for matching: drop a leading '[code] ' prefix and all
@@ -314,7 +429,8 @@ def _norm_region(name_raw):
     return re.sub(r"[^A-Z0-9]", "", n.upper())
 
 def load_regional_lookups():
-    global _kec_lookup_cache, _desa_lookup_cache
+    global _kec_lookup_cache, _desa_lookup_cache, _desa_by_kec_cache
+    global _desa_by_kab_cache, _kec_by_prov_cache, _kec_by_code_cache
     if _kec_lookup_cache is not None and _desa_lookup_cache is not None:
         return _kec_lookup_cache, _desa_lookup_cache
         
@@ -346,14 +462,27 @@ def load_regional_lookups():
 
     kec_cache = {}
     desa_cache = {}
+    desa_by_kec = {}
+    desa_by_kab = {}
+    kec_by_prov = {}
+    kec_by_code = {}
     if os.path.exists(kec_path):
         try:
             for row in _rows(kec_path):
                 # app: [kdprovkabkec, namakec, kdprov, kdprovkab]; MFD: [code, name, ?, l1, l2]
-                kec_cache[_clean(row[1])] = {
+                info = {
                     "code": row[0], "full_name": row[1],
                     "l1_code": row[2], "l2_code": row[3],
                 }
+                # Nama kecamatan banyak yang kembar antar provinsi (PARIGI ada di 72 dan
+                # 74, LEMBO juga). Key nama-saja = last-wins → pemenangnya provinsi lain
+                # dan BLOK III terkirim ke wilayah salah (terukur 7.318/94.476 baris DIL
+                # UP3 PALU). Key (prov, nama) dipakai duluan; nama-saja tetap ada supaya
+                # pemanggil yang tak punya kode provinsi tidak berubah perilakunya.
+                kec_cache[(str(row[2]), _clean(row[1]))] = info
+                kec_cache[_clean(row[1])] = info
+                kec_by_prov.setdefault(str(row[2]), []).append((_clean(row[1]), info))
+                kec_by_code[row[0]] = str(row[1]).split("] ", 1)[-1]
         except Exception as e:
             print(f"[!] Error loading kec lookup: {e}")
     if os.path.exists(desa_path):
@@ -364,11 +493,18 @@ def load_regional_lookups():
                 desa_cache[(kec_code, name)] = {"full_code": full_code, "full_name": name_raw}
                 if name not in desa_cache:
                     desa_cache[name] = {"full_code": full_code, "full_name": name_raw, "kec_code": kec_code}
+                desa_by_kec.setdefault(kec_code, []).append((name, full_code, name_raw))
+                desa_by_kab.setdefault((str(kec_code)[:4], name), []).append(
+                    (full_code, kec_code, name_raw))
         except Exception as e:
             print(f"[!] Error loading desa lookup: {e}")
 
     _kec_lookup_cache = kec_cache
     _desa_lookup_cache = desa_cache
+    _desa_by_kec_cache = desa_by_kec
+    _desa_by_kab_cache = desa_by_kab
+    _kec_by_prov_cache = kec_by_prov
+    _kec_by_code_cache = kec_by_code
     return kec_cache, desa_cache
 
 def resolve_region_codes_and_names(target: dict, direct_args: dict):
@@ -432,8 +568,13 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
             kec_cache, desa_cache = load_regional_lookups()
             target_kec = _norm_region(pd_kec_name)
             target_kel = _norm_region(pd_kel_name)
-            
-            kec_info = kec_cache.get(target_kec)
+
+            # Provinsi dari prelist dipakai untuk memilih kecamatan yang benar saat
+            # namanya kembar antar provinsi (lihat catatan di load_regional_lookups).
+            pd_prov2 = str(pd_prov_code or "").strip()[:2]
+            kec_info = kec_cache.get((pd_prov2, target_kec)) if pd_prov2 else None
+            if not kec_info:
+                kec_info = kec_cache.get(target_kec)
             if kec_info:
                 l1_code = kec_info["l1_code"]
                 l1_name = pd_prov_name or "KALIMANTAN TIMUR"
@@ -446,7 +587,7 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
                 
                 desa_info = desa_cache.get((kec_info["code"], target_kel))
                 if not desa_info:
-                    desa_info = desa_cache.get(target_kel)
+                    desa_info = _fuzzy_desa_in_kec(kec_info["code"], target_kel)
                 if desa_info:
                     l4_code = desa_info["full_code"][-3:]
                     l4_name = pd_kel_name or "TELEMOW"
@@ -506,8 +647,15 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
             kec_cache, desa_cache = load_regional_lookups()
             target_kec = _norm_region(pln_nama_kec)
             target_kel = _norm_region(pln_nama_kel)
-            
-            kec_info = kec_cache.get(target_kec)
+
+            # Kode provinsi PLN == kode provinsi BPS (hanya kab/kec yang beda penomoran),
+            # jadi aman dipakai untuk memisahkan kecamatan bernama kembar.
+            prov2 = bps_prov if (len(bps_prov) == 2 and bps_prov.isdigit()) else bps_kel[0:2]
+            kec_info = kec_cache.get((prov2, target_kec)) if prov2 else None
+            if not kec_info and prov2:
+                kec_info = _fuzzy_kec_in_prov(prov2, target_kec)
+            if not kec_info:
+                kec_info = kec_cache.get(target_kec)
             if kec_info:
                 l1_code = kec_info["l1_code"]
                 l1_name = str(direct_args.get("pln_nama_prov") or "KALIMANTAN TIMUR").strip().upper()
@@ -521,10 +669,25 @@ def resolve_region_codes_and_names(target: dict, direct_args: dict):
                 l3_name = str(direct_args.get("pln_nama_kec") or l3_name).strip().upper()
                 l3_fullcode = kec_info["code"]
 
-                # Look up village using kec_code and kel_name
+                # Urutan sengaja: nama PERSIS selalu menang atas tebakan mirip.
+                #   1. persis di kecamatan yang disebut PLN
+                #   2. persis & tunggal di kabupatennya (desa dipindah BPS lewat
+                #      pemekaran; kecamatannya ikut dikoreksi supaya BLOK III tidak
+                #      jadi kec-lama + desa-kec-baru)
+                #   3. baru pencocokan mirip di dalam kecamatan
+                # Kalau (3) didahulukan, "SIDONDO IV" tertarik ke "SIDONDO I" yang
+                # sekecamatan (margin difflib 0,052 — lolos tipis) padahal SIDONDO IV
+                # ada verbatim di kecamatan sebelah: terukur 194 baris PALUKOTA.
                 desa_info = desa_cache.get((kec_info["code"], target_kel))
                 if not desa_info:
-                    desa_info = desa_cache.get(target_kel)
+                    alt = _desa_unique_in_kab(kec_info["code"], target_kel)
+                    if alt:
+                        desa_info = alt
+                        l3_fullcode = alt["kec_code"]
+                        l3_code = alt["kec_code"][-3:]
+                        l3_name = (_kec_by_code_cache or {}).get(alt["kec_code"], l3_name).upper()
+                if not desa_info:
+                    desa_info = _fuzzy_desa_in_kec(kec_info["code"], target_kel)
 
                 if desa_info:
                     l4_code = desa_info["full_code"][-3:]
@@ -596,7 +759,9 @@ def get_region_fields(target: dict, direct_args: dict) -> dict:
     r102d_code = res_reg.get("l4_fullcode_pln") or res_reg["l4_fullcode"]
     r102d_name = res_reg["l4_name"]
     
-    r103_name = target.get("data2") or direct_args.get("nama") or ""
+    # data2 = slot tampilan BPS yang isinya nama ter-mask ("N********H"). Nama asli
+    # dari AP2T menang bila ada; mask cuma dipakai kalau memang tak ada nama lain.
+    r103_name = direct_args.get("pln_nama") or target.get("data2") or direct_args.get("nama") or ""
     if r103_name:
         r103_name = clean_pln_name(str(r103_name))
         

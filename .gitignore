@@ -111,3 +111,8 @@ Folder-Runner-Cleansed/
 cleansing_lookup_cache.json
 .fasih_checkers_cache.json
 app_env_*.json
+
+# Deep-clean pool: kredensial + cache CEK (berisi nama/alamat pelanggan = PII)
+.deepclean_accounts.txt
+cek_cache.json
+.bontang_budget.json

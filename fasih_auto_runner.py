@@ -16,6 +16,7 @@ import os
 import sys
 import time
 import json
+import random
 import logging
 import threading
 import argparse
@@ -43,6 +44,8 @@ from petugas_client.batch_submit import (
     pln_lookup,
     _load_survey_cache,
     _save_survey_cache,
+    load_persistent_cek_cache,
+    cek_cache_verdict,
     PLN_API_URL
 )
 
@@ -116,8 +119,60 @@ def resolve_r204_from_keperluan(keperluan: str) -> str:
     return "5. Lainnya"
 
 
+QUOTA_MIN, QUOTA_MAX = 350, 400
+
+
+def _fmt_wait(sec: int) -> str:
+    """Detik → ringkas: '5j 12m' / '8m' / '45d'."""
+    sec = max(0, int(sec))
+    h, r = divmod(sec, 3600); m, s = divmod(r, 60)
+    if h: return f"{h}j {m}m"
+    if m: return f"{m}m"
+    return f"{s}d"
+
+
+def _parse_bps_retry(msg: str):
+    """Ambil waktu tunggu REAL dari pesan 429 BPS. BPS kadang bilang 'Coba lagi dalam
+    5 jam' (kuota harian) atau 'dalam 3 menit' (rate-limit sesaat). Return
+    (detik|None, teks_pendek). detik=None → pakai backoff default."""
+    import re
+    m = str(msg or "")
+    r = re.search(r"(\d+)\s*(jam|menit|detik|hour|minute|second|jm|mnt|dtk)", m, re.I)
+    if r:
+        n = int(r.group(1)); unit = r.group(2).lower()
+        mult = 3600 if unit.startswith(("jam", "hour", "jm")) else (60 if unit.startswith(("men", "min", "mnt")) else 1)
+        return n * mult, f"BPS: coba lagi {n} {r.group(2)}"
+    # kata kunci kuota harian tanpa angka → anggap sampai reset harian (kira2)
+    if any(k in m.lower() for k in ("harian", "daily", "hari ini", "kuota habis")):
+        return None, "Kuota harian BPS habis"
+    return None, "429 rate-limit BPS"
+
+# Hasil check-idpln ternyata BERGANTUNG PADA AKUN pemanggil, bukan properti global
+# IDPel (bukti: 338 baris TAVEALI SALDO JUNI yang di-CEK pool sebagai exists=false
+# nyatanya sukses terkirim oleh akun ULP-nya). Karena itu hasil deep-clean TIDAK
+# boleh dipakai sebagai gerbang submit — defaultnya mati. Nyalakan hanya kalau
+# sudah terbukti hasil pool sepadan dengan CEK akun ULP untuk wilayah tersebut.
+DEEPCLEAN_SKIP_INVALID = False
+DEEPCLEAN_SEED_CEK = False   # jangan suntik hasil CEK akun lain ke payload submit
+
+
+def daily_quota_for(acc: dict) -> int:
+    """Jatah submit HARI INI untuk satu akun ULP: acak 350-400, diundi sekali per
+    akun per hari lalu dibekukan di 'quota_today' (kalau diundi ulang tiap panggil,
+    batas kuota jadi goyang dan akun bisa kelewat pakai). daily_quota di users.json
+    tetap dihormati sebagai PLAFON kalau nilainya lebih kecil."""
+    today = datetime.date.today().isoformat()
+    q = acc.get("quota_today")
+    if not q or acc.get("quota_date") != today:
+        q = random.randint(QUOTA_MIN, QUOTA_MAX)
+        acc["quota_today"] = q
+        acc["quota_date"] = today
+    hard = int(acc.get("daily_quota", QUOTA_MAX) or QUOTA_MAX)
+    return min(int(q), hard)
+
+
 class AccountManager:
-    """Manages BPS SSO accounts, tokens, and daily quotas (300 IDPel/day limit)."""
+    """Manages BPS SSO accounts, tokens, and daily quotas (acak 350-400 IDPel/hari)."""
 
     def __init__(self, users_file: str = "users.json", per_account_concurrency: int = 8):
         self.users_file = users_file
@@ -278,15 +333,26 @@ class AccountManager:
 
             has_in_cooldown = False
 
+            # Sequential Mode with Active Worker Overflow:
+            # Prioritize accounts in strict list order (Account 1 first, then Account 2, etc.)
+            # If an account reaches max per-token concurrency (e.g. 10 active workers), workers spill over
+            # to the next sequential account so all 30 worker threads stay 100% active without idle waiting.
             for acc in subset:
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
                     acc["used_today"] = 0
+                    acc["hits_429"] = 0
+                    acc.pop("cooldown_until", None)
                 if acc.get("is_disabled"):
                     continue
 
+                # NOTE: a past 429 is a TRANSIENT rate-limit, NOT daily-quota exhaustion
+                # — it's handled by cooldown_until below, never by permanently benching
+                # the account. (Real quota is tracked by used_today from successful
+                # submits.) Do NOT bench on hits_429 here or accounts that only need to
+                # slow down get lost for the whole day.
                 used = acc.get("used_today", 0)
-                quota = acc.get("daily_quota", 400)
+                quota = daily_quota_for(acc)
                 if used < quota:
                     # Auto login check if token is missing
                     if not acc.get("token_data") and acc.get("email") and acc.get("password"):
@@ -304,64 +370,19 @@ class AccountManager:
                         has_in_cooldown = True
                         continue  # Temporarily in 429 cooldown
 
-                    # Acquire one concurrency slot (non-blocking: skip account if all slots occupied by other workers)
+                    # Acquire one concurrency slot (non-blocking: spill over to next account if 10 slots occupied)
                     sem = self._get_semaphore(acc["email"])
                     acquired = sem.acquire(blocking=False)
                     if not acquired:
-                        # This account is at max concurrency — treat as "busy", try next
-                        # But if this is the only eligible account (no next), allow blocking
+                        # Account is at max concurrency cap — spill over to next sequential account
                         has_in_cooldown = True
                         continue
 
                     return acc
 
-            # If all sequential accounts are busy (at max concurrency), fall back to blocking
-            # on the first non-exhausted, non-cooldown account to avoid dead-locking the pool
             if has_in_cooldown:
-                found_any_cooldown = False
-                for acc in subset:
-                    if acc.get("is_disabled"):
-                        continue
-                    used = acc.get("used_today", 0)
-                    quota = acc.get("daily_quota", 400)
-                    if used < quota and acc.get("token_data"):
-                        cd = acc.get("cooldown_until")
-                        if cd and time.time() < cd:
-                            found_any_cooldown = True
-                            continue  # This account is in cooldown, check the next one
-                        target_acc = acc
-                        target_sem = self._get_semaphore(acc["email"])
-                        break
-                if not target_acc:
-                    return "IN_COOLDOWN" if found_any_cooldown else None
-            else:
-                return None  # All selected accounts really reached daily quota
-
-        # OUTSIDE _quota_lock block: Acquire the semaphore blocking-ly to prevent holding the global lock
-        if target_sem and target_acc:
-            target_sem.acquire(blocking=True)
-            
-            # Re-verify under lock that the account remains valid and not exhausted
-            with _quota_lock:
-                today = datetime.date.today().isoformat()
-                if target_acc.get("last_date") != today:
-                    target_acc["last_date"] = today
-                    target_acc["used_today"] = 0
-                used = target_acc.get("used_today", 0)
-                quota = target_acc.get("daily_quota", 400)
-                
-                # Check if it was disabled, exhausted, or put on cooldown during the blocking wait
-                if (not target_acc.get("is_disabled") and 
-                    used < quota and 
-                    target_acc.get("token_data") and 
-                    (not target_acc.get("cooldown_until") or time.time() >= target_acc["cooldown_until"])):
-                    return target_acc
-
-            # Release slot if account is no longer eligible and retry
-            target_sem.release()
-            return self.get_available_account(account_start, account_end, selected_emails)
-
-        return None
+                return "IN_COOLDOWN"
+            return None
 
 
     def increment_usage(self, email: str, pre_warm_callback=None):
@@ -373,7 +394,7 @@ class AccountManager:
                 if acc.get("email") == email:
                     used = acc.get("used_today", 0) + 1
                     acc["used_today"] = used
-                    quota = acc.get("daily_quota", 400)
+                    quota = daily_quota_for(acc)
                     # When this account reaches 85% quota, trigger background pre-warm for next account
                     if pre_warm_callback and used >= int(quota * 0.85) and not getattr(self, "_prewarm_triggered_" + email.replace("@", "_"), False):
                         setattr(self, "_prewarm_triggered_" + email.replace("@", "_"), True)
@@ -382,7 +403,7 @@ class AccountManager:
                             next_acc = self.accounts[j]
                             today = datetime.date.today().isoformat()
                             n_used = next_acc.get("used_today", 0) if next_acc.get("last_date") == today else 0
-                            n_quota = next_acc.get("daily_quota", 400)
+                            n_quota = daily_quota_for(next_acc)
                             if not next_acc.get("is_disabled") and n_used < n_quota and next_acc.get("token_data"):
                                 prewarm_target = (next_acc["email"], next_acc.get("token_data"))
                                 trigger_prewarm = True
@@ -442,7 +463,7 @@ class AccountManager:
             for acc in self.accounts:
                 email = str(acc.get("email", "")).strip().lower()
                 actual = counts.get(email, 0)
-                quota = acc.get("daily_quota", 400)
+                quota = daily_quota_for(acc)
                 if acc.get("last_date") != today:
                     acc["last_date"] = today
                     acc["used_today"] = actual
@@ -450,38 +471,52 @@ class AccountManager:
                     acc.pop("cooldown_until", None)
                     synced_any = True
                 else:
-                    # Sync to actual log count if actual < quota (fixes false 400/400 caused by 429 bursts)
-                    if actual != acc.get("used_today", 0) and actual < quota:
+                    # Sync to actual log count if actual < quota AND account has not been rate-limited today (hits_429 == 0)
+                    if actual != acc.get("used_today", 0) and actual < quota and acc.get("hits_429", 0) == 0:
                         acc["used_today"] = actual
                         synced_any = True
 
             if synced_any:
                 self.save_accounts()
 
-    def mark_quota_exhausted(self, email: str):
-        """Mark account as quota exhausted ONLY if actual usage reached daily quota or confirmed exhausted after repeated 429 errors."""
+    def mark_quota_exhausted(self, email: str, msg: str = ""):
+        """429 = transient rate-limit. Set cooldown pakai waktu tunggu REAL dari pesan
+        BPS bila ada (mis. 'coba lagi 5 jam' = kuota harian); kalau tidak, backoff
+        eksponensial. Simpan pesan + kapan pulih agar bisa ditampilkan di list akun."""
         with _quota_lock:
             for acc in self.accounts:
                 if (acc.get("email") or "").lower() == email.lower():
-                    used = acc.get("used_today", 0)
-                    quota = acc.get("daily_quota", 400)
-                    now = time.time()
-                    
-                    # Deduplicate concurrent 429 hits occurring in the same burst (within 15s of previous cooldown)
-                    last_hit = acc.get("_last_429_hit_ts", 0)
-                    if now - last_hit > 15.0:
-                        acc["hits_429"] = acc.get("hits_429", 0) + 1
-                        acc["_last_429_hit_ts"] = now
-
-                    hits = acc.get("hits_429", 0)
-                    if used >= quota or hits >= 5:
-                        acc["used_today"] = quota
-                        logger.warning(f"⛔ Akun {email} ditandai KUOTA HARIAN HABIS ({used}/{quota}) setelah {hits}x limit 429. Beralih ke akun berikutnya...")
-                    else:
-                        acc["cooldown_until"] = now + 60
-                        logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit (Hits: {hits}/5, Terpakai: {used}/{quota}). Cooldown 60s & beralih ke akun lain...")
+                    acc["hits_429"] = acc.get("hits_429", 0) + 1
+                    real_s, human = _parse_bps_retry(msg)
+                    if real_s is None:
+                        real_s = min(600, 60 * (2 ** min(acc["hits_429"] - 1, 4)))
+                    acc["cooldown_until"] = time.time() + real_s
+                    acc["limit_msg"] = human
+                    acc["limit_is_daily"] = real_s > 1800  # >30 mnt = kemungkinan kuota harian
+                    logger.warning(f"⏳ {email} 429 (#{acc['hits_429']}) — {human}, tunggu {_fmt_wait(real_s)}.")
                     break
             self.save_accounts()
+
+    def stop_reason(self, account_start=1, account_end=None, selected_emails=None) -> str:
+        """Pesan REAL saat runner berhenti: bedakan akun yang cuma cooldown 429
+        sementara (bisa lanjut nanti) vs yang kuota hariannya benar habis."""
+        with _quota_lock:
+            if selected_emails:
+                es = set(e.lower() for e in selected_emails)
+                subset = [a for a in self.accounts if (a.get("email") or "").lower() in es]
+            else:
+                subset = self.accounts[max(0, account_start - 1):(account_end or len(self.accounts))]
+            now = time.time()
+            cooling = [a for a in subset if a.get("cooldown_until", 0) > now
+                       and a.get("used_today", 0) < daily_quota_for(a)]
+            daily = [a for a in subset if a.get("used_today", 0) >= daily_quota_for(a)]
+            if cooling:
+                soon = min(a["cooldown_until"] for a in cooling) - now
+                return (f"SEMUA {len(subset)} akun sibuk: {len(cooling)} cooldown 429 sementara, "
+                        f"{len(daily)} kuota harian habis. Akun tercepat pulih {_fmt_wait(soon)} lagi "
+                        f"— jalankan lagi setelah itu.")
+            return (f"SEMUA {len(subset)} akun MENCAPAI KUOTA HARIAN BPS (reset ~tengah malam). "
+                    f"Lanjut besok.")
 
     def mark_cooldown(self, email: str, duration: int = 300):
         """Put an account on cooldown for a specific duration (seconds) after a transient error."""
@@ -523,7 +558,7 @@ class AccountManager:
                 subset = self.accounts[start_idx:end_idx]
 
             for acc in subset:
-                quota = acc.get("daily_quota", 400)
+                quota = daily_quota_for(acc)
                 acc["used_today"] = quota
                 acc["last_date"] = today
                 logger.warning(f"⛔ Akun {acc.get('email')} ditandai MENCAPAI LIMIT HARIAN ({quota}/{quota}) di users.json & tidak dapat digunakan lagi hari ini.")
@@ -701,7 +736,7 @@ class ExcelQueueManager:
                 self.lat_col = c
             if not self.lon_col and any(k in cu for k in ["LONGITUDE", "KOORDINAT_X", "KOORDINAT X", "KOORD_X", "KOORD X", "LON_X", "LONGITUDE_X", "LON", "LONG", "KOORDINAT_LON", "X_KOORDINAT"]):
                 self.lon_col = c
-            if not self.coord_col and any(k in cu for k in ["TITIK KOORDINAT", "TITIK_KOORDINAT", "KOORDINAT", "LAT_LON", "LAT_LONG", "COORDINATE", "COORDINATES", "LATITUDE_LONGITUDE"]):
+            if not self.coord_col and any(k in cu for k in ["TITIK KOORDINAT", "TITIK_KOORDINAT", "KOORDINAT", "TIKOR", "LAT_LON", "LAT_LONG", "COORDINATE", "COORDINATES", "LATITUDE_LONGITUDE"]):
                 if not any(x in cu for x in ["_X", " X", "_Y", " Y", "LATITUDE", "LONGITUDE", "COORD_X", "COORD_Y", "LAT", "LON"]):
                     self.coord_col = c
             if not self.keperluan_col and any(k in cu for k in ["KET_KEPERLUAN", "KEPERLUAN", "KD_KEPERLUAN"]):
@@ -710,6 +745,14 @@ class ExcelQueueManager:
         # Fallback to first column for IDPel if not matched
         if not self.idpel_col and len(cols) > 0:
             self.idpel_col = cols[0]
+
+        # PERTAHANAN: runner memakai index sebagai POSISI (get_item pakai .iloc[idx],
+        # get_pending_indices kembalikan .index[mask]). Kalau pkl/xlsx pernah di-cleansing
+        # dengan drop-baris tanpa reset (index jadi bolong), .iloc bisa out-of-bounds.
+        # Normalkan ke 0..N-1 tiap load supaya label == posisi. (RangeIndex = no-op.)
+        if not (isinstance(self.df.index, pd.RangeIndex)
+                and list(self.df.index) == list(range(len(self.df)))):
+            self.df = self.df.reset_index(drop=True)
 
         # Ensure BOT status columns exist
         if "BOT_STATUS" not in self.df.columns:
@@ -924,8 +967,12 @@ class ExcelQueueManager:
                     pass
 
 
-    def get_pending_indices(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None) -> List[int]:
-        """Get list of row indices that need processing with automatic cross-sheet IDPel deduplication (instant <1ms)."""
+    def get_pending_indices(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None, reverse: bool = False) -> List[int]:
+        """Get list of row indices that need processing with automatic cross-sheet IDPel deduplication (instant <1ms).
+
+        reverse=True → proses dari baris PENDING TERAKHIR ke atas (bawah→atas); dedup
+        IDPel menyimpan kemunculan index TERTINGGI. reverse=False → atas→bawah (lama).
+        """
         with _excel_lock:
             target_start_idx = 0
             if start_idpel:
@@ -947,12 +994,29 @@ class ExcelQueueManager:
                 mask.iloc[:target_start_idx] = False
 
             raw_pending = self.df.index[mask].tolist()
-            
+
+            # A start row/IDPel filters by POSITION, but completed rows are scattered —
+            # so a start point can silently skip pending rows sitting above it. Say so
+            # instead of reporting a bare "0 pending / semua sudah diproses".
+            if target_start_idx > 0:
+                skipped = int((~status_series.isin(terminal_statuses)).iloc[:target_start_idx].sum())
+                if skipped:
+                    first_skipped = int(self.df.index[~status_series.isin(terminal_statuses)][0]) + 2
+                    logger.warning(
+                        f"⚠️ {skipped:,} baris PENDING berada SEBELUM titik awal → dilewati. "
+                        f"PENDING pertama ada di baris Excel #{first_skipped}. "
+                        f"Pilih [1] (dari PENDING pertama) kalau mau semuanya dikerjakan."
+                    )
+
+            # Bawah→atas: balik urutan SEBELUM dedup supaya IDPel unik menyimpan
+            # kemunculan index tertinggi (baris paling bawah) dan hasilnya menurun.
+            iter_indices = list(reversed(raw_pending)) if reverse else raw_pending
+
             # Instant Deduplication by IDPel: only yield 1 pending index per unique IDPel
             pending_list = []
             seen_pending_idpels = set()
             if self.idpel_col and self.idpel_col in self.df.columns:
-                for idx in raw_pending:
+                for idx in iter_indices:
                     id_val = str(self.df.at[idx, self.idpel_col] or "").strip()
                     if id_val:
                         if id_val in seen_pending_idpels:
@@ -960,7 +1024,7 @@ class ExcelQueueManager:
                         seen_pending_idpels.add(id_val)
                     pending_list.append(idx)
             else:
-                pending_list = raw_pending
+                pending_list = list(iter_indices)
 
             return pending_list
 
@@ -1016,8 +1080,7 @@ class AutonomousRunner:
         selected_emails: Optional[List[str]] = None
     ):
         self.excel_mgr = ExcelQueueManager(excel_path)
-        # per_account_concurrency: dynamically match the thread pool size to allow 100% capacity
-        # utilization when few BPS accounts are used.
+        # per_account_concurrency: allow 100% worker pool utilization (all 30 threads active simultaneously)
         self.account_mgr = AccountManager(users_file, per_account_concurrency=max_workers)
         self.account_mgr.sync_usage_from_excel(self.excel_mgr.df)
         self.max_workers = max_workers
@@ -1140,6 +1203,21 @@ class AutonomousRunner:
             self.excel_mgr.update_row(idx, "INVALID_IDPEL", retry_count, "", "IDPel tidak valid (bukan angka 12 digit)")
             return
 
+        # CATATAN PENTING — JANGAN skip berdasarkan exists=false hasil deep-clean.
+        # Terbukti empiris (2026-08-08): 338 baris DIL TAVEALI SALDO JUNI yang
+        # di-CEK pool Bontang sebagai exists=false ternyata BENAR-BENAR terkirim
+        # ("Sukses: Data berhasil dikirimkan ke BPS!") oleh akun ULP-nya sendiri.
+        # Jadi hasil check-idpln bergantung pada AKUN yang memanggil (scope/prelist
+        # akun), bukan properti global IDPel. Kalau di-skip, baris yang sebetulnya
+        # bisa submit akan dicap INVALID_IDPEL (status terminal = hilang selamanya).
+        # Nilai deep-clean tetap dipakai untuk PELAPORAN, bukan gerbang.
+        if DEEPCLEAN_SKIP_INVALID and cek_cache_verdict(idpel) is False:
+            self.excel_mgr.update_row(idx, "INVALID_IDPEL", retry_count, "",
+                                      "Deep-clean: exists=false di BPS (tak terdaftar) — dilewati")
+            with self._processed_lock:
+                self._skipped_deepclean = getattr(self, "_skipped_deepclean", 0) + 1
+            return
+
         max_account_attempts = 5
         for acc_attempt in range(max_account_attempts):
             if self.stop_event.is_set():
@@ -1167,15 +1245,18 @@ class AutonomousRunner:
                             cnt = getattr(self, "_cooldown_log_count", 0) + 1
                             self._cooldown_log_count = cnt
                             self._last_cooldown_log = now
-                            logger.info(f"⏳ Akun BPS sedang dalam cooldown 429 rate-limit sementara. Menunggu akun siap...")
-                    time.sleep(3.0)
+                            logger.info("⏳ Akun BPS lagi cooldown 429 sementara. Menunggu akun siap...")
+                    time.sleep(0.1)
                 else:
                     break
 
             if not acc:
                 if not self.stop_event.is_set():
                     self.stop_event.set()
-                    logger.warning("⛔ SEMUA AKUN BPS YANG DIGUNAKAN TELAH MENCAPAI LIMIT KUOTA HARIAN. Menghentikan eksekusi...")
+                    # Pesan REAL: kenapa berhenti + kapan bisa lanjut (bukan lagi
+                    # klaim keliru "kuota harian habis" untuk semua kasus).
+                    logger.warning("⛔ " + self.account_mgr.stop_reason(
+                        self.account_start, self.account_end, self.selected_emails))
                 return
 
             email = acc["email"]
@@ -1197,7 +1278,7 @@ class AutonomousRunner:
                     else:
                         logger.error(f"❌ Gagal memuat survey cache untuk {email}: {e} — cooldown 5 menit...")
                         self.account_mgr.mark_cooldown(email, duration=300)
-                    
+
                     self.account_mgr.release_account_slot(email)
                     continue  # Retry acquiring another account for this item
 
@@ -1289,17 +1370,18 @@ class AutonomousRunner:
                         # Check if error is 'Region PLN tak lengkap (kd_kel kosong)' -> DO NOT RETRY
                         is_region_incomplete = any(err in msg_lower for err in ["region pln tak lengkap", "kd_kel kosong"])
                         # Check if error is 'Data PLN tidak ditemukan / server PLN tak terjangkau' -> RETRY UP TO 3X
-                        is_pln_not_found = not is_region_incomplete and any(err in msg_lower for err in ["pln tidak ditemukan", "terjangkau", "tidak terjangkau", "timeout", "500", "502", "504", "connection"])
+                        # 503 (Service Unavailable) sempat luput di sini — padahal itu
+                        # gejala paling umum saat BPS kewalahan. Akibatnya item langsung
+                        # dicap FAILED tanpa satu pun percobaan ulang.
+                        is_pln_not_found = not is_region_incomplete and any(err in msg_lower for err in ["pln tidak ditemukan", "terjangkau", "tidak terjangkau", "timeout", "500", "502", "503", "504", "service unavailable", "connection"])
 
                         if is_non_residential:
                             logger.warning(f"🚫 {idpel} Tarif Non-Rumah Tangga via {email}: {msg}")
                             self.excel_mgr.update_row(idx, "NON_RESIDENTIAL", retry_count, email, msg)
                             break
                         elif is_rate_limited:
-                            logger.warning(f"⏳ Akun {email} terkena 429 Rate Limit. Dimasukkan ke cooldown 60s...")
-                            self.account_mgr.mark_quota_exhausted(email)
-                            self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"Cooldown 429 BPS: {msg}")
-                            time.sleep(2.0)
+                            self.account_mgr.mark_quota_exhausted(email, msg)
+                            self.excel_mgr.update_row(idx, "RETRYING", retry_count, email, f"429 BPS: {msg}")
                             break
                         elif is_no_assignment:
                             logger.error(f"⛔ Akun {email} tidak memiliki tugas/sampel BPS di wilayah ini! Otomatis beralih ke akun berikutnya...")
@@ -1313,8 +1395,12 @@ class AutonomousRunner:
                             break
                         elif is_pln_not_found:
                             if attempt < max_pln_attempts:
-                                logger.warning(f"⚠️ {idpel} Gangguan Sementara PLN (Coba {attempt}/{max_pln_attempts}): {msg} — mencoba ulang dalam 1 detik...")
-                                time.sleep(1.0)
+                                # Backoff eksponensial + jitter. Jeda tetap 1 dtk bikin
+                                # semua worker mengulang SERENTAK — server yang sedang
+                                # kewalahan dipukul bergelombang dan makin lama pulih.
+                                _wait = 1.5 * (2 ** (attempt - 1)) + random.uniform(0, 1.0)
+                                logger.warning(f"⚠️ {idpel} Gangguan Sementara (Coba {attempt}/{max_pln_attempts}): {msg} — ulang dalam {_wait:.1f} dtk...")
+                                time.sleep(_wait)
                                 continue
                             else:
                                 logger.error(f"❌ {idpel} FAILED_PLN via {email}: {msg} (Gagal setelah {max_pln_attempts}x percobaan — dilewati)")
@@ -1332,8 +1418,11 @@ class AutonomousRunner:
                 logger.error(f"Error tak terduga dalam worker untuk {idpel} via {email}: {e}")
                 self.account_mgr.release_account_slot(email)
 
-    def prompt_interactive_start(self) -> Tuple[Optional[int], Optional[str]]:
-        """Interactive startup prompt to let user select start row or IDPel."""
+    def prompt_interactive_start(self) -> Tuple[Optional[int], Optional[str], bool]:
+        """Interactive startup prompt to let user select start row or IDPel.
+
+        Returns (start_row, start_idpel, reverse). Default = bawah→atas (reverse=True).
+        """
         df = self.excel_mgr.df
         total_rows = len(df)
         terminal_statuses = ["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL", "FAILED_PLN"]
@@ -1343,55 +1432,89 @@ class AutonomousRunner:
         print("\n" + "=" * 65)
         print("📌 FASIH AUTONOMOUS RUNNER — SESI INTERAKTIF")
         print("=" * 65)
+        # Completed rows are scattered, not packed at the top: "Sudah Dikerjakan: 13.329"
+        # is a COUNT, not a position. Typing it as the start row silently skips every
+        # pending row above it. Show where the pending work actually starts/ends.
+        status_u = df["BOT_STATUS"].astype(str).str.upper()
+        pend_idx = df.index[~status_u.isin(terminal_statuses)].tolist()
+        first_pend = (pend_idx[0] + 2) if pend_idx else None
+        last_pend = (pend_idx[-1] + 2) if pend_idx else None
+
         print(f"📄 File Excel           : {self.excel_mgr.excel_path}")
         print(f"📊 Total Baris Excel    : {total_rows:,}")
-        print(f"✅ Sudah Dikerjakan     : {completed_cnt:,}")
+        print(f"✅ Sudah Dikerjakan     : {completed_cnt:,}  (jumlah, BUKAN nomor baris)")
         print(f"📋 Menunggu Diproses    : {pending_cnt:,}")
+        if pend_idx:
+            print(f"📍 Baris PENDING        : #{first_pend} s.d. #{last_pend} (tersebar — pilih [1] untuk kerjakan semua)")
         print("=" * 65)
         print("Pilih titik awal eksekusi script:")
-        print("  [1] Mulai otomatis dari baris PENDING pertama (Default)")
-        print("  [2] Mulai dari Nomor Baris Excel tertentu (misal: 1500)")
-        print("  [3] Mulai dari IDPel tertentu (misal: 312100553931)")
+        print("  [1] Dari baris PENDING TERAKHIR → ke atas (bawah→atas)  (Default)")
+        print("  [2] Dari baris PENDING PERTAMA → ke bawah (atas→bawah)")
+        print("  [3] Mulai dari Nomor Baris Excel tertentu (misal: 1500)")
+        print("  [4] Mulai dari IDPel tertentu (misal: 312100553931)")
         print("-" * 65)
 
         try:
-            choice = input("Masukkan pilihan [1-3] atau ketik langsung No. Baris / IDPel: ").strip()
-            if choice == "2":
+            choice = input("Masukkan pilihan [1-4] atau ketik langsung No. Baris / IDPel: ").strip()
+            if choice == "" or choice == "1":
+                # Default: bawah→atas (index terakhir dulu)
+                return None, None, True
+            elif choice == "2":
+                return None, None, False
+            elif choice == "3":
                 r_str = input(f"Masukkan nomor baris Excel (2 - {total_rows + 1}): ").strip()
                 if r_str.isdigit():
-                    return int(r_str), None
-            elif choice == "3":
+                    return int(r_str), None, False
+            elif choice == "4":
                 id_str = input("Masukkan IDPel awal yang ingin dikerjakan: ").strip()
                 if id_str:
-                    return None, id_str
+                    return None, id_str, False
             elif choice.isdigit():
                 if len(choice) >= 10:
                     # Auto-detect 10+ digit number as IDPel
                     print(f"📍 Otomatis mendeteksi IDPel awal: '{choice}'")
-                    return None, choice
+                    return None, choice, False
                 elif int(choice) > 1:
                     # Auto-detect number as Excel row number
                     row_num = int(choice)
                     print(f"📍 Otomatis mendeteksi Nomor Baris Excel awal: #{row_num}")
-                    return row_num, None
+                    return row_num, None, False
         except (KeyboardInterrupt, EOFError):
             print("\nProses dibatalkan oleh pengguna.")
             sys.exit(0)
 
-        return None, None
+        # fallback = default bawah→atas
+        return None, None, True
 
-    def run(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None, non_interactive: bool = False):
-        """Run the main autonomous execution loop with 20 parallel workers."""
+    def run(self, start_row: Optional[int] = None, start_idpel: Optional[str] = None, non_interactive: bool = False, reverse: bool = True):
+        """Run the main autonomous execution loop with 20 parallel workers.
+
+        reverse=True (default) → kerjakan tiap DIL dari baris PENDING TERAKHIR ke atas.
+        """
         # Check interactive prompt if terminal & no explicit start args given
         if not non_interactive and sys.stdin.isatty() and start_row is None and not start_idpel:
-            start_row, start_idpel = self.prompt_interactive_start()
+            start_row, start_idpel, reverse = self.prompt_interactive_start()
 
         self.start_time = time.time()
         self._completed_timestamps = collections.deque(maxlen=100)
 
         logger.info(f"⚡ MEMULAI AUTONOMOUS RUNNER — Workers: {self.max_workers}")
 
-        pending_indices = self.excel_mgr.get_pending_indices(start_row=start_row, start_idpel=start_idpel)
+        # Hasil deep-clean HANYA disuntik ke jalur submit kalau DEEPCLEAN_SEED_CEK
+        # dinyalakan. Default mati: hasil CEK akun lain terbukti tidak sepadan dengan
+        # CEK akun ULP sendiri (lihat catatan di DEEPCLEAN_SKIP_INVALID), dan
+        # fasih_exists dari akun asing bisa memicu anti-dupe yang salah — akibatnya
+        # baris yang seharusnya dikirim malah dilewati. Setiap akun CEK sendiri.
+        if DEEPCLEAN_SEED_CEK:
+            try:
+                n_cek = load_persistent_cek_cache()
+                if n_cek:
+                    logger.info(f"🧹 Deep-clean cache: {n_cek:,} IDPel siap-pakai (akun ULP tak CEK ulang)")
+            except Exception as e:
+                logger.warning(f"Deep-clean cache tak terbaca ({e}) — tiap akun CEK sendiri")
+
+        pending_indices = self.excel_mgr.get_pending_indices(start_row=start_row, start_idpel=start_idpel, reverse=reverse)
+        logger.info(f"↕️  Arah proses: {'BAWAH→ATAS (index terakhir dulu)' if reverse else 'ATAS→BAWAH'}")
         logger.info(f"📋 Total IDPel pending yang akan diproses: {len(pending_indices)}")
 
         if not pending_indices:
@@ -1504,21 +1627,103 @@ class AutonomousRunner:
 
             logger.info(f"📄 Report CSV berhasil dibuat ({len(report_rows)} baris): {report_file}")
 
-            # Print summary table
+            # ---- Ringkasan rinci ----
+            import collections as _col
             success_cnt = sum(1 for r in report_rows if r["status"] == "SUCCESS")
             failed_cnt = sum(1 for r in report_rows if "FAIL" in r["status"])
             retry_cnt = sum(1 for r in report_rows if r["status"] == "RETRYING")
+            total = len(report_rows)
 
-            print("\n" + "=" * 50)
-            print(f"📊 SUMMARY AUTONOMOUS RUNNER REPORT")
-            print("=" * 50)
-            print(f"✅ Total Sukses: {success_cnt}")
-            print(f"❌ Total Gagal : {failed_cnt}")
-            if retry_cnt > 0:
-                print(f"🔄 Pending Retry: {retry_cnt}")
-            print(f"📄 File Excel Master : {self.excel_mgr.excel_path}")
-            print(f"📄 File CSV Report   : {report_file}")
-            print("=" * 50 + "\n")
+            # Sukses = benar terkirim vs sudah tercatat (skip anti-dupe)
+            terkirim = sum(1 for r in report_rows
+                           if r["status"] == "SUCCESS" and r["message"].lower().startswith("sukses"))
+            tercatat = success_cnt - terkirim
+
+            # Rincian penyebab GAGAL (kelompokkan pesannya)
+            def _sebab(msg):
+                m = (msg or "").lower()
+                if "503" in m or "service unavailable" in m: return "503 BPS sibuk"
+                if any(x in m for x in ("500", "502", "504")): return "5xx BPS lain"
+                if "429" in m or "kuota" in m: return "429 kuota akun"
+                if "timeout" in m or "timed out" in m or "terjangkau" in m or "connection" in m: return "jaringan/timeout"
+                if "kd_kel" in m or "region pln tak lengkap" in m: return "kd_kel kosong (data)"
+                if "validation fail" in m: return "BPS tolak validasi"
+                if "non-rumah tangga" in m or "hanya tarif tipe r" in m: return "tarif non-R"
+                if "tidak ditemukan" in m: return "PLN tak ditemukan"
+                return "lain"
+            sebab = _col.Counter(_sebab(r["message"]) for r in report_rows
+                                 if "FAIL" in r["status"] or r["status"] == "RETRYING")
+
+            # Per akun (siapa kerja berapa)
+            per = _col.Counter(r["petugas"] for r in report_rows if r["petugas"])
+            per_ok = _col.Counter(r["petugas"] for r in report_rows
+                                  if r["petugas"] and r["status"] == "SUCCESS")
+
+            # Kecepatan & durasi
+            ts = sorted(t for t in (r["timestamp"] for r in report_rows) if t)
+            durasi = kecepatan = None
+            if len(ts) >= 2:
+                try:
+                    t0 = datetime.datetime.strptime(ts[0], "%Y-%m-%d %H:%M:%S")
+                    t1 = datetime.datetime.strptime(ts[-1], "%Y-%m-%d %H:%M:%S")
+                    detik = max(1, int((t1 - t0).total_seconds()))
+                    durasi = f"{detik//3600}j {detik%3600//60}m {detik%60}d"
+                    kecepatan = success_cnt / (detik / 60)
+                except Exception:
+                    pass
+
+            # Sisa PENDING di seluruh master (bukan cuma sesi ini)
+            try:
+                with _excel_lock:
+                    st_all = self.excel_mgr.df["BOT_STATUS"].astype(str).str.upper()
+                    sisa_pending = int((~st_all.isin(["SUCCESS", "NON_RESIDENTIAL", "INVALID_IDPEL", "FAILED_PLN"])).sum())
+                    total_master = len(self.excel_mgr.df)
+                    sukses_master = int((st_all == "SUCCESS").sum())
+            except Exception:
+                sisa_pending = total_master = sukses_master = None
+
+            print("\n" + "=" * 56)
+            print("📊 SUMMARY AUTONOMOUS RUNNER REPORT")
+            print("=" * 56)
+            print(f"🗂  Diproses sesi ini : {total:,}")
+            print(f"✅ Sukses            : {success_cnt:,}"
+                  + (f"  (📤 baru terkirim {terkirim:,} · 🟢 sudah tercatat {tercatat:,})" if success_cnt else ""))
+            print(f"❌ Gagal             : {failed_cnt:,}")
+            if retry_cnt:
+                print(f"🔄 Perlu diulang     : {retry_cnt:,}")
+            _skipdc = getattr(self, "_skipped_deepclean", 0)
+            if _skipdc:
+                print(f"🧹 Dilewati deep-clean: {_skipdc:,}  (exists=false di BPS — kuota akun tak terbuang)")
+            if success_cnt and total:
+                print(f"📈 Tingkat sukses    : {success_cnt/total*100:.1f}%")
+            if durasi:
+                print(f"⏱  Durasi            : {durasi}   ({kecepatan:.1f} data/menit)")
+
+            if sebab:
+                print("\n🔎 Rincian gagal / perlu ulang:")
+                for k, v in sebab.most_common():
+                    catatan = ""
+                    if k == "503 BPS sibuk":       catatan = " (server sibuk — auto-ulang next run)"
+                    elif k == "429 kuota akun":     catatan = " (kuota harian akun habis)"
+                    elif k == "kd_kel kosong (data)": catatan = " (data cacat — takkan sukses)"
+                    print(f"   • {k:<22} {v:>5}{catatan}")
+
+            if len(per) > 1:
+                print(f"\n👤 Per akun ({len(per)} akun dipakai) — sukses/total:")
+                for em, n in per.most_common(8):
+                    print(f"   {em[:34]:<36} {per_ok.get(em,0):>4}/{n}")
+                if len(per) > 8:
+                    print(f"   … +{len(per)-8} akun lain")
+
+            if sisa_pending is not None:
+                done_master = total_master - sisa_pending
+                print(f"\n📋 File ini: {done_master:,}/{total_master:,} selesai · "
+                      f"sisa PENDING {sisa_pending:,}"
+                      + (" 🎉 TUNTAS" if sisa_pending == 0 else ""))
+
+            print(f"\n📄 Excel Master : {self.excel_mgr.excel_path}")
+            print(f"📄 CSV Report   : {report_file}")
+            print("=" * 56 + "\n")
         except Exception as e:
             logger.warning(f"Error generating CSV report: {e}")
 
@@ -1555,7 +1760,7 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
     """
     groups_map = {}
     for idx, acc in enumerate(accounts, 1):
-        grp = str(acc.get("group") or acc.get("region") or "PALUKOTA").strip().upper()
+        grp = str(acc.get("group") or acc.get("region") or "LAINNYA").strip().upper()
         if grp not in groups_map:
             groups_map[grp] = []
         groups_map[grp].append((idx, acc))
@@ -1564,7 +1769,7 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
     group_emojis = {
 
         "PALUKOTA": "🏙️ ",
-        "KOLONODALE": "🏰 ",
+        "KOLONEDALE": "🏰 ",
         "MALINAU": "🏔️ ",
         "TANJUNG REDEB": "📁 ",
         "DONGGALA": "⛵ ",
@@ -1589,9 +1794,11 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
             group_indices["DGL"] = indices
         elif grp_name == "BUNGKU":
             group_indices["BGK"] = indices
-        elif grp_name == "KOLONODALE":
+        elif grp_name == "KOLONEDALE":
             group_indices["KLD"] = indices
+            # Ejaan lama masih diterima supaya ketikan/script lama tidak putus.
             group_indices["KOLODALE"] = indices
+            group_indices["KOLONODALE"] = indices
         elif grp_name == "PARIGI":
             group_indices["PRG"] = indices
             group_indices["PARIGI"] = indices
@@ -1602,21 +1809,36 @@ def print_grouped_accounts(accounts: List[Dict[str, Any]]) -> Dict[str, List[int
         print("\n" + "=" * 65)
         print(f"{emoji} AKUN WILAYAH / ULP: {grp_name} (Urutan #{min_idx} - #{max_idx} · {len(items)} Akun)")
         print("=" * 65)
+        now = time.time()
         for idx, acc in items:
+            cd = acc.get("cooldown_until", 0)
+            cooling = cd > now
+            wait = ""  # info waktu tunggu real
             if acc.get("status") == "Invalid User":
                 status_str = "❌ Invalid User"
             elif acc.get("is_disabled"):
                 status_str = "❌ Disabled"
-            elif acc.get("status") == "Pass Wrong" or acc.get("note") == "Pass Wrong" or (not acc.get("token_data") and not acc.get("is_disabled")):
+            elif acc.get("status") == "Pass Wrong" or acc.get("note") == "Pass Wrong":
                 status_str = "❌ Pass Wrong"
-            elif acc.get("used_today", 0) >= acc.get("daily_quota", 400):
-                status_str = "❌ Limit"
+            elif not acc.get("token_data") and not acc.get("password"):
+                status_str = "⚠️ Tanpa Pass"
+            elif acc.get("used_today", 0) >= daily_quota_for(acc):
+                status_str = "❌ Limit harian"
+                wait = " · reset ~tengah malam"
+            elif cooling:
+                # 429: tampilkan pesan real + sisa waktu tunggu
+                remain = _fmt_wait(cd - now)
+                daily = acc.get("limit_is_daily")
+                status_str = "⛔ Kuota BPS" if daily else "⏳ Cooldown 429"
+                wait = f" · {acc.get('limit_msg','429')} · tunggu {remain}"
+            elif not acc.get("token_data"):
+                status_str = "⏳ Belum Login"
             else:
                 status_str = "✅ Active"
             email = acc.get("email") or "Unknown"
             used = acc.get("used_today", 0)
-            quota = acc.get("daily_quota", 400)
-            print(f"  {idx:2d}. {email:<38} [{status_str:<14}] (Terpakai: {used}/{quota})")
+            quota = daily_quota_for(acc)
+            print(f"  {idx:2d}. {email:<38} [{status_str:<15}] (Terpakai: {used}/{quota}){wait}")
 
     return group_indices
 
@@ -1691,43 +1913,57 @@ def manage_accounts_interactive(users_file: str = "users.json"):
                 print(f"❌ Error saat login SSO: {e}")
 
         elif choice == "2":
-            print("\n🔑 Memeriksa, Test Login, & Validasi Tugas Semua Akun:")
+            print("\n🔑 Memeriksa, Test Login, & Validasi Tugas Semua Akun (mode cepat):")
             if not mgr.accounts:
                 print("⚠️ Tidak ada akun di users.json untuk di-test.")
                 continue
-            for idx, acc in enumerate(mgr.accounts, 1):
+            # FAST (same idea as fasih-submit-batch --fast): validating an account only
+            # needs "does it have any task?", so read page-0's `total` instead of paging
+            # through every assignment (2.5k tasks = ~25 requests per survey, per account).
+            # Accounts are also checked concurrently — the old loop was strictly serial.
+            todo = [(i, a) for i, a in enumerate(mgr.accounts, 1)
+                    if a.get("email") and a.get("password")]
+            for i, a in enumerate(mgr.accounts, 1):
+                if not (a.get("email") and a.get("password")):
+                    print(f"   [{i}/{len(mgr.accounts)}] {a.get('email')} (tanpa password tersimpan)")
+
+            def _verify(item):
+                idx, acc = item
                 email = acc.get("email")
-                pwd = acc.get("password")
-                if email and pwd:
-                    print(f"   [{idx}/{len(mgr.accounts)}] Memeriksa {email}...")
-                    try:
-                        td = perform_login(email, pwd, exit_on_failure=False)
-                        if td and "access_token" in td:
-                            acc["token_data"] = td
-                            headers = get_headers(td)
-                            surveys = fetch_surveys(headers)
-                            active_surveys_cnt = 0
-                            total_assigns = 0
-                            for s in surveys:
-                                active_p = next((p for p in s.get("listPeriode", []) if p.get("isActive")), None)
-                                if active_p:
-                                    active_surveys_cnt += 1
-                                    assigns = fetch_all_assignments(headers, active_p["id"])
-                                    total_assigns += len(assigns)
-                            if active_surveys_cnt == 0 or total_assigns == 0:
-                                acc["is_disabled"] = True
-                                print(f"       ❌ DISABLED (0 tugas survey aktif)")
-                            else:
-                                acc["is_disabled"] = False
-                                print(f"       ✅ ACTIVE ({active_surveys_cnt} survey aktif, {total_assigns} tugas)")
-                        else:
-                            acc["is_disabled"] = True
-                            print(f"       ❌ DISABLED (Login SSO Gagal)")
-                    except Exception as e:
+                try:
+                    td = perform_login(email, acc.get("password"), exit_on_failure=False)
+                    if not (td and "access_token" in td):
                         acc["is_disabled"] = True
-                        print(f"       ❌ ERROR: {e} -> Akun dinonaktifkan sementara")
-                else:
-                    print(f"   [{idx}/{len(mgr.accounts)}] {email} (tanpa password tersimpan)")
+                        return idx, email, "❌ DISABLED (Login SSO Gagal)"
+                    acc["token_data"] = td
+                    headers = get_headers(td)
+                    active_cnt, total_assigns = 0, 0
+                    for s in fetch_surveys(headers):
+                        active_p = next((p for p in s.get("listPeriode", []) if p.get("isActive")), None)
+                        if not active_p:
+                            continue
+                        active_cnt += 1
+                        page0 = fetch_assignments(headers, active_p["id"], 0)
+                        total_assigns += ((page0.get("data") or {}).get("total") or 0)
+                    if active_cnt == 0 or total_assigns == 0:
+                        acc["is_disabled"] = True
+                        return idx, email, "❌ DISABLED (0 tugas survey aktif)"
+                    acc["is_disabled"] = False
+                    return idx, email, f"✅ ACTIVE ({active_cnt} survey aktif, {total_assigns} tugas)"
+                except Exception as e:
+                    acc["is_disabled"] = True
+                    return idx, email, f"❌ ERROR: {str(e)[:60]} -> dinonaktifkan sementara"
+
+            done = 0
+            try:
+                with ThreadPoolExecutor(max_workers=8) as ex:
+                    futures = [ex.submit(_verify, it) for it in todo]
+                    for fut in as_completed(futures):
+                        idx, email, verdict = fut.result()
+                        done += 1
+                        print(f"   [{done}/{len(todo)}] {email:<38} {verdict}")
+            except KeyboardInterrupt:
+                print("\n⚠️ Dihentikan — menyimpan hasil yang sudah selesai...")
             mgr.save_accounts()
             print("✅ Verifikasi dan pemfilteran selesai. Hasil disimpan ke users.json.")
 
@@ -1937,6 +2173,8 @@ def main():
     parser.add_argument("--workers", type=int, default=20, help="Jumlah paralel worker (default: 20)")
     parser.add_argument("--start-row", type=int, help="Mulai dari nomor baris Excel tertentu (misal: 1500)")
     parser.add_argument("--start-idpel", type=str, help="Mulai dari IDPel tertentu di Excel")
+    parser.add_argument("--top-down", action="store_false", dest="reverse", default=True,
+                        help="Proses dari baris PENDING pertama (atas→bawah). Default sekarang bawah→atas (index terakhir dulu).")
     parser.add_argument("--account-start", type=int, default=1, help="Mulai dari urutan nomor akun BPS tertentu di users.json (default: 1)")
     parser.add_argument("--account-end", type=int, help="Sampai urutan nomor akun BPS tertentu di users.json (default: akun terakhir)")
     parser.add_argument("--emails", nargs="+", help="Filter daftar email BPS tertentu yang akan dijalankan")
@@ -1976,7 +2214,8 @@ def main():
     runner.run(
         start_row=args.start_row,
         start_idpel=args.start_idpel,
-        non_interactive=args.non_interactive
+        non_interactive=args.non_interactive,
+        reverse=args.reverse
     )
 
 

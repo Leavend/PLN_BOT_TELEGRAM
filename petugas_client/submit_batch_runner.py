@@ -698,33 +698,68 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
     elapsed = time.time() - start_time
     m, s = divmod(int(elapsed), 60)
 
+    import collections as _col
+    total = len(report_rows)
+    _mode = ("PERBAIKI REJECT" if mode_flags.get("resubmit_reject")
+             else "DATA OPEN" if mode_flags.get("resubmit_open")
+             else "DATA REOPEN" if mode_flags.get("resubmit_reopen")
+             else "SUBMIT BIASA")
+
     print("\n" + "=" * 65)
-    print("🏁 HASIL PENGERJAAN BATCH PARALEL SELESAI")
+    print(f"🏁 HASIL {_mode} — SELESAI")
     print("=" * 65)
-    print(f"✅ Total Sukses: {success_cnt}")
 
     _succ = [r for r in report_rows if r["status"] == "SUCCESS"]
     _sent = [r for r in _succ if r["message"].startswith("Sukses") or "berhasil" in r["message"].lower()]
     _terc = [r for r in _succ if r["message"].startswith("Sudah") or "TERCATAT" in r["message"]]
 
+    print(f"✅ Sukses      : {success_cnt} / {total}"
+          + (f"  ({success_cnt/total*100:.0f}%)" if total else ""))
     if _sent:
         print(f"   📤 Baru dikirim ke BPS  : {len(_sent)}")
-        sample_sent = [r['idpel'] for r in _sent[:10]]
-        print(f"      IDPel: {', '.join(sample_sent)}" + (f" ... (+{len(_sent)-10} lainnya)" if len(_sent) > 10 else ""))
     if _terc:
         print(f"   🟢 Sudah tercatat (skip): {len(_terc)}")
-        sample_terc = [r['idpel'] for r in _terc[:10]]
-        print(f"      IDPel: {', '.join(sample_terc)}" + (f" ... (+{len(_terc)-10} lainnya)" if len(_terc) > 10 else ""))
+    print(f"❌ Gagal       : {failed_cnt}")
 
-    print(f"❌ Total Gagal : {failed_cnt}")
-
+    # Rincian penyebab gagal — dikelompokkan, plus saran singkat.
     failed_rows = [r for r in report_rows if r["status"] == "FAILED"]
+    def _sebab(msg):
+        mlow = (msg or "").lower()
+        if "503" in mlow or "service unavailable" in mlow: return ("503 BPS sibuk", "server sibuk — ulangi nanti")
+        if any(x in mlow for x in ("500", "502", "504")): return ("5xx BPS lain", "server BPS bermasalah")
+        if "429" in mlow or "kuota" in mlow: return ("429 kuota akun", "kuota harian akun habis")
+        if any(x in mlow for x in ("timeout", "timed out", "terjangkau", "connection")): return ("jaringan/timeout", "sinyal/jaringan — ulangi")
+        if "versi data tidak valid" in mlow: return ("versi data tidak valid", "selesaikan lewat APK FASIH")
+        if "arsip asli" in mlow or "tidak bisa dibaca" in mlow: return ("arsip app tak terbaca", "selesaikan lewat APK FASIH")
+        if "no access" in mlow or "dicabut" in mlow: return ("hak akses dicabut", "assignment sudah dipindah")
+        if "kd_kel" in mlow or "region pln tak lengkap" in mlow: return ("kd_kel kosong", "data cacat — takkan sukses")
+        if "non-rumah tangga" in mlow or "hanya tarif tipe r" in mlow: return ("tarif non-R", "bukan rumah tangga")
+        if "bukan data" in mlow: return ("status berubah", "sudah tidak open/reject")
+        return ("lain", "")
     if failed_rows:
-        print(f"\n❌ Rincian {len(failed_rows)} IDPel Gagal:")
-        for r in failed_rows:
-            print(f"   • {r['idpel']} ({r['email']}) — {r['message']}")
+        grup = _col.Counter(_sebab(r["message"])[0] for r in failed_rows)
+        saran = {_sebab(r["message"])[0]: _sebab(r["message"])[1] for r in failed_rows}
+        print("\n🔎 Penyebab gagal:")
+        for k, v in grup.most_common():
+            tip = saran.get(k, "")
+            print(f"   • {k:<24} {v:>4}" + (f"  ({tip})" if tip else ""))
+        # Contoh IDPel gagal (dibatasi biar layar HP tidak penuh)
+        print(f"\n   contoh IDPel gagal ({min(5, len(failed_rows))} dari {len(failed_rows)}):")
+        for r in failed_rows[:5]:
+            print(f"     • {r['idpel']} ({r['email'][:24]})")
 
-    print(f"⏱  Total Waktu : {m}m {s}s")
+    # Per akun bila lebih dari satu — sukses/total
+    per = _col.Counter(r["email"] for r in report_rows if r["email"])
+    per_ok = _col.Counter(r["email"] for r in report_rows if r["email"] and r["status"] == "SUCCESS")
+    if len(per) > 1:
+        print(f"\n👤 Per akun ({len(per)} akun):")
+        for em, n in per.most_common(6):
+            print(f"   {em[:30]:<32} {per_ok.get(em,0):>3}/{n}")
+        if len(per) > 6:
+            print(f"   … +{len(per)-6} akun lain")
+
+    _spd = (success_cnt / (elapsed/60)) if elapsed > 0 else 0
+    print(f"\n⏱  Waktu : {m}m {s}d   ({_spd:.0f} data/menit)")
     print("=" * 65)
 
     # Save report

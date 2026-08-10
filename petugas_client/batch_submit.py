@@ -561,27 +561,78 @@ def _cek(fn, *args, skip_cek_idpln: bool = False) -> dict:
 _CEK_CACHE_LOCK = threading.Lock()
 _CEK_IDPLN_CACHE: dict = {}
 _CEK_NIK_CACHE: dict = {}
+_CEK_KEYLOCKS: dict = {}   # (kind,key) -> Lock: serialize HANYA IDPel yang sama
 
 
 def _cek_cached(kind: str, fn, headers, aid, key, skip_cek_idpln: bool = False) -> dict:
-    """_cek with a global per-run cache keyed by idpel/nik. On a cache hit NO HTTP
-    call is made (saves the account's connector quota). Only real (non-empty)
-    results are cached; a 429 still raises so the caller handles it as before. The
-    HTTP call is intentionally NOT held under the lock (workers must not serialize);
-    at worst a few concurrent first-touches of the same idpel double-call, then it's
-    cached."""
+    """_cek dengan cache per-run keyed by idpel/nik. Cache hit = 0 HTTP (hemat kuota
+    connector akun). Hanya hasil non-kosong yang di-cache; 429 tetap raise.
+
+    JAMINAN 1 IDPel = 1 check-idpln: per-KEY lock membuat kalaupun banyak worker
+    menyentuh IDPel yang SAMA berbarengan (first-touch), hanya SATU yang memanggil
+    BPS; sisanya menunggu lalu membaca cache. IDPel BERBEDA tetap paralel penuh
+    (lock-nya per-key, bukan global) — jadi tak ada serialisasi antar-worker."""
     if skip_cek_idpln or not key:
         return {}
     cache = _CEK_IDPLN_CACHE if kind == "idpln" else _CEK_NIK_CACHE
     with _CEK_CACHE_LOCK:
         hit = cache.get(key)
-    if hit is not None:
-        return hit
-    data = _cek(fn, headers, aid, key, skip_cek_idpln=skip_cek_idpln)  # may raise 429
-    if data:  # cache only successful, non-empty lookups
+        if hit is not None:
+            return hit
+        keylock = _CEK_KEYLOCKS.get((kind, key))
+        if keylock is None:
+            keylock = _CEK_KEYLOCKS[(kind, key)] = threading.Lock()
+    # Hanya worker dgn IDPel sama yang antre di keylock ini.
+    with keylock:
         with _CEK_CACHE_LOCK:
-            cache[key] = data
-    return data
+            hit = cache.get(key)
+        if hit is not None:          # sudah diisi pemenang first-touch
+            return hit
+        data = _cek(fn, headers, aid, key, skip_cek_idpln=skip_cek_idpln)  # may raise 429
+        if data:                     # cache only successful, non-empty lookups
+            with _CEK_CACHE_LOCK:
+                cache[key] = data
+        return data
+
+
+PERSISTENT_CEK_CACHE = os.path.join(REPO_ROOT, "cek_cache.json")
+_CEK_META_KEYS = ("checked_at", "by")
+
+
+def load_persistent_cek_cache(path: str = PERSISTENT_CEK_CACHE) -> int:
+    """Seed the in-memory check-idpln cache from the deep-clean cache on disk.
+
+    bontang_deepclean.py pre-verifies IDPels using a SEPARATE account pool and
+    writes the connector payload per idpel. Seeding it here means _cek_cached hits
+    on those idpels and makes ZERO HTTP calls — so a submitting account never burns
+    its own connector quota (the thing that used to 429 accounts long before their
+    submit quota ran out), while the payload still carries the real prelist_source /
+    nama / region. IDPels absent from the file are unaffected: the account CEKs them
+    itself, exactly as before. Returns how many entries were seeded.
+    """
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        return 0
+    seeded = 0
+    with _CEK_CACHE_LOCK:
+        for idpel, rec in (data or {}).items():
+            if not isinstance(rec, dict) or idpel in _CEK_IDPLN_CACHE:
+                continue
+            _CEK_IDPLN_CACHE[idpel] = {k: v for k, v in rec.items() if k not in _CEK_META_KEYS}
+            seeded += 1
+    return seeded
+
+
+def cek_cache_verdict(idpel: str, path: str = PERSISTENT_CEK_CACHE) -> Optional[bool]:
+    """True = sudah di-deep-clean & IDPel ADA di BPS; False = ADA di cache tapi
+    exists=false (submit pasti gagal → jangan buang kuota); None = belum di-cek."""
+    with _CEK_CACHE_LOCK:
+        rec = _CEK_IDPLN_CACHE.get(str(idpel).strip())
+    if rec is None:
+        return None
+    return bool(rec.get("exists"))
 
 
 # --fast survey cache: the survey/periode/template/region setup is stable within
@@ -940,7 +991,7 @@ def submit_single(
                     reject_matches = [m for m in working_matches if "SUBMITTED" in (m[2].get("assignmentStatusAlias") or "").upper()]
                 matched_key, sc, target = reject_matches[0] if reject_matches else working_matches[0]
             elif resubmit_open:
-                open_matches = [m for m in working_matches if _is_unsubmitted_alias(m[2].get("assignmentStatusAlias"))]
+                open_matches = [m for m in working_matches if _is_unsubmitted(m[2])]
                 matched_key, sc, target = open_matches[0] if open_matches else working_matches[0]
             elif resubmit_reopen:
                 reopen_matches = [m for m in working_matches
@@ -1002,10 +1053,10 @@ def submit_single(
                 return True, "Bukan data REJECT / SUBMITTED (status berubah / tak ketemu) — dilewati."
 
         # RESUBMIT-OPEN / RESUBMIT-REOPEN: hanya sentuh record yang belum terkirim
-        # (OPEN / PERNAH DIBUKA / DRAFT).
+        # (statusId 0 — OPEN / PERNAH DIBUKA / DRAFT / REJECTED).
         if resubmit_open or resubmit_reopen:
-            if not target or not _is_unsubmitted_alias(target.get("assignmentStatusAlias")):
-                return True, "Bukan data OPEN / PERNAH DIBUKA / DRAFT (status berubah / tak ketemu) — dilewati."
+            if not target or not _is_unsubmitted(target):
+                return True, "Bukan data belum terkirim / statusId 0 (status berubah / tak ketemu) — dilewati."
 
 
 
@@ -1502,7 +1553,7 @@ def submit_single(
             (bool(target.get("basePath")) or "SUBMITTED" in status_alias.upper())
             and not resubmit_reject
             and "REJECT" not in status_alias.upper()
-            and not _is_unsubmitted_alias(status_alias)
+            and not _is_unsubmitted(target)
         )
         copy_from_id = (target.get("copyFromId") or target.get("id")) if (is_edit or target.get("isNew")) else None
         # Match the FASIH app exactly: archive filename carries a submit-time epoch
@@ -1632,17 +1683,34 @@ def submit_single(
 
 # --- Main ---
 
+def _is_rejected(a: dict) -> bool:
+    """REJECT yang dimaksud aplikasi FASIH = assignmentStatusId "3" (counter
+    "Reject" di Daftar Wilayah), BUKAN sekadar alias yang berbunyi "REJECTED".
+
+    BPS memakai alias "REJECTED BY Admin Kabupaten" untuk DUA kondisi berbeda:
+      · statusId "3" — pernah terkirim lalu ditolak; arsip S3 masih ada
+        (basePath terisi). Ini yang dihitung app di kolom Reject.
+      · statusId "0" — assignment dikembalikan/di-reset, arsip kosong, belum
+        pernah terkirim. App menghitungnya di kolom OPEN, bukan Reject.
+    Live BAAUONA: 24 baris alias REJECTED tapi app tampil "24 Open · 0 Reject" —
+    ke-24-nya statusId 0. Alias jadi cadangan kalau statusId tak dikirim."""
+    sid = str(a.get("assignmentStatusId") or "").strip()
+    if sid:
+        return sid == "3"
+    return "REJECT" in ((a.get("assignmentStatusAlias") or "").upper())
+
+
 def _reject_idpels(survey_caches: dict) -> list[str]:
-    """IDPel dari semua assignment berstatus REJECTED di seluruh survey cache.
-    Kunci resubmit-reject: cuma record REJECT (alias mengandung 'REJECT') yang
-    diambil, di-dedup, urut stabil — dipakai sebagai daftar item bila user tak
-    memberi input."""
+    """IDPel dari semua assignment REJECT (statusId 3) di seluruh survey cache,
+    di-dedup, urut stabil — dipakai sebagai daftar item bila user tak memberi
+    input. Reject yang sudah di-reset ke statusId 0 masuk ke _open_idpels,
+    persis seperti pembagian counter di aplikasi."""
     out, seen = [], set()
     for sc in survey_caches.values():
         tm = sc.get("template_mapping") or {}
         idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
         for a in sc.get("assignments") or []:
-            if "REJECT" in ((a.get("assignmentStatusAlias") or "").upper()):
+            if _is_rejected(a):
                 idp = (a.get(idpel_slot) or "").strip()
                 if idp and 8 <= len(idp) <= 15 and idp not in seen:
                     seen.add(idp)
@@ -1650,21 +1718,37 @@ def _reject_idpels(survey_caches: dict) -> list[str]:
     return out
 
 
-def _is_unsubmitted_alias(alias: str) -> bool:
+def _is_unsubmitted(a: dict) -> bool:
     """Assignment yang belum terkirim ke BPS, apa pun sebutannya.
 
-    BPS memakai tiga alias untuk kondisi ini: "OPEN" (belum dibuka),
-    "OPEN PERNAH DIBUKA", dan "DRAFT" (statusId 0 — sudah diisi & punya arsip
-    tapi belum di-submit). Di aplikasi ketiganya sama-sama tampil sebagai data
-    yang belum selesai, jadi --resubmit-open harus menyapu ketiganya. DRAFT
-    sempat terlewat dan bikin akun dengan sisa DRAFT terbaca "0 data OPEN"."""
-    a = (alias or "").strip().upper()
-    return "OPEN" in a or "PERNAH DIBUKA" in a or "DRAFT" in a
+    Sumber kebenarannya assignmentStatusId, BUKAN alias. Peta status BPS
+    (30.467 baris dari 221 akun + fetch live) sama persis dengan empat counter
+    "Daftar Wilayah" di aplikasi:
+
+        0 = Open      alias "OPEN" / "DRAFT" / "REJECTED BY Admin Kabupaten"
+        1 = Submit    alias "SUBMITTED BY Pencacah"
+        2 = Approved  alias "COMPLETED BY Admin Kabupaten"
+        3 = Reject    alias "REJECTED BY Admin Kabupaten"  -> _is_rejected
+
+    Alias "REJECTED" dipakai ulang di statusId 0 (assignment dikembalikan,
+    arsip kosong), dan aplikasi menghitungnya sebagai OPEN — live BAAUONA
+    "24 Open · 0 Reject" padahal ke-24 baris beralias REJECTED.
+
+    Live (satu akun Balikpapan): 37 baris statusId "0" (36 beralias
+    REJECTED + 1 DRAFT), tapi cocok-alias cuma menangkap 1 → tool lapor "tidak
+    ada data OPEN" padahal aplikasi menampilkan daftar panjang. Alias tetap
+    dipakai sebagai cadangan kalau statusId tidak dikirim server."""
+    sid = str(a.get("assignmentStatusId") or "").strip()
+    if sid:
+        return sid == "0"
+    alias = (a.get("assignmentStatusAlias") or "").strip().upper()
+    return "OPEN" in alias or "PERNAH DIBUKA" in alias or "DRAFT" in alias
 
 
 def _open_idpels(survey_caches: dict) -> list[str]:
     """IDPel (atau NoMeter bila IDPel kosong) dari assignment yang BELUM terkirim
-    (OPEN / PERNAH DIBUKA / DRAFT).
+    (statusId 0 — OPEN / PERNAH DIBUKA / DRAFT / REJECTED), sama persis dengan
+    daftar "Open" di aplikasi FASIH.
 
     Satu assignment => PALING BANYAK satu item. Sebelumnya idpel DAN nometer
     sama-sama dimasukkan, jadi satu record OPEN bisa dikerjakan dua kali (live:
@@ -1677,7 +1761,7 @@ def _open_idpels(survey_caches: dict) -> list[str]:
         idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
         nometer_slot = next((s for s, v in tm.items() if v == "r101b"), "data1")
         for a in sc.get("assignments") or []:
-            if not _is_unsubmitted_alias(a.get("assignmentStatusAlias")):
+            if not _is_unsubmitted(a):
                 continue
             idp = (a.get(idpel_slot) or "").strip()
             nom = (a.get(nometer_slot) or "").strip()

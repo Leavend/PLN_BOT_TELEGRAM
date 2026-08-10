@@ -56,7 +56,7 @@ def _is_edit(target, resubmit_reject=False):
     status_alias = (target.get("assignmentStatusAlias") or "").upper()
     return ((bool(target.get("basePath")) or "SUBMITTED" in status_alias)
             and not resubmit_reject and "REJECT" not in status_alias
-            and not bs._is_unsubmitted_alias(status_alias))
+            and not bs._is_unsubmitted(target))
 
 
 def test_reject_target_resubmits_existing_no_duplicate():
@@ -175,13 +175,90 @@ def test_open_idpels_skips_record_without_usable_identifier():
 
 
 def test_draft_counts_as_unsubmitted():
-    """BPS pakai alias DRAFT (statusId 0) untuk record yang sudah diisi tapi belum
-    dikirim; aplikasi menampilkannya sebagai data belum selesai. Live: satu akun
-    punya 3 DRAFT tapi --resubmit-open melaporkan '0 data OPEN'."""
+    """Tanpa assignmentStatusId, alias jadi cadangan: DRAFT/OPEN = belum terkirim."""
     for alias in ("OPEN", "OPEN PERNAH DIBUKA", "DRAFT", "draft"):
-        assert bs._is_unsubmitted_alias(alias) is True, alias
-    for alias in ("SUBMITTED BY Pencacah", "REJECTED BY Admin Kabupaten", "APPROVED", "", None):
-        assert bs._is_unsubmitted_alias(alias) is False, alias
+        assert bs._is_unsubmitted({"assignmentStatusAlias": alias}) is True, alias
+    for alias in ("SUBMITTED BY Pencacah", "APPROVED", "", None):
+        assert bs._is_unsubmitted({"assignmentStatusAlias": alias}) is False, alias
+
+
+def test_status_id_beats_alias():
+    """statusId adalah kebenarannya. Live (satu akun Balikpapan): 36 baris
+    statusId "0" beralias "REJECTED BY Admin Kabupaten" + 1 DRAFT = 37 data yang
+    tampil "Open" di aplikasi, tapi cocok-alias cuma menangkap 1."""
+    assert bs._is_unsubmitted({"assignmentStatusId": "0",
+                               "assignmentStatusAlias": "REJECTED BY Admin Kabupaten"}) is True
+    assert bs._is_unsubmitted({"assignmentStatusId": "0", "assignmentStatusAlias": "DRAFT"}) is True
+    assert bs._is_unsubmitted({"assignmentStatusId": "1",
+                               "assignmentStatusAlias": "SUBMITTED BY Pencacah"}) is False
+    assert bs._is_unsubmitted({"assignmentStatusId": "2",
+                               "assignmentStatusAlias": "COMPLETED BY Admin Kabupaten"}) is False
+
+
+def test_masked_prelist_name_never_becomes_initials():
+    """Slot data2 dari prelist BPS berisi nama ter-mask ("N********H"). Filter
+    [^a-zA-Z\\s] di clean_pln_name membuang '*' dan menyisakan inisial "NH" — itu
+    yang terkirim sebagai r103 pada IDPel 232111177499 (live). Nama asli AP2T harus
+    menang; kalau cuma ada mask, mask dikirim utuh, bukan inisial."""
+    from submit_fasih import clean_pln_name, build_dynamic_answers
+    from fasih_api import mask_pii_name
+
+    assert clean_pln_name("N********H") == "N********H"
+    assert clean_pln_name("NURHALIMAH") == "NURHALIMAH"
+    assert clean_pln_name("ABDUL RAHMAN 02") == "ABDUL RAHMAN"   # pembersihan lama utuh
+    assert mask_pii_name("N********H") == "N********H"           # mask ulang idempoten
+
+    target = {"id": "x", "data1": "32173362180", "data2": "N********H",
+              "data3": "232111177499", "data4": "HANDIL III HALIMA",
+              "preDefinedData": '{"dataKey":"f","predata":[{"dataKey":"layanan","answer":"PRABAYAR"}]}',
+              "region": {}}
+    tm = {"data1": "r101b", "data3": "r101a", "data2": "r103", "data4": "r102e"}
+    real = build_dynamic_answers(dict(target), {"idpel": "1", "nometer": "2",
+                                                "nama": "NURHALIMAH", "pln_nama": "NURHALIMAH"}, tm)
+    masked_only = build_dynamic_answers(dict(target), {"idpel": "1", "nometer": "2",
+                                                       "nama": "N********H"}, tm)
+    assert real["r103"] == "NURHALIMAH"
+    assert masked_only["r103"] == "N********H"
+
+
+def test_reject_bucket_is_status_id_3_not_alias():
+    """Aplikasi memisahkan Open vs Reject lewat statusId, bukan alias: statusId 0
+    beralias REJECTED = data Open (arsip kosong, dikembalikan), statusId 3 = Reject
+    beneran (pernah terkirim, punya arsip). Live BAAUONA: 24 baris alias REJECTED,
+    app tampil "24 Open · 0 Reject"."""
+    reset = {"assignmentStatusId": "0", "assignmentStatusAlias": "REJECTED BY Admin Kabupaten",
+             "basePath": "", "data3": "232002657833"}
+    real = {"assignmentStatusId": "3", "assignmentStatusAlias": "REJECTED BY Admin Kabupaten",
+            "basePath": "s3/arsip.7z", "data3": "231571698050"}
+    assert bs._is_rejected(reset) is False and bs._is_unsubmitted(reset) is True
+    assert bs._is_rejected(real) is True and bs._is_unsubmitted(real) is False
+    caches = _cache([reset, real])
+    assert bs._reject_idpels(caches) == ["231571698050"]
+    assert bs._open_idpels(caches) == ["232002657833"]
+
+
+def test_open_idpels_sweeps_every_status_id_zero():
+    """--resubmit-open harus menyapu seluruh statusId 0, termasuk REJECTED —
+    itulah daftar yang petugas lihat sebagai "Open" di aplikasi."""
+    caches = _cache([
+        {"assignmentStatusId": "0", "assignmentStatusAlias": "DRAFT", "data3": "231102018187"},
+        {"assignmentStatusId": "0", "assignmentStatusAlias": "REJECTED BY Admin Kabupaten",
+         "data3": "232002657833"},
+        {"assignmentStatusId": "1", "assignmentStatusAlias": "SUBMITTED BY Pencacah",
+         "data3": "231571698050"},
+        {"assignmentStatusId": "2", "assignmentStatusAlias": "COMPLETED BY Admin Kabupaten",
+         "data3": "231571698051"},
+    ])
+    assert bs._open_idpels(caches) == ["231102018187", "232002657833"]
+
+
+def test_rejected_open_row_still_routes_to_submit_not_edit():
+    """Baris REJECTED (statusId 0, tanpa basePath) yang ikut tersapu --resubmit-open
+    tetap lewat /submit ke assignment yang SAMA — bukan /edit, bukan record baru."""
+    t = {"id": "rej", "assignmentStatusId": "0",
+         "assignmentStatusAlias": "REJECTED BY Admin Kabupaten", "basePath": ""}
+    assert _is_edit(t) is False
+    assert _createStatus(t) == "false"
 
 
 def test_open_idpels_includes_draft():
