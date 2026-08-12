@@ -680,7 +680,10 @@ def _load_survey_cache(email: str = "", ignore_email: bool = False):
         pass
     return None
 
-def _save_survey_cache(email: str, survey_caches: dict):
+def _save_survey_cache(email: str, survey_caches: dict, full: bool = False):
+    """full=True menandai cache berisi SELURUH assignment (semua halaman), bukan
+    cuma page-0. Dipakai mode open/reject supaya run berikutnya (dalam TTL) tak
+    perlu unduh ulang seluruh assignment."""
     try:
         cfile = _survey_cache_file_for(email) if email else _SURVEY_CACHE_FILE
         trimmed = {}
@@ -698,9 +701,30 @@ def _save_survey_cache(email: str, survey_caches: dict):
                 "template_version": tv,
             }
         with open(cfile, "w") as f:
-            json.dump({"email": email, "ts": time.time(), "survey_caches": trimmed}, f)
+            json.dump({"email": email, "ts": time.time(), "full": bool(full), "survey_caches": trimmed}, f)
     except Exception as e:
         logger.warning(f"Gagal simpan cache survei: {e}")
+
+
+# Status assignment yang menandakan "belum terkirim" per mode discovery. Dipakai
+# untuk memutakhirkan cache full lokal begitu satu record sukses di-resubmit, agar
+# run/putaran berikutnya tidak menawarkan ulang record yang sudah kelar (mencegah
+# submit dobel dari snapshot basi — lihat _open_idpels).
+def _mark_assignment_submitted(survey_caches: dict, idpel: str) -> bool:
+    """Set assignmentStatusId record ber-IDPel `idpel` jadi "1" (SUBMITTED) di
+    seluruh survey cache. Return True bila ada yang diubah."""
+    idpel = (idpel or "").strip()
+    if not idpel:
+        return False
+    changed = False
+    for sc in (survey_caches or {}).values():
+        tm = sc.get("template_mapping") or {}
+        idpel_slot = next((s for s, v in tm.items() if v == "r101a"), "data3")
+        for a in sc.get("assignments") or []:
+            if (a.get(idpel_slot) or "").strip() == idpel and str(a.get("assignmentStatusId")) != "1":
+                a["assignmentStatusId"] = "1"
+                changed = True
+    return changed
 
 
 def _adjust(a: bytearray, aOff: int, b: bytes) -> None:

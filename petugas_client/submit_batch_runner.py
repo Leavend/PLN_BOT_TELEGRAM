@@ -41,6 +41,7 @@ from petugas_client.batch_submit import (
     submit_single,
     _load_survey_cache,
     _save_survey_cache,
+    _mark_assignment_submitted,
     _account_email,
     _reject_idpels,
     _open_idpels,
@@ -247,8 +248,15 @@ def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True, full_
         token_data = refresh_token_if_needed(token_data, token_file=None, exit_on_failure=False)
         account_info["token_data"] = token_data
 
-    # The disk "fast" cache only holds page-0 templates — useless for discovery, skip it.
-    survey_caches = _load_survey_cache(email) if (fast_mode and not full_fetch) else None
+    # Discovery (reject/open/reopen) butuh SELURUH assignment. Sekali diunduh penuh,
+    # cache full disimpan berlabel (full=True) dengan TTL 12 jam — run berikutnya
+    # dalam TTL tak perlu unduh ulang. FASIH_REFRESH_ASSIGNMENTS=1 memaksa unduh
+    # ulang (tarik perubahan status dari admin/petugas lain di server).
+    force_refresh = os.environ.get("FASIH_REFRESH_ASSIGNMENTS", "") in ("1", "true", "yes")
+    if full_fetch:
+        survey_caches = None if force_refresh else _load_survey_cache(email, require_full=True)
+    else:
+        survey_caches = _load_survey_cache(email) if fast_mode else None
     if survey_caches:
         return survey_caches
 
@@ -286,9 +294,9 @@ def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True, full_
             "template_version": tv,
         })
 
-    # Never persist the full-list fetch as the page-0 "fast" cache.
-    if email and survey_caches and not full_fetch:
-        _save_survey_cache(email, survey_caches)
+    # Simpan cache: page-0 (fast) atau full (discovery) — beri label sesuai isi.
+    if email and survey_caches:
+        _save_survey_cache(email, survey_caches, full=full_fetch)
 
     return survey_caches
 
@@ -674,12 +682,19 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
 
         return idpel, email, ok, msg
 
+    # Mode discovery pakai cache full lokal → mutakhirkan status record yang sukses
+    # supaya run berikutnya (dalam TTL 12 jam) tak menawarkannya lagi.
+    is_discovery = any(mode_flags.get(k) for k in ("resubmit_reject", "resubmit_open", "resubmit_reopen"))
+    done_by_email = {}
+
     futures = [lock.submit(_worker_task, t) for t in task_queue]
     for fut in as_completed(futures):
         idpel, email, ok, msg = fut.result()
         completed_cnt += 1
         if ok:
             success_cnt += 1
+            if is_discovery:
+                done_by_email.setdefault(email, []).append(idpel)
         else:
             failed_cnt += 1
 
@@ -695,6 +710,17 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
         })
 
     lock.shutdown(wait=True)
+
+    # Semua worker beres → patch status di cache full lalu simpan ulang ke disk,
+    # jadi discovery run berikutnya melewati record yang sudah kelar.
+    if is_discovery and done_by_email:
+        for email, ids in done_by_email.items():
+            caches = caches_by_email.get(email)
+            if not caches:
+                continue
+            for idpel in ids:
+                _mark_assignment_submitted(caches, idpel)
+            _save_survey_cache(email, caches, full=True)
 
     elapsed = time.time() - start_time
     m, s = divmod(int(elapsed), 60)
