@@ -2105,9 +2105,14 @@ def interactive_main_menu(args):
             acc_inp_upper = acc_inp.upper()
             if acc_inp_upper in group_indices:
                 indices = group_indices[acc_inp_upper]
-                acc_start = min(indices)
-                acc_end = max(indices)
-                print(f"\n✅ Dipilih seluruh akun Wilayah {acc_inp_upper} (Urutan #{acc_start} s.d. #{acc_end} — Total {len(indices)} akun).")
+                # Pilih via EMAIL eksplisit, bukan rentang min–max. Kalau satu akun
+                # kesasar di luar bloknya (mis. billmanpro4 group TAVEALI nyangkut di
+                # #236), rentang min–max menelan ULP tetangga (POSO/TAMBU) → DIL
+                # nyebrang ULP. selected_emails cocok-persis, kebal urutan file.
+                selected_emails = [mgr.accounts[i - 1].get("email") for i in indices
+                                   if mgr.accounts[i - 1].get("email")]
+                acc_start, acc_end = min(indices), max(indices)
+                print(f"\n✅ Dipilih seluruh akun Wilayah {acc_inp_upper} (#{acc_start}–#{acc_end}, Total {len(selected_emails)} akun).")
             elif "@" in acc_inp:
                 # Email(s) input
                 emails = [e.strip() for e in acc_inp.replace(",", " ").replace(";", " ").replace("\t", " ").split() if "@" in e]
