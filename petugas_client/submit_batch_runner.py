@@ -229,11 +229,17 @@ def save_accounts_to_disk(accounts: list[dict], is_local: bool = False):
         print(f"⚠️ Gagal menyimpan file akun: {e}")
 
 
-def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True, full_fetch: bool = False) -> dict:
+def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True, full_fetch: bool = False,
+                                force_refresh: bool = False) -> dict:
     """Load or fetch BPS survey caches for a specific BPS account.
 
     full_fetch=True pages through EVERY assignment (needed by discovery modes —
-    reject/open/reopen live beyond page-0) and bypasses the page-0 disk cache."""
+    reject/open/reopen live beyond page-0) and bypasses the page-0 disk cache.
+
+    force_refresh=True melewati cache full dan mengambil ulang live. WAJIB untuk
+    discovery REJECT: status reject dibuat SERVER (admin menolak submission), jadi
+    cache full lokal — yang cuma tahu apa yang kita submit (auto-patch 0/3→1) —
+    tak pernah melihat reject baru. Cache open aman (open dikuras oleh kita)."""
     token_data = account_info.get("token_data")
     email = account_info.get("email") or _account_email(token_data)
 
@@ -252,7 +258,7 @@ def get_or_fetch_survey_caches(account_info: dict, fast_mode: bool = True, full_
     # cache full disimpan berlabel (full=True) dengan TTL 12 jam — run berikutnya
     # dalam TTL tak perlu unduh ulang. FASIH_REFRESH_ASSIGNMENTS=1 memaksa unduh
     # ulang (tarik perubahan status dari admin/petugas lain di server).
-    force_refresh = os.environ.get("FASIH_REFRESH_ASSIGNMENTS", "") in ("1", "true", "yes")
+    force_refresh = force_refresh or os.environ.get("FASIH_REFRESH_ASSIGNMENTS", "") in ("1", "true", "yes")
     if full_fetch:
         survey_caches = None if force_refresh else _load_survey_cache(email, require_full=True)
     else:
@@ -536,7 +542,8 @@ def step3_discover_tasks_per_account(selected_accounts: list[dict], discover_mod
     for idx, acc in enumerate(selected_accounts, 1):
         email = acc.get("email") or _account_email(acc.get("token_data"))
         try:
-            caches = get_or_fetch_survey_caches(acc, full_fetch=True)
+            # Reject digerakkan server → paksa fetch live, jangan percaya cache full.
+            caches = get_or_fetch_survey_caches(acc, full_fetch=True, force_refresh=(discover_mode == "reject"))
         except Exception as e:
             print(f"   [{idx}/{n}] {email}: ❌ gagal ambil survei — {str(e)[:80]} (dilewati)")
             continue
