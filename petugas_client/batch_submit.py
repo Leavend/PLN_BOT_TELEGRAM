@@ -390,6 +390,60 @@ def pln_lookup(idpel: str = "", nometer: str = "") -> Optional[dict]:
     return None
 
 
+# ---------------------------------------------------------------- override wilayah
+# Sebagian pelanggan tidak punya kd_kel di AP2T MAUPUN di DIL (44.435 baris UP3 PALU).
+# Tanpa kd_kel, gerbang _kel_ok memblokir dan barisnya jadi FAILED_PLN yang terminal.
+# Wilayahnya direkonstruksi offline dari tetangga terdekat berkoordinat + gardu, lalu
+# disaring pada ambang skor 0,955 (akurasi holdout 97,76%) — daftar hasilnya di
+# lookups/kel_override.json. Penambalan HARUS di sini, bukan di file Excel: gerbang
+# membaca pln_data dari AP2T dan tak pernah melihat kolom DIL.
+#
+# ponytail: hanya mengisi field yang KOSONG. Baris yang AP2T-nya sudah punya wilayah
+# tak pernah tersentuh, jadi 209.837 baris yang sudah terverifikasi tidak berubah.
+_KEL_OVERRIDE: Optional[dict] = None
+# NAMA ikut disuplai, bukan cuma kode. resolve_region_codes_and_names memakai
+# nama_kec/nama_kel untuk mencari kode BPS di master; tanpa nama ia jatuh ke default
+# hardcoded Bontang dan payload jadi "[7210012007] BERBAS PANTAI" — kode Sigi, nama
+# Bontang. Terbukti di uji end-to-end 2026-08-12.
+_KEL_OVERRIDE_FIELDS = ("kd_prov", "kd_kab", "kd_kec", "kd_kel",
+                        "nama_prov", "nama_kab", "nama_kec", "nama_kel")
+
+
+def _load_kel_override() -> dict:
+    global _KEL_OVERRIDE
+    if _KEL_OVERRIDE is None:
+        path = os.path.join(REPO_ROOT, "lookups", "kel_override.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                _KEL_OVERRIDE = json.load(f)
+            print(f"🗺️  Override wilayah dimuat: {len(_KEL_OVERRIDE):,} IDPel ({path})")
+        except Exception:
+            _KEL_OVERRIDE = {}
+    return _KEL_OVERRIDE
+
+
+def apply_kel_override(idpel: str, data: Optional[dict]) -> Optional[dict]:
+    """Isi wilayah dari tabel override kalau AP2T tidak punya. Mengembalikan data apa
+    adanya bila tak ada entri atau bila AP2T sudah mengisi field itu."""
+    if not data:
+        return data
+    # Begitu AP2T punya kd_kel, wilayah itu MILIK AP2T — override tak boleh ikut campur,
+    # termasuk mengisi kd_prov/kd_kab yang kebetulan kosong. Mencampur dua sumber bisa
+    # menghasilkan kabupaten dari tebakan menempel pada kelurahan dari AP2T.
+    cur = str(data.get("kd_kel") or "").strip()
+    if len(cur) == 10 and cur.isdigit():
+        return data
+    key = str(idpel or data.get("idpel") or "").strip()
+    hit = _load_kel_override().get(key)
+    if not hit:
+        return data
+    for k in _KEL_OVERRIDE_FIELDS:
+        if hit.get(k):
+            data[k] = hit[k]
+    data["_wilayah_ditambal"] = hit.get("skor")       # jejak audit untuk laporan batch
+    return data
+
+
 
 
 def download_photo(photo_url: str, dest_dir: str) -> Optional[str]:
@@ -526,18 +580,31 @@ def _find_template_for_region(open_assignments, pln_data):
 # once we see a 429 we stop calling them for the rest of the run: submits keep
 # working + registering, just without prelist routing / NIK-pemadanan display
 # (wilayah still correct — it comes from PLN kd_kel, not CEK).
-# Serialize token refreshes so parallel workers never write TOKEN_FILE concurrently.
+#
+# Kuota connector (CEK) TERPISAH dari kuota submit dan jauh lebih kecil. Sempat
+# (b7085420) 429 CEK di-raise supaya auto-runner rotasi akun — itu keliru: satu
+# 429 CEK membunuh item DAN mem-bench akun yang kuota submit-nya masih utuh,
+# sehingga 32 akun habis di-cooldown dalam hitungan detik tanpa satu pun submit.
+# Sekarang kembali ke perilaku semula, tapi saklarnya PER-AKUN (per token), bukan
+# global: akun yang connector-nya masih segar tetap dapat prelist routing.
 _token_lock = threading.Lock()
+_CEK_OFF_TOKENS: set = set()   # token yang kuota connector-nya sudah 429 — CEK dimatikan sisa run
+
 
 def _cek(fn, *args, skip_cek_idpln: bool = False) -> dict:
-    if skip_cek_idpln:
+    tok = (args[0] or {}).get("Authorization", "") if args and isinstance(args[0], dict) else ""
+    if skip_cek_idpln or tok in _CEK_OFF_TOKENS:
         return {}
     try:
         return fn(*args).get("data") or {}
     except Exception as e:
         msg = str(e)
         if any(t in msg.lower() for t in ("429", "rate_limit_exceeded", "terlampaui", "too many requests")):
-            raise Exception(f"429 Rate Limit BPS (CEK IDPel limit terlampaui): {msg}")
+            if tok not in _CEK_OFF_TOKENS:
+                _CEK_OFF_TOKENS.add(tok)
+                logger.warning("⏭️  CEK BPS kena 429 (kuota connector akun ini habis) — CEK dimatikan "
+                               "untuk akun ini sisa run. Submit tetap jalan & TERDATA lewat paradata.")
+            return {}
         msg_lower = msg.lower()
         if "403" in msg_lower or "forbidden" in msg_lower:
             idpel_str = args[2] if len(args) > 2 else ""
@@ -655,13 +722,17 @@ def _survey_cache_file_for(email: str) -> str:
     clean = email.strip().lower().replace("@", "_at_").replace(".", "_") if email else "default"
     return os.path.join(REPO_ROOT, f".fasih_survey_cache_{clean}.json")
 
-def _load_survey_cache(email: str = "", ignore_email: bool = False):
+def _load_survey_cache(email: str = "", ignore_email: bool = False, require_full: bool = False):
+    """require_full=True hanya menerima cache berlabel full (semua assignment) —
+    dipakai mode open/reject; cache page-0 lama ditolak → paksa fetch penuh sekali."""
     cfile = _survey_cache_file_for(email) if email else _SURVEY_CACHE_FILE
     try:
         if not os.path.exists(cfile) and os.path.exists(_SURVEY_CACHE_FILE):
             cfile = _SURVEY_CACHE_FILE
         with open(cfile) as f:
             c = json.load(f)
+        if require_full and not c.get("full"):
+            return None
         if (ignore_email or c.get("email") == email or not email) and (time.time() - c.get("ts", 0)) < _SURVEY_CACHE_TTL:
             scs = c.get("survey_caches")
             # A cache written before `template_version` existed has neither that key
@@ -819,11 +890,24 @@ def fetch_and_decrypt_original(headers: dict, assignment_id: str, survey_period_
     temp_dir = tempfile.mkdtemp(prefix=f"download_{assignment_id}_")
     archive_path = os.path.join(temp_dir, filename)
     try:
-        with req_lib.get(get_url, stream=True) as r:
-            r.raise_for_status()
-            with open(archive_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
+        # Sebagian arsip lama tersimpan di backend S3 `bucket1.cloud.bps.go.id`
+        # yang rantai TLS-nya tak lengkap → verify default gagal SSLError, orig_data
+        # jadi None, dan resubmit reject membangun payload sintetis yang ditolak BPS
+        # "Versi data tidak valid". Fallback verify=False AMAN: isi arsip di-decrypt
+        # dengan region key (GCM authenticated) — MITM tak bisa memalsukan tanpa key.
+        def _download(verify):
+            with req_lib.get(get_url, stream=True, timeout=60, verify=verify) as r:
+                r.raise_for_status()
+                with open(archive_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+        try:
+            _download(True)
+        except req_lib.exceptions.SSLError:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            logger.warning(f"TLS bucket S3 gagal untuk {assignment_id} — unduh ulang tanpa verify (isi tetap GCM-authenticated).")
+            _download(False)
         
         extract_path = os.path.join(temp_dir, 'extracted')
         os.makedirs(extract_path, exist_ok=True)
@@ -1140,6 +1224,9 @@ def submit_single(
             return len(k) == 10 and k.isdigit()
         if not _kel_ok(pln_data):
             pln_data = pln_lookup(idpel=idpel_val, nometer=nometer_val) or pln_data
+        if not _kel_ok(pln_data):
+            # AP2T tetap tak punya wilayah — coba tabel override hasil rekonstruksi.
+            pln_data = apply_kel_override(idpel_val, pln_data)
         if not _kel_ok(pln_data):
             return False, "❌ Region PLN tak lengkap (kd_kel kosong — BLOK III bakal blank) — dilewati, coba lagi. Kalau sering: turunkan --workers (tunnel PLN overload)."
 
