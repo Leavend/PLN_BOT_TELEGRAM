@@ -74,21 +74,11 @@ def is_local_environment() -> bool:
     return False
 
 def check_working_hours(is_local: bool = False) -> tuple[bool, str]:
-    """Enforces 07:00 WITA - 18:00 WITA working hours restriction on HP Petugas."""
-    if is_local:
-        return True, "Mode Local — Pembatasan jam kerja dilewati."
+    """Pembatasan jam kerja 07-18 WITA DICABUT (2026-08-16) — selalu lolos."""
+    # ponytail: fungsi dipertahankan (dipanggil di beberapa callsite) tapi tak pernah menolak.
     from datetime import timezone, timedelta
-    wita_tz = timezone(timedelta(hours=8))
-    now_wita = datetime.now(wita_tz)
-    hour = now_wita.hour
-    if 7 <= hour < 18:
-        return True, f"Jam Kerja Valid ({now_wita.strftime('%H:%M:%S')} WITA)"
-    else:
-        return False, (
-            f"❌ [HP PETUGAS RESTRICTION] Pengerjaan fasih-submit-batch di HP Petugas HANYA dapat dilakukan pada jam kerja:\n"
-            f"   ⏰ 07.00 WITA - 18.00 WITA.\n"
-            f"   Waktu saat ini: {now_wita.strftime('%H:%M:%S')} WITA (Diluar Jam Kerja)."
-        )
+    now_wita = datetime.now(timezone(timedelta(hours=8)))
+    return True, f"Tanpa batas jam ({now_wita.strftime('%H:%M:%S')} WITA)"
 
 # --- Logging ---
 
@@ -1230,10 +1220,7 @@ def submit_single(
         if not _kel_ok(pln_data):
             return False, "❌ Region PLN tak lengkap (kd_kel kosong — BLOK III bakal blank) — dilewati, coba lagi. Kalau sering: turunkan --workers (tunnel PLN overload)."
 
-        # Check tarif filter: BPS FASIH is exclusively for Residential / Rumah Tangga (Tarif type "R")
-        tarif_val = str(pln_data.get("tarif") or "").strip().upper()
-        if tarif_val and "R" not in tarif_val:
-            return False, f"❌ Tarif Non-Rumah Tangga ({tarif_val}) — dilarang di-input ke BPS FASIH (hanya tarif tipe R)"
+        # Filter tarif non-R DICABUT (2026-08-16) — semua golongan tarif boleh masuk BPS FASIH.
 
         # Extract PLN data fields into direct_args
         if pln_data:
@@ -1896,7 +1883,7 @@ def main():
     parser = argparse.ArgumentParser(description="Batch Submit Petugas")
     parser.add_argument("input", nargs="?", help="File .txt berisi daftar IDPel/NoMeter (satu per baris)")
     parser.add_argument("--list", "-l", help="Daftar IDPel/NoMeter dipisah koma")
-    parser.add_argument("--local", action="store_true", help="Paksa mode local (bypass jam kerja & delay HP)")
+    parser.add_argument("--local", action="store_true", help="Paksa mode local (bypass delay HP)")
     parser.add_argument("--dry-run", action="store_true", help="Test tanpa submit ke BPS")
     parser.add_argument("--force", action="store_true", help="Re-register: paksa submit ulang record lama yang BELUM tercatat di FASIH (fasih_exists=false); yang sudah tercatat dilewati")
     parser.add_argument("--no-cek", action="store_true", help="Skip CEK IDPel/NIK dari awal (hindari 429 rate-limit). Data tetap TERDATA di FASIH via paradata; kehilangan routing prelist + tampilan pemadanan NIK")

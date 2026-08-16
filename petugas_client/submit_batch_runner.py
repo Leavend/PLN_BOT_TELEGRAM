@@ -3,9 +3,9 @@
 submit_batch_runner.py — Multi-Account Parallel Interactive Runner for fasih-submit-batch.
 
 HP Petugas Restrictions (Excluding Local machine):
-  1. Operating hours restricted to 07:00 - 18:00 WITA.
-  2. Worker delay of 30 to 60 seconds per data item.
-  3. Parallel multi-account execution engine.
+  1. Worker delay of 30 to 60 seconds per data item.
+  2. Parallel multi-account execution engine.
+  (Pembatasan jam kerja 07:00-18:00 WITA dicabut 2026-08-16.)
 
 Simulation Workflow:
   Step 1: Setoran Creds Akun BPS (Email & Password SSO).
@@ -79,25 +79,10 @@ def get_wita_time():
 
 def check_working_hours(is_local: bool = False) -> tuple[bool, str]:
     """
-    Enforces 07:00 WITA - 18:00 WITA working hours on HP Petugas.
-    Local machine is exempt.
+    Pembatasan jam kerja 07:00-18:00 WITA DICABUT (2026-08-16) — selalu lolos.
     """
-    if is_local:
-        return True, "Mode Local — Pembatasan jam kerja dilewati."
-
-    now_wita = get_wita_time()
-    hour = now_wita.hour
-
-    # Working hours: 07:00:00 - 17:59:59 WITA (hour 7 to 17 inclusive)
-    if 7 <= hour < 18:
-        return True, f"Jam Kerja Valid ({now_wita.strftime('%H:%M:%S')} WITA)"
-    else:
-        return False, (
-            f"❌ [HP PETUGAS RESTRICTION] Pengerjaan fasih-submit-batch di HP Petugas HANYA dapat dilakukan pada jam kerja:\n"
-            f"   ⏰ 07.00 WITA - 18.00 WITA.\n"
-            f"   Waktu saat ini: {now_wita.strftime('%H:%M:%S')} WITA (Diluar Jam Kerja).\n"
-            f"   Pengerjaan dihentikan untuk mematuhi regulasi jam kerja petugas."
-        )
+    # ponytail: fungsi dipertahankan (dipanggil di beberapa callsite) tapi tak pernah menolak.
+    return True, f"Tanpa batas jam ({get_wita_time().strftime('%H:%M:%S')} WITA)"
 
 
 PETUGAS_ACCOUNTS_FILE = os.path.join(REPO_ROOT, "petugas_accounts.json")
@@ -575,9 +560,9 @@ def step3_discover_tasks_per_account(selected_accounts: list[dict], discover_mod
 
 def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags: dict, caches_by_email: dict = None):
     """
-    Simulasi 4: Running Script fasih-submit-batch secara Paralel dengan Pembatasan:
-      1. Waktu: 07.00 - 18.00 WITA (Khusus HP Petugas).
-      2. Delay per worker: 30 - 60 Detik / Data (Khusus HP Petugas).
+    Simulasi 4: Running Script fasih-submit-batch secara Paralel.
+    Pembatasan tersisa: delay per worker 30 - 60 Detik / Data (khusus HP Petugas,
+    hanya mode --resubmit-reject). Pembatasan jam kerja sudah dicabut.
     """
     print("\n" + "=" * 65)
     print("⚡ SIMULASI 4: EKSEKUSI FASIH-SUBMIT-BATCH PARALEL")
@@ -591,7 +576,7 @@ def step4_execute_parallel_batch(account_tasks: dict, is_local: bool, mode_flags
 
     print(f"⏰ Status Jam Kerja : {hours_msg}")
     if is_local:
-        print("📍 Mode Execution   : 💻 LOCAL (Bypass pembatasan jam kerja & delay 30-60s HP)")
+        print("📍 Mode Execution   : 💻 LOCAL (Bypass delay 30-60s HP)")
     else:
         print("📍 Mode Execution   : 📱 HP PETUGAS (Termux / Remote Device)")
         print("🔒 Pembatasan Delay : ⏳ 30 Detik - 60 Detik per Data per Worker")
@@ -828,8 +813,8 @@ def main():
     parser = argparse.ArgumentParser(description="fasih-submit-batch Interactive & Parallel Runner")
     parser.add_argument("input", nargs="?", help="File .txt berisi list IDPel (optional)")
     parser.add_argument("--list", "-l", help="List IDPel dipisah koma (optional)")
-    parser.add_argument("--local", action="store_true", help="Paksa mode local (bypass jam kerja & delay HP)")
-    parser.add_argument("--bypass-restrictions", action="store_true", help="Bypass pembatasan jam kerja & delay HP")
+    parser.add_argument("--local", action="store_true", help="Paksa mode local (bypass delay HP)")
+    parser.add_argument("--bypass-restrictions", action="store_true", help="Bypass delay HP")
     parser.add_argument("--dry-run", action="store_true", help="Test tanpa submit nyata")
     parser.add_argument("--force", action="store_true", help="Force re-register")
     parser.add_argument("--resubmit-all", action="store_true", help="Submit ulang semua")
@@ -850,7 +835,7 @@ def main():
     print("📌 FASIH SUBMIT BATCH — PARALEL SYSTEM HP PETUGAS")
     print("=" * 65)
     print(f"🌏 Wilayah    : {get_region()}" + (f" (Mapbox: {_mb})" if _mb else ""))
-    print(f"📍 Mode Env   : {'💻 LOCAL (Exempt/Bypass Restrictions)' if is_local else '📱 HP PETUGAS (Restricted 07-18 WITA & 30-60s Delay)'}")
+    print(f"📍 Mode Env   : {'💻 LOCAL (Exempt/Bypass Restrictions)' if is_local else '📱 HP PETUGAS (30-60s Delay)'}")
 
     # Preliminary Working Hours Check for HP Petugas
     ok_hours, hours_msg = check_working_hours(is_local)
