@@ -1,11 +1,5 @@
-# URL server PLN untuk region samarinda.
-# SEMENTARA (2026-08-16): server PLN samarinda mati — supervisor tidak mau hidup
-# sebagai SYSTEM di mesin itu, sedang dipindah ke komputer baru. Di-reroute ke
-# server Bontang (domain permanen, stabil) supaya lookup AP2T petugas Samarinda
-# tetap jalan. Petugas cukup `fasih-update` (git pull).
-# CATATAN FOTO: foto rumah ikut pool Bontang KECUALI mesin Bontang diberi
-#   PLN_EXTRA_PHOTO_REGIONS=samarinda di .env (folder house_photos/samarinda sudah
-#   ikut git) lalu supervisor-nya di-restart. Lakukan itu supaya foto tetap Samarinda.
-# BALIKKAN ke https://samarinda.xyzfasih.site begitu server Samarinda hidup lagi.
+# URL server PLN untuk region samarinda — domain permanen (tunnel dashboard-managed).
+# 2026-08-16: server dipindah ke komputer baru (user dell9). Reroute sementara ke
+# Bontang DICABUT — samarinda melayani sendiri lagi. Petugas cukup `fasih-update`.
 # Baris pertama non-komentar = URL aktif.
-https://bontang.xyzfasih.site
+https://samarinda.xyzfasih.site
